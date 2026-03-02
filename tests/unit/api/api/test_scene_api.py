@@ -45,7 +45,7 @@ class ConcreteSceneAPI(SceneAPI):
         """Inherited, see super class."""
         return Mock(spec=Timestamp)
 
-    def get_ego_state_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
+    def get_ego_state_se3_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
         """Inherited, see super class."""
         return Mock(spec=EgoStateSE3)
 

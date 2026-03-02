@@ -10,25 +10,15 @@ import pyarrow as pa
 from py123d.api.log_writer.abstract_log_writer import AbstractLogWriter, CameraData, LidarData
 from py123d.api.scene.arrow.utils.arrow_metadata_utils import add_log_metadata_to_arrow_schema
 from py123d.api.utils.arrow_schema import (
-    BOX_DETECTIONS_SE3_NAME,
-    BOX_DETECTIONS_SE3_SCHEMA_DICT,
-    EGO_STATE_SE3_NAME,
-    EGO_STATE_SE3_SCHEMA_DICT,
-    FCAM_BINARY_SCHEMA_DICT,
-    FCAM_INT_SCHEMA_DICT,
-    FCAM_NAME,
-    FCAM_STRING_SCHEMA_DICT,
-    LIDAR_BINARY_SCHEMA_DICT,
-    LIDAR_NAME,
-    LIDAR_STRING_SCHEMA_DICT,
-    PCAM_BINARY_SCHEMA_DICT,
-    PCAM_INT_SCHEMA_DICT,
-    PCAM_NAME,
-    PCAM_STRING_SCHEMA_DICT,
-    SYNC_NAME,
-    SYNC_SCHEMA_DICT,
-    TRAFFIC_LIGHTS_NAME,
-    TRAFFIC_LIGHTS_SCHEMA_DICT,
+    BOX_DETECTIONS_SE3,
+    CAMERA_STORE_TYPES,
+    EGO_STATE_SE3,
+    FISHEYE_MEI,
+    LIDAR,
+    LIDAR_STORE_TYPES,
+    PINHOLE_CAMERA,
+    SYNC,
+    TRAFFIC_LIGHTS,
 )
 from py123d.common.dataset_paths import get_dataset_paths
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
@@ -72,30 +62,6 @@ def _get_sensors_root() -> Path:
     sensors_root = get_dataset_paths().py123d_sensors_root
     assert sensors_root is not None, "PY123D_DATA_ROOT must be set."
     return sensors_root
-
-
-def _get_pcam_schema_dict(cam_name: str, store_option: Literal["path", "jpeg_binary", "png_binary", "mp4"]) -> dict:
-    """Returns the pinhole camera schema dict for the given store option."""
-    if store_option == "path":
-        return PCAM_STRING_SCHEMA_DICT(cam_name)
-    elif store_option in {"jpeg_binary", "png_binary"}:
-        return PCAM_BINARY_SCHEMA_DICT(cam_name)
-    elif store_option == "mp4":
-        return PCAM_INT_SCHEMA_DICT(cam_name)
-    else:
-        raise ValueError(f"Unsupported pinhole camera store option: {store_option}")
-
-
-def _get_fcam_schema_dict(cam_name: str, store_option: Literal["path", "jpeg_binary", "png_binary", "mp4"]) -> dict:
-    """Returns the fisheye MEI camera schema dict for the given store option."""
-    if store_option == "path":
-        return FCAM_STRING_SCHEMA_DICT(cam_name)
-    elif store_option in {"jpeg_binary", "png_binary"}:
-        return FCAM_BINARY_SCHEMA_DICT(cam_name)
-    elif store_option == "mp4":
-        return FCAM_INT_SCHEMA_DICT(cam_name)
-    else:
-        raise ValueError(f"Unsupported fisheye MEI camera store option: {store_option}")
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -220,7 +186,7 @@ class ArrowLogWriter(AbstractLogWriter):
         log_needs_writing: bool = False
         log_dir: Path = self._logs_root / log_metadata.split / log_metadata.log_name
 
-        sync_file_path = log_dir / f"{SYNC_NAME}.arrow"
+        sync_file_path = log_dir / f"{SYNC.prefix()}.arrow"
         if not sync_file_path.exists() or dataset_converter_config.force_log_conversion:
             log_needs_writing = True
 
@@ -236,40 +202,37 @@ class ArrowLogWriter(AbstractLogWriter):
             self._log_dir = log_dir
 
             # --- Create per-modality writers ---
-            self._create_modality_writer(SYNC_NAME, SYNC_SCHEMA_DICT)
+            self._create_modality_writer(SYNC.prefix(), SYNC.schema_dict())
 
             if dataset_converter_config.include_ego:
-                self._create_modality_writer(EGO_STATE_SE3_NAME, EGO_STATE_SE3_SCHEMA_DICT)
+                self._create_modality_writer(EGO_STATE_SE3.prefix(), EGO_STATE_SE3.schema_dict())
 
             if dataset_converter_config.include_box_detections:
-                self._create_modality_writer(BOX_DETECTIONS_SE3_NAME, BOX_DETECTIONS_SE3_SCHEMA_DICT)
+                self._create_modality_writer(BOX_DETECTIONS_SE3.prefix(), BOX_DETECTIONS_SE3.schema_dict())
 
             if dataset_converter_config.include_traffic_lights:
-                self._create_modality_writer(TRAFFIC_LIGHTS_NAME, TRAFFIC_LIGHTS_SCHEMA_DICT)
+                self._create_modality_writer(TRAFFIC_LIGHTS.prefix(), TRAFFIC_LIGHTS.schema_dict())
 
             if dataset_converter_config.include_pinhole_cameras:
                 for cam_type in log_metadata.pinhole_camera_metadata.keys():
                     cam_name = cam_type.serialize()
-                    schema_dict = _get_pcam_schema_dict(cam_name, dataset_converter_config.pinhole_camera_store_option)
-                    self._create_modality_writer(PCAM_NAME(cam_name), schema_dict)
+                    store_overrides = CAMERA_STORE_TYPES[dataset_converter_config.pinhole_camera_store_option]
+                    self._create_modality_writer(
+                        PINHOLE_CAMERA.prefix(cam_name), PINHOLE_CAMERA.schema_dict(cam_name, store_overrides)
+                    )
 
             if dataset_converter_config.include_fisheye_mei_cameras:
                 for cam_type in log_metadata.fisheye_mei_camera_metadata.keys():
                     cam_name = cam_type.serialize()
-                    schema_dict = _get_fcam_schema_dict(
-                        cam_name, dataset_converter_config.fisheye_mei_camera_store_option
+                    store_overrides = CAMERA_STORE_TYPES[dataset_converter_config.fisheye_mei_camera_store_option]
+                    self._create_modality_writer(
+                        FISHEYE_MEI.prefix(cam_name), FISHEYE_MEI.schema_dict(cam_name, store_overrides)
                     )
-                    self._create_modality_writer(FCAM_NAME(cam_name), schema_dict)
 
             if dataset_converter_config.include_lidars and len(log_metadata.lidar_metadata) > 0:
                 lidar_name = LidarID.LIDAR_MERGED.serialize()
-                if dataset_converter_config.lidar_store_option == "path":
-                    schema_dict = LIDAR_STRING_SCHEMA_DICT(lidar_name)
-                elif dataset_converter_config.lidar_store_option == "binary":
-                    schema_dict = LIDAR_BINARY_SCHEMA_DICT(lidar_name)
-                else:
-                    raise ValueError(f"Unsupported lidar store option: {dataset_converter_config.lidar_store_option}")
-                self._create_modality_writer(LIDAR_NAME(lidar_name), schema_dict)
+                store_overrides = LIDAR_STORE_TYPES[dataset_converter_config.lidar_store_option]
+                self._create_modality_writer(LIDAR.prefix(lidar_name), LIDAR.schema_dict(lidar_name, store_overrides))
 
             self._pinhole_mp4_writers = {}
             self._fisheye_mei_mp4_writers = {}
@@ -308,11 +271,11 @@ class ArrowLogWriter(AbstractLogWriter):
             )
 
         # Write sync row (reference timeline)
-        sync_writer = self._modality_writers[SYNC_NAME]
+        sync_writer = self._modality_writers[SYNC.prefix()]
         sync_writer.write_batch(
             {
-                f"{SYNC_NAME}.uuid": [uuid.bytes],
-                f"{SYNC_NAME}.timestamp_us": [timestamp.time_us],
+                SYNC.col("uuid"): [uuid.bytes],
+                SYNC.col("timestamp_us"): [timestamp.time_us],
             }
         )
 
@@ -347,15 +310,14 @@ class ArrowLogWriter(AbstractLogWriter):
         if not self._dataset_converter_config.include_ego:
             return
 
-        writer = self._modality_writers[EGO_STATE_SE3_NAME]
-        n = EGO_STATE_SE3_NAME
+        writer = self._modality_writers[EGO_STATE_SE3.prefix()]
         timestamp_us = self._current_timestamp.time_us if self._current_timestamp is not None else 0
 
         writer.write_batch(
             {
-                f"{n}.imu_se3": [ego_state_se3.imu_se3.array],
-                f"{n}.dynamic_state_se3": [ego_state_se3.dynamic_state_se3],
-                f"{n}.timestamp_us": [timestamp_us],
+                EGO_STATE_SE3.col("imu_se3"): [ego_state_se3.imu_se3.array],
+                EGO_STATE_SE3.col("dynamic_state_se3"): [ego_state_se3.dynamic_state_se3],
+                EGO_STATE_SE3.col("timestamp_us"): [timestamp_us],
             }
         )
 
@@ -365,16 +327,13 @@ class ArrowLogWriter(AbstractLogWriter):
         if not self._dataset_converter_config.include_box_detections:
             return
 
-        writer = self._modality_writers[BOX_DETECTIONS_SE3_NAME]
-        n = BOX_DETECTIONS_SE3_NAME
-        timestamp_us = self._current_timestamp.time_us if self._current_timestamp is not None else 0
+        writer = self._modality_writers[BOX_DETECTIONS_SE3.prefix()]
 
         bounding_box_se3_list = []
         tokens_list = []
         labels_list = []
         velocities_list = []
         num_lidar_points_list = []
-        timestamps_list = []
 
         for det in box_detections_se3:
             bounding_box_se3_list.append(det.bounding_box_se3)
@@ -382,17 +341,15 @@ class ArrowLogWriter(AbstractLogWriter):
             labels_list.append(int(det.metadata.label))
             velocities_list.append(det.velocity_3d)
             num_lidar_points_list.append(det.metadata.num_lidar_points)
-            timestamps_list.append(timestamp_us)
 
         if len(bounding_box_se3_list) > 0:
             writer.write_batch(
                 {
-                    f"{n}.bounding_box_se3": [bounding_box_se3_list],
-                    f"{n}.token": [tokens_list],
-                    f"{n}.label": [labels_list],
-                    f"{n}.velocity_3d": [velocities_list],
-                    f"{n}.num_lidar_points": [num_lidar_points_list],
-                    f"{n}.timestamp_us": [timestamps_list],
+                    BOX_DETECTIONS_SE3.col("bounding_box_se3"): [bounding_box_se3_list],
+                    BOX_DETECTIONS_SE3.col("token"): [tokens_list],
+                    BOX_DETECTIONS_SE3.col("label"): [labels_list],
+                    BOX_DETECTIONS_SE3.col("velocity_3d"): [velocities_list],
+                    BOX_DETECTIONS_SE3.col("num_lidar_points"): [num_lidar_points_list],
                 }
             )
 
@@ -402,8 +359,7 @@ class ArrowLogWriter(AbstractLogWriter):
         if not self._dataset_converter_config.include_traffic_lights:
             return
 
-        writer = self._modality_writers[TRAFFIC_LIGHTS_NAME]
-        n = TRAFFIC_LIGHTS_NAME
+        writer = self._modality_writers[TRAFFIC_LIGHTS.prefix()]
         timestamp_us = self._current_timestamp.time_us if self._current_timestamp is not None else 0
 
         lane_ids = []
@@ -418,9 +374,9 @@ class ArrowLogWriter(AbstractLogWriter):
         if len(lane_ids) > 0:
             writer.write_batch(
                 {
-                    f"{n}.lane_id": [lane_ids],
-                    f"{n}.status": [statuses],
-                    f"{n}.timestamp_us": [timestamp_list],
+                    TRAFFIC_LIGHTS.col("lane_id"): [lane_ids],
+                    TRAFFIC_LIGHTS.col("status"): [statuses],
+                    TRAFFIC_LIGHTS.col("timestamp_us"): [timestamp_list],
                 }
             )
 
@@ -432,8 +388,7 @@ class ArrowLogWriter(AbstractLogWriter):
             return
 
         cam_name = camera_data.camera_id.serialize()
-        writer_name = PCAM_NAME(cam_name)
-        writer = self._modality_writers[writer_name]
+        writer = self._modality_writers[PINHOLE_CAMERA.prefix(cam_name)]
 
         store_option = self._dataset_converter_config.pinhole_camera_store_option
         data_value = self._get_camera_data_value(camera_data, store_option, self._pinhole_mp4_writers)
@@ -445,9 +400,9 @@ class ArrowLogWriter(AbstractLogWriter):
 
         writer.write_batch(
             {
-                f"{writer_name}.data": [data_value],
-                f"{writer_name}.state_se3": [camera_data.extrinsic],
-                f"{writer_name}.timestamp_us": [timestamp_us],
+                PINHOLE_CAMERA.col("data", cam_name): [data_value],
+                PINHOLE_CAMERA.col("state_se3", cam_name): [camera_data.extrinsic],
+                PINHOLE_CAMERA.col("timestamp_us", cam_name): [timestamp_us],
             }
         )
 
@@ -459,8 +414,7 @@ class ArrowLogWriter(AbstractLogWriter):
             return
 
         cam_name = camera_data.camera_id.serialize()
-        writer_name = FCAM_NAME(cam_name)
-        writer = self._modality_writers[writer_name]
+        writer = self._modality_writers[FISHEYE_MEI.prefix(cam_name)]
 
         store_option = self._dataset_converter_config.fisheye_mei_camera_store_option
         data_value = self._get_camera_data_value(camera_data, store_option, self._fisheye_mei_mp4_writers)
@@ -472,9 +426,9 @@ class ArrowLogWriter(AbstractLogWriter):
 
         writer.write_batch(
             {
-                f"{writer_name}.data": [data_value],
-                f"{writer_name}.state_se3": [camera_data.extrinsic],
-                f"{writer_name}.timestamp_us": [timestamp_us],
+                FISHEYE_MEI.col("data", cam_name): [data_value],
+                FISHEYE_MEI.col("state_se3", cam_name): [camera_data.extrinsic],
+                FISHEYE_MEI.col("timestamp_us", cam_name): [timestamp_us],
             }
         )
 
@@ -488,8 +442,7 @@ class ArrowLogWriter(AbstractLogWriter):
             return
 
         lidar_name = LidarID.LIDAR_MERGED.serialize()
-        writer_name = LIDAR_NAME(lidar_name)
-        writer = self._modality_writers[writer_name]
+        writer = self._modality_writers[LIDAR.prefix(lidar_name)]
 
         timestamp_us = (
             lidar_data.timestamp.time_us
@@ -501,19 +454,19 @@ class ArrowLogWriter(AbstractLogWriter):
             data_path: Optional[str] = str(lidar_data.relative_path) if lidar_data.has_file_path else None
             writer.write_batch(
                 {
-                    f"{writer_name}.data": [data_path],
-                    f"{writer_name}.start_timestamp_us": [timestamp_us],
-                    f"{writer_name}.end_timestamp_us": [timestamp_us],
+                    LIDAR.col("data", lidar_name): [data_path],
+                    LIDAR.col("start_timestamp_us", lidar_name): [timestamp_us],
+                    LIDAR.col("end_timestamp_us", lidar_name): [timestamp_us],
                 }
             )
         elif self._dataset_converter_config.lidar_store_option == "binary":
             point_cloud_binary, features_binary = self._prepare_lidar_data(lidar_data)
             writer.write_batch(
                 {
-                    f"{writer_name}.point_cloud_3d": [point_cloud_binary],
-                    f"{writer_name}.point_cloud_features": [features_binary],
-                    f"{writer_name}.start_timestamp_us": [timestamp_us],
-                    f"{writer_name}.end_timestamp_us": [timestamp_us],
+                    LIDAR.col("point_cloud_3d", lidar_name): [point_cloud_binary],
+                    LIDAR.col("point_cloud_features", lidar_name): [features_binary],
+                    LIDAR.col("start_timestamp_us", lidar_name): [timestamp_us],
+                    LIDAR.col("end_timestamp_us", lidar_name): [timestamp_us],
                 }
             )
         else:

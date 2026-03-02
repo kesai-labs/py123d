@@ -35,7 +35,7 @@ from py123d.visualization.matplotlib.utils import (
 
 
 def add_scene_on_ax(ax: plt.Axes, scene: SceneAPI, iteration: int = 0, radius: float = 80) -> plt.Axes:
-    ego_vehicle_state = scene.get_ego_state_at_iteration(iteration)
+    ego_vehicle_state = scene.get_ego_state_se3_at_iteration(iteration)
     box_detections = scene.get_box_detections_at_iteration(iteration)
     traffic_light_detections = scene.get_traffic_light_detections_at_iteration(iteration)
     map_api = scene.get_map_api()

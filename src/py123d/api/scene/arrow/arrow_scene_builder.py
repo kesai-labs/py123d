@@ -11,11 +11,10 @@ from py123d.api.scene.scene_filter import SceneFilter
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import open_arrow_table
 from py123d.api.utils.arrow_schema import (
-    FCAM_NAME,
-    LIDAR_NAME,
-    PCAM_NAME,
-    SYNC_NAME,
-    UUID_COLUMN,
+    FISHEYE_MEI,
+    LIDAR,
+    PINHOLE_CAMERA,
+    SYNC,
 )
 from py123d.common.dataset_paths import get_dataset_paths
 from py123d.common.execution import Executor, executor_map_chunked_list
@@ -92,7 +91,7 @@ def _discover_log_paths(logs_root: Path, split_names: List[str], log_names: Opti
         if not split_dir.exists():
             continue
         for log_path in split_dir.iterdir():
-            if log_path.is_dir() and (log_path / f"{SYNC_NAME}.arrow").exists():
+            if log_path.is_dir() and (log_path / f"{SYNC.prefix()}.arrow").exists():
                 if log_names is None or log_path.name in log_names:
                     log_paths.append(log_path)
     return log_paths
@@ -124,7 +123,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     """
 
     log_dir = Path(log_dir)
-    sync_path = log_dir / f"{SYNC_NAME}.arrow"
+    sync_path = log_dir / f"{SYNC.prefix()}.arrow"
 
     scene_metadatas: List[SceneMetadata] = []
     recording_table = open_arrow_table(str(sync_path))
@@ -151,7 +150,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     elif filter.duration_s is None:
         scene_metadatas.append(
             SceneMetadata(
-                initial_uuid=convert_to_str_uuid(recording_table[UUID_COLUMN][start_idx].as_py()),
+                initial_uuid=convert_to_str_uuid(recording_table[SYNC.col("uuid")][start_idx].as_py()),
                 initial_idx=start_idx,
                 duration_s=(end_idx - start_idx) * log_metadata.timestep_seconds,
                 history_s=filter.history_s if filter.history_s is not None else 0.0,
@@ -161,7 +160,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     else:
         scene_uuid_set = set(filter.scene_uuids) if filter.scene_uuids is not None else None
         step_idx = int(filter.duration_s / log_metadata.timestep_seconds)
-        all_row_uuids = recording_table[UUID_COLUMN].to_pylist()
+        all_row_uuids = recording_table[SYNC.col("uuid")].to_pylist()
         history_s = filter.history_s if filter.history_s is not None else 0.0
 
         for idx in range(start_idx, end_idx, step_idx):
@@ -201,7 +200,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
         if filter.pinhole_camera_ids is not None:
             for pinhole_camera_id in filter.pinhole_camera_ids:
                 cam_name = pinhole_camera_id.serialize()
-                cam_file = log_dir / f"{PCAM_NAME(cam_name)}.arrow"
+                cam_file = log_dir / f"{PINHOLE_CAMERA.prefix(cam_name)}.arrow"
                 if pinhole_camera_id in log_metadata.pinhole_camera_metadata and cam_file.exists():
                     continue
                 else:
@@ -211,7 +210,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
         if filter.fisheye_mei_camera_ids is not None:
             for fisheye_mei_camera_id in filter.fisheye_mei_camera_ids:
                 cam_name = fisheye_mei_camera_id.serialize()
-                cam_file = log_dir / f"{FCAM_NAME(cam_name)}.arrow"
+                cam_file = log_dir / f"{FISHEYE_MEI.prefix(cam_name)}.arrow"
                 if fisheye_mei_camera_id in log_metadata.fisheye_mei_camera_metadata and cam_file.exists():
                     continue
                 else:
@@ -221,7 +220,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
         if filter.lidar_ids is not None:
             for lidar_id in filter.lidar_ids:
                 lidar_name = lidar_id.serialize()
-                lidar_file = log_dir / f"{LIDAR_NAME(lidar_name)}.arrow"
+                lidar_file = log_dir / f"{LIDAR.prefix(lidar_name)}.arrow"
                 if lidar_id not in log_metadata.lidar_metadata and not lidar_file.exists():
                     add_scene = False
                     break

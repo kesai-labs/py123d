@@ -5,7 +5,7 @@ from typing import Final, Union
 import pyarrow as pa
 
 # TODO: Tune Parameters and add to config?
-MAX_LRU_CACHED_TABLES: Final[int] = 1_000
+MAX_LRU_CACHED_TABLES: Final[int] = 5_000
 
 
 def open_arrow_table(arrow_file_path: Union[str, Path]) -> pa.Table:

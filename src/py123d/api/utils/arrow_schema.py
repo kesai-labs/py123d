@@ -1,4 +1,5 @@
-from typing import Callable, Final, List
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 import pyarrow as pa
 
@@ -6,153 +7,163 @@ from py123d.datatypes import DynamicStateSE3Index
 from py123d.geometry import BoundingBoxSE3Index, PoseSE3Index
 from py123d.geometry.geometry_index import Vector3DIndex
 
-# Synchronization file
 # ----------------------------------------------------------------------------------------------------------------------
-SYNC_NAME: Final[str] = "sync"
-SYNC_SCHEMA_DICT: Final[dict] = {
-    f"{SYNC_NAME}.uuid": pa.uuid(),
-    f"{SYNC_NAME}.timestamp_us": pa.int64(),
-}
-
-UUID_COLUMN: Final[str] = f"{SYNC_NAME}.uuid"
-TIMESTAMP_US_COLUMN: Final[str] = f"{SYNC_NAME}.timestamp_us"
-
-# EgoStateSE3 file
+# ModalitySchema descriptor
 # ----------------------------------------------------------------------------------------------------------------------
-EGO_STATE_SE3_NAME: Final[str] = "ego_state_se3"
-EGO_STATE_SE3_SCHEMA_DICT: Final[dict] = {
-    f"{EGO_STATE_SE3_NAME}.imu_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
-    f"{EGO_STATE_SE3_NAME}.dynamic_state_se3": pa.list_(pa.float64(), len(DynamicStateSE3Index)),
-    f"{EGO_STATE_SE3_NAME}.timestamp_us": pa.int64(),
-}
-
-EGO_IMU_SE3_COLUMN: Final[str] = f"{EGO_STATE_SE3_NAME}.imu_se3"
-EGO_DYNAMIC_STATE_SE3_COLUMN: Final[str] = f"{EGO_STATE_SE3_NAME}.dynamic_state_se3"
-EGO_TIMESTAMP_US_COLUMN: Final[str] = f"{EGO_STATE_SE3_NAME}.timestamp_us"
-EGO_STATE_SE3_COLUMNS: Final[List[str]] = [EGO_IMU_SE3_COLUMN, EGO_DYNAMIC_STATE_SE3_COLUMN, EGO_TIMESTAMP_US_COLUMN]
 
 
-# BoxDetectionsSE3 file
+@dataclass(frozen=True)
+class ModalitySchema:
+    """Describes one modality's Arrow schema.
+
+    Generates fully-qualified column names, Arrow schema dicts, and column lists
+    from a single definition. Supports both fixed modalities (e.g. ``sync``) and
+    parametric modalities that take a sensor instance name (e.g. ``pinhole_camera``).
+    """
+
+    modality_name: str
+    columns: Dict[str, pa.DataType] = field(default_factory=dict)
+    parametric: bool = False
+
+    def prefix(self, instance: Optional[str] = None) -> str:
+        """Returns the modality prefix, used as file stem and writer key.
+
+        :param instance: Sensor instance name (required for parametric modalities).
+        :return: E.g. ``"sync"`` or ``"pinhole_camera.pcam_f0"``.
+        """
+        if self.parametric:
+            assert instance is not None, f"Parametric modality '{self.modality_name}' requires an instance name."
+            return f"{self.modality_name}.{instance}"
+        return self.modality_name
+
+    def col(self, field_name: str, instance: Optional[str] = None) -> str:
+        """Returns a fully-qualified column name.
+
+        :param field_name: The column field name (e.g. ``"uuid"``, ``"data"``).
+        :param instance: Sensor instance name (required for parametric modalities).
+        :return: E.g. ``"sync.uuid"`` or ``"pinhole_camera.pcam_f0.data"``.
+        """
+        return f"{self.prefix(instance)}.{field_name}"
+
+    def all_columns(self, instance: Optional[str] = None) -> List[str]:
+        """Returns all column names for this modality based on the columns dict.
+
+        :param instance: Sensor instance name (required for parametric modalities).
+        :return: List of fully-qualified column names.
+        """
+        return [self.col(f, instance) for f in self.columns]
+
+    def schema_dict(
+        self,
+        instance: Optional[str] = None,
+        type_overrides: Optional[Dict[str, Optional[pa.DataType]]] = None,
+    ) -> Dict[str, pa.DataType]:
+        """Generates a ``{qualified_column_name: arrow_type}`` dict for Arrow schema creation.
+
+        :param instance: Sensor instance name (required for parametric modalities).
+        :param type_overrides: Optional overrides. Set a value to ``None`` to remove a column,
+            or provide a new ``pa.DataType`` to override the default type. New keys add columns.
+        :return: Dict suitable for ``pa.schema(list(d.items()))``.
+        """
+        types = {**self.columns, **(type_overrides or {})}
+        types = {k: v for k, v in types.items() if v is not None}
+        return {self.col(f, instance): t for f, t in types.items()}
+
+
 # ----------------------------------------------------------------------------------------------------------------------
-BOX_DETECTIONS_SE3_NAME: Final[str] = "box_detections_se3"
-BOX_DETECTIONS_SE3_SCHEMA_DICT: Final[dict] = {
-    f"{BOX_DETECTIONS_SE3_NAME}.bounding_box_se3": pa.list_(pa.list_(pa.float64(), len(BoundingBoxSE3Index))),
-    f"{BOX_DETECTIONS_SE3_NAME}.token": pa.list_(pa.string()),
-    f"{BOX_DETECTIONS_SE3_NAME}.label": pa.list_(pa.uint16()),
-    f"{BOX_DETECTIONS_SE3_NAME}.velocity_3d": pa.list_(pa.list_(pa.float64(), len(Vector3DIndex))),
-    f"{BOX_DETECTIONS_SE3_NAME}.num_lidar_points": pa.list_(pa.int32()),
-}
-
-BOX_DETECTIONS_BOUNDING_BOX_SE3_COLUMN: Final[str] = f"{BOX_DETECTIONS_SE3_NAME}.bounding_box_se3"
-BOX_DETECTIONS_TOKEN_COLUMN: Final[str] = f"{BOX_DETECTIONS_SE3_NAME}.token"
-BOX_DETECTIONS_LABEL_COLUMN: Final[str] = f"{BOX_DETECTIONS_SE3_NAME}.label"
-BOX_DETECTIONS_VELOCITY_3D_COLUMN: Final[str] = f"{BOX_DETECTIONS_SE3_NAME}.velocity_3d"
-BOX_DETECTIONS_NUM_LIDAR_POINTS_COLUMN: Final[str] = f"{BOX_DETECTIONS_SE3_NAME}.num_lidar_points"
-BOX_DETECTIONS_SE3_COLUMNS: Final[List[str]] = [
-    BOX_DETECTIONS_BOUNDING_BOX_SE3_COLUMN,
-    BOX_DETECTIONS_TOKEN_COLUMN,
-    BOX_DETECTIONS_LABEL_COLUMN,
-    BOX_DETECTIONS_VELOCITY_3D_COLUMN,
-    BOX_DETECTIONS_NUM_LIDAR_POINTS_COLUMN,
-]
-
-# TrafficLights file
+# Modality definitions
 # ----------------------------------------------------------------------------------------------------------------------
-TRAFFIC_LIGHTS_NAME: Final[str] = "traffic_lights"
-TRAFFIC_LIGHTS_SCHEMA_DICT: Final[dict] = {
-    f"{TRAFFIC_LIGHTS_NAME}.lane_id": pa.int32(),
-    f"{TRAFFIC_LIGHTS_NAME}.status": pa.uint8(),
-    f"{TRAFFIC_LIGHTS_NAME}.timestamp_us": pa.int64(),
-}
 
-TRAFFIC_LIGHTS_LANE_ID_COLUMN: Final[str] = f"{TRAFFIC_LIGHTS_NAME}.lane_id"
-TRAFFIC_LIGHTS_STATUS_COLUMN: Final[str] = f"{TRAFFIC_LIGHTS_NAME}.status"
-TRAFFIC_LIGHTS_TIMESTAMP_US_COLUMN: Final[str] = f"{TRAFFIC_LIGHTS_NAME}.timestamp_us"
-TRAFFIC_LIGHTS_COLUMNS: Final[List[str]] = [
-    TRAFFIC_LIGHTS_LANE_ID_COLUMN,
-    TRAFFIC_LIGHTS_STATUS_COLUMN,
-    TRAFFIC_LIGHTS_TIMESTAMP_US_COLUMN,
-]
+SYNC = ModalitySchema(
+    "sync",
+    {
+        "uuid": pa.uuid(),
+        "timestamp_us": pa.int64(),
+    },
+)
 
-# PinholeCamera file
+EGO_STATE_SE3 = ModalitySchema(
+    "ego_state_se3",
+    {
+        "imu_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
+        "dynamic_state_se3": pa.list_(pa.float64(), len(DynamicStateSE3Index)),
+        "timestamp_us": pa.int64(),
+    },
+)
+
+BOX_DETECTIONS_SE3 = ModalitySchema(
+    "box_detections_se3",
+    {
+        "bounding_box_se3": pa.list_(pa.list_(pa.float64(), len(BoundingBoxSE3Index))),
+        "token": pa.list_(pa.string()),
+        "label": pa.list_(pa.uint16()),
+        "velocity_3d": pa.list_(pa.list_(pa.float64(), len(Vector3DIndex))),
+        "num_lidar_points": pa.list_(pa.int32()),
+    },
+)
+
+TRAFFIC_LIGHTS = ModalitySchema(
+    "traffic_lights",
+    {
+        "lane_id": pa.int32(),
+        "status": pa.uint8(),
+        "timestamp_us": pa.int64(),
+    },
+)
+
+PINHOLE_CAMERA = ModalitySchema(
+    "pinhole_camera",
+    {
+        "data": pa.string(),
+        "state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
+        "timestamp_us": pa.int64(),
+    },
+    parametric=True,
+)
+
+FISHEYE_MEI = ModalitySchema(
+    "fisheye_mei",
+    {
+        "data": pa.string(),
+        "state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
+        "timestamp_us": pa.int64(),
+    },
+    parametric=True,
+)
+
+LIDAR = ModalitySchema(
+    "lidar",
+    {
+        "data": pa.string(),
+        "start_timestamp_us": pa.int64(),
+        "end_timestamp_us": pa.int64(),
+    },
+    parametric=True,
+)
+
+AUX = ModalitySchema(
+    "aux",
+    {
+        "data": pa.binary(),
+    },
+)
+
 # ----------------------------------------------------------------------------------------------------------------------
-PCAM_NAME: Callable[[str], str] = lambda name: f"pinhole_camera.{name}"
-
-PCAM_STRING_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{PCAM_NAME(name)}.data": pa.string(),
-    f"{PCAM_NAME(name)}.state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
-    f"{PCAM_NAME(name)}.timestamp_us": pa.int64(),
-}
-
-PCAM_BINARY_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{PCAM_NAME(name)}.data": pa.binary(),
-    f"{PCAM_NAME(name)}.state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
-    f"{PCAM_NAME(name)}.timestamp_us": pa.int64(),
-}
-
-
-PCAM_INT_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{PCAM_NAME(name)}.data": pa.int64(),
-    f"{PCAM_NAME(name)}.state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
-    f"{PCAM_NAME(name)}.timestamp_us": pa.int64(),
-}
-
-PINHOLE_CAMERA_DATA_COLUMN: Callable[[str], str] = lambda name: f"{PCAM_NAME(name)}.data"
-PINHOLE_CAMERA_EXTRINSIC_COLUMN: Callable[[str], str] = lambda name: f"{PCAM_NAME(name)}.state_se3"
-PINHOLE_CAMERA_TIMESTAMP_COLUMN: Callable[[str], str] = lambda name: f"{PCAM_NAME(name)}.timestamp_us"
-
-
-# Fisheye MEI Cameras
+# Storage-variant type overrides
 # ----------------------------------------------------------------------------------------------------------------------
-FCAM_NAME: Callable[[str], str] = lambda name: f"fisheye_mei.{name}"
 
-FCAM_STRING_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{FCAM_NAME(name)}.data": pa.string(),
-    f"{FCAM_NAME(name)}.state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
-    f"{FCAM_NAME(name)}.timestamp_us": pa.int64(),
-}
-FCAM_BINARY_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{FCAM_NAME(name)}.data": pa.binary(),
-    f"{FCAM_NAME(name)}.state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
-    f"{FCAM_NAME(name)}.timestamp_us": pa.int64(),
-}
-FCAM_INT_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{FCAM_NAME(name)}.data": pa.int64(),
-    f"{FCAM_NAME(name)}.state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
-    f"{FCAM_NAME(name)}.timestamp_us": pa.int64(),
+CAMERA_STORE_TYPES: Dict[str, Dict[str, pa.DataType]] = {
+    "path": {},
+    "jpeg_binary": {"data": pa.binary()},
+    "png_binary": {"data": pa.binary()},
+    "mp4": {"data": pa.int64()},
 }
 
-FISHEYE_CAMERA_DATA_COLUMN: Callable[[str], str] = lambda name: f"{FCAM_NAME(name)}.data"
-FISHEYE_CAMERA_EXTRINSIC_COLUMN: Callable[[str], str] = lambda name: f"{FCAM_NAME(name)}.state_se3"
-FISHEYE_CAMERA_TIMESTAMP_COLUMN: Callable[[str], str] = lambda name: f"{FCAM_NAME(name)}.timestamp_us"
-
-# Lidar
-# ----------------------------------------------------------------------------------------------------------------------
-LIDAR_NAME: Callable[[str], str] = lambda name: f"lidar.{name}"
-
-LIDAR_STRING_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{LIDAR_NAME(name)}.data": pa.string(),
-    f"{LIDAR_NAME(name)}.start_timestamp_us": pa.int64(),
-    f"{LIDAR_NAME(name)}.end_timestamp_us": pa.int64(),
+LIDAR_STORE_TYPES: Dict[str, Dict[str, Optional[pa.DataType]]] = {
+    "path": {},
+    "binary": {
+        "data": None,
+        "point_cloud_3d": pa.binary(),
+        "point_cloud_features": pa.binary(),
+    },
 }
-
-LIDAR_BINARY_SCHEMA_DICT: Callable[[str], dict] = lambda name: {
-    f"{LIDAR_NAME(name)}.point_cloud_3d": pa.binary(),
-    f"{LIDAR_NAME(name)}.point_cloud_features": pa.binary(),
-    f"{LIDAR_NAME(name)}.start_timestamp_us": pa.int64(),
-    f"{LIDAR_NAME(name)}.end_timestamp_us": pa.int64(),
-}
-
-LIDAR_PATH_COLUMN: Callable[[str], str] = lambda name: f"{LIDAR_NAME(name)}.data"
-LIDAR_POINT_CLOUD_COLUMN: Callable[[str], str] = lambda name: f"{LIDAR_NAME(name)}.point_cloud_3d"
-LIDAR_POINT_CLOUD_FEATURE_COLUMN: Callable[[str], str] = lambda name: f"{LIDAR_NAME(name)}.point_cloud_features"
-
-# Auxiliary data
-# ----------------------------------------------------------------------------------------------------------------------
-AUX_NAME: Final[str] = "aux"
-AUX_SCHEMA_DICT: Final[dict] = {
-    f"{AUX_NAME}.data": pa.binary(),
-}
-
-ROUTE_LANE_GROUP_IDS_COLUMN: Final[str] = f"{AUX_NAME}.route_lane_group_ids"
-SCENARIO_TAGS_COLUMN: Final[str] = f"{AUX_NAME}.scenario_tags"

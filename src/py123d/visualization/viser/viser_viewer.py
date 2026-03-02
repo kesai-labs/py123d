@@ -102,7 +102,7 @@ class ViserViewer:
 
     def set_scene(self, scene: SceneAPI) -> None:
         num_frames = scene.number_of_iterations
-        initial_ego_state = scene.get_ego_state_at_iteration(0)
+        initial_ego_state = scene.get_ego_state_se3_at_iteration(0)
         assert initial_ego_state is not None and isinstance(initial_ego_state, EgoStateSE3)
 
         server_playing = True

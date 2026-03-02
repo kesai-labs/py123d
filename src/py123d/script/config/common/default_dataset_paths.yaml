@@ -12,7 +12,7 @@ dataset_paths:
   nuplan_sensor_root: ${oc.env:NUPLAN_SENSOR_ROOT,null}
 
   # AV2 defaults
-  av2_data_root: ${oc.env:AV2_DATA_ROOT,null}
+  av2_data_root: "/mnt/nvme/av2" # ${oc.env:AV2_DATA_ROOT,null}
   av2_sensor_data_root: ${dataset_paths.av2_data_root}/sensor
 
   # Waymo Open Dataset - Perception defaults

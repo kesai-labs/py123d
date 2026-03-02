@@ -22,15 +22,14 @@ from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.api.utils.arrow_schema import (
-    AUX_NAME,
-    BOX_DETECTIONS_SE3_NAME,
-    EGO_STATE_SE3_NAME,
-    FCAM_NAME,
-    LIDAR_NAME,
-    PCAM_NAME,
-    SYNC_NAME,
-    TRAFFIC_LIGHTS_NAME,
-    UUID_COLUMN,
+    AUX,
+    BOX_DETECTIONS_SE3,
+    EGO_STATE_SE3,
+    FISHEYE_MEI,
+    LIDAR,
+    PINHOLE_CAMERA,
+    SYNC,
+    TRAFFIC_LIGHTS,
 )
 from py123d.common.utils.uuid_utils import convert_to_str_uuid
 from py123d.datatypes.detections import BoxDetectionsSE3, TrafficLights
@@ -49,9 +48,9 @@ from py123d.datatypes.vehicle_state import EgoStateSE3
 
 def _get_complete_log_scene_metadata(log_dir: Union[Path, str], log_metadata: LogMetadata) -> SceneMetadata:
     """Helper function to get the scene metadata for a complete log from a log directory."""
-    sync_path = Path(log_dir) / f"{SYNC_NAME}.arrow"
+    sync_path = Path(log_dir) / f"{SYNC.prefix()}.arrow"
     table = get_lru_cached_arrow_table(sync_path)
-    initial_uuid = convert_to_str_uuid(table[UUID_COLUMN][0].as_py())
+    initial_uuid = convert_to_str_uuid(table[SYNC.col("uuid")][0].as_py())
     num_rows = table.num_rows
     return SceneMetadata(
         initial_uuid=initial_uuid,
@@ -112,7 +111,7 @@ class ArrowSceneAPI(SceneAPI):
 
     def _get_sync_table(self) -> pa.Table:
         """Load the sync table. This must always exist."""
-        table = self._get_modality_table(SYNC_NAME)
+        table = self._get_modality_table(SYNC.prefix())
         assert table is not None, f"sync.arrow not found in {self._log_dir}"
         return table
 
@@ -127,7 +126,7 @@ class ArrowSceneAPI(SceneAPI):
 
     def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
-        return _get_lru_cached_log_metadata(self._log_dir / f"{SYNC_NAME}.arrow")
+        return _get_lru_cached_log_metadata(self._log_dir / f"{SYNC.prefix()}.arrow")
 
     def get_scene_metadata(self) -> SceneMetadata:
         """Inherited, see superclass."""
@@ -154,9 +153,9 @@ class ArrowSceneAPI(SceneAPI):
         """Inherited, see superclass."""
         return get_timestamp_from_arrow_table(self._get_sync_table(), self._get_table_index(iteration))
 
-    def get_ego_state_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
+    def get_ego_state_se3_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
         """Inherited, see superclass."""
-        ego_table = self._get_modality_table(EGO_STATE_SE3_NAME)
+        ego_table = self._get_modality_table(EGO_STATE_SE3.prefix())
         if ego_table is None:
             return None
         return get_ego_state_se3_from_arrow_table(
@@ -167,7 +166,7 @@ class ArrowSceneAPI(SceneAPI):
 
     def get_box_detections_at_iteration(self, iteration: int) -> Optional[BoxDetectionsSE3]:
         """Inherited, see superclass."""
-        box_table = self._get_modality_table(BOX_DETECTIONS_SE3_NAME)
+        box_table = self._get_modality_table(BOX_DETECTIONS_SE3.prefix())
         if box_table is None:
             return None
         timestamp = self.get_timestamp_at_iteration(iteration)
@@ -180,14 +179,14 @@ class ArrowSceneAPI(SceneAPI):
 
     def get_traffic_light_detections_at_iteration(self, iteration: int) -> Optional[TrafficLights]:
         """Inherited, see superclass."""
-        tl_table = self._get_modality_table(TRAFFIC_LIGHTS_NAME)
+        tl_table = self._get_modality_table(TRAFFIC_LIGHTS.prefix())
         if tl_table is None:
             return None
         return get_traffic_light_detections_from_arrow_table(tl_table, self._get_table_index(iteration))
 
     def get_route_lane_group_ids(self, iteration: int) -> Optional[List[int]]:
         """Inherited, see superclass."""
-        aux_table = self._get_modality_table(AUX_NAME)
+        aux_table = self._get_modality_table(AUX.prefix())
         if aux_table is None:
             return None
         return get_route_lane_group_ids_from_arrow_table(aux_table, self._get_table_index(iteration))
@@ -197,7 +196,7 @@ class ArrowSceneAPI(SceneAPI):
         if camera_id not in self.available_pinhole_camera_ids:
             return None
         camera_name = camera_id.serialize()
-        cam_table = self._get_modality_table(PCAM_NAME(camera_name))
+        cam_table = self._get_modality_table(PINHOLE_CAMERA.prefix(camera_name))
         if cam_table is None:
             return None
         pinhole_camera_ = get_camera_from_arrow_table(
@@ -216,7 +215,7 @@ class ArrowSceneAPI(SceneAPI):
         if camera_id not in self.available_fisheye_mei_camera_ids:
             return None
         camera_name = camera_id.serialize()
-        cam_table = self._get_modality_table(FCAM_NAME(camera_name))
+        cam_table = self._get_modality_table(FISHEYE_MEI.prefix(camera_name))
         if cam_table is None:
             return None
         fisheye_mei_camera_ = get_camera_from_arrow_table(
@@ -233,7 +232,7 @@ class ArrowSceneAPI(SceneAPI):
         if lidar_id not in self.available_lidar_ids and lidar_id != LidarID.LIDAR_MERGED:
             return None
         lidar_name = LidarID.LIDAR_MERGED.serialize()
-        lidar_table = self._get_modality_table(LIDAR_NAME(lidar_name))
+        lidar_table = self._get_modality_table(LIDAR.prefix(lidar_name))
         if lidar_table is None:
             return None
         return get_lidar_from_arrow_table(

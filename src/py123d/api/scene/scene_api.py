@@ -58,7 +58,7 @@ class SceneAPI(abc.ABC):
         """
 
     @abc.abstractmethod
-    def get_ego_state_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
+    def get_ego_state_se3_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
         """Returns the :class:`~py123d.datatypes.vehicle_state.EgoStateSE3` at a given iteration, if available.
 
         :param iteration: The iteration to get the ego state for.
@@ -125,6 +125,16 @@ class SceneAPI(abc.ABC):
         :param lidar_id: The :type:`~py123d.datatypes.sensors.LidarID` of the Lidar.
         :return: The Lidar, or None if not available.
         """
+
+    # Deprecated Methods, to be removed in future versions
+    # ------------------------------------------------------------------------------------------------------------------
+    def get_ego_state_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
+        """Returns the :class:`~py123d.datatypes.vehicle_state.EgoStateSE3` at a given iteration, if available.
+
+        :param iteration: The iteration to get the ego state for.
+        :return: The ego state at the given iteration, or None if not available.
+        """
+        return self.get_ego_state_se3_at_iteration(iteration)
 
     # Syntactic Sugar / Properties, that are convenient to access and pass to subclasses
     # ------------------------------------------------------------------------------------------------------------------
