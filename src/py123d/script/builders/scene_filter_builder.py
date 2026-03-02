@@ -5,7 +5,7 @@ from typing import Any
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from py123d.store.scene.scene_filter import SceneFilter
+from py123d.api.scene.scene_filter import SceneFilter
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ import logging
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from py123d.store.scene.scene_builder import SceneBuilder
+from py123d.api.scene.scene_builder import SceneBuilder
 
 logger = logging.getLogger(__name__)
 

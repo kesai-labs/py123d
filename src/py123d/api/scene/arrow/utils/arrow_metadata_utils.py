@@ -4,9 +4,9 @@ from typing import Union
 
 import pyarrow as pa
 
+from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.datatypes.metadata import LogMetadata, MapMetadata
 from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
-from py123d.store.utils.arrow_helper import get_lru_cached_arrow_table
 
 
 def get_log_metadata_from_arrow_file(arrow_file_path: Union[Path, str]) -> LogMetadata:

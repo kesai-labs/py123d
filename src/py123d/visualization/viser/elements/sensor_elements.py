@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import viser
 
-from py123d.store.scene.scene_api import SceneAPI
+from py123d.api.scene.scene_api import SceneAPI
 from py123d.datatypes.sensors import (
     FisheyeMEICamera,
     FisheyeMEICameraID,

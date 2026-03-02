@@ -1,4 +1,4 @@
-from typing import Callable, Final, List
+from typing import Callable, Final
 
 import pyarrow as pa
 
@@ -29,10 +29,10 @@ EGO_STATE_SE3_SCHEMA_DICT: Final[dict] = {
 BOX_DETECTIONS_SE3_NAME: Final[str] = "box_detections_se3"
 BOX_DETECTIONS_SE3_SCHEMA_DICT: Final[dict] = {
     f"{BOX_DETECTIONS_SE3_NAME}.bounding_box_se3": pa.list_(pa.list_(pa.float64(), len(BoundingBoxSE3Index))),
-    f"{BOX_DETECTIONS_SE3_NAME}.token": pa.string(),
+    f"{BOX_DETECTIONS_SE3_NAME}.token": pa.list_(pa.string()),
     f"{BOX_DETECTIONS_SE3_NAME}.label": pa.list_(pa.uint16()),
     f"{BOX_DETECTIONS_SE3_NAME}.velocity_3d": pa.list_(pa.list_(pa.float64(), len(Vector3DIndex))),
-    f"{BOX_DETECTIONS_SE3_NAME}.num_lidar_points": pa.int32(),
+    f"{BOX_DETECTIONS_SE3_NAME}.num_lidar_points": pa.list_(pa.int32()),
 }
 
 # TrafficLights file
@@ -41,6 +41,7 @@ TRAFFIC_LIGHTS_NAME: Final[str] = "traffic_lights"
 TRAFFIC_LIGHTS_SCHEMA_DICT: Final[dict] = {
     f"{TRAFFIC_LIGHTS_NAME}.lane_id": pa.int32(),
     f"{TRAFFIC_LIGHTS_NAME}.status": pa.uint8(),
+    f"{TRAFFIC_LIGHTS_NAME}.timestamp_us": pa.int64(),
 }
 
 # PinholeCamera file

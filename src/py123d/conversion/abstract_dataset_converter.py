@@ -1,8 +1,8 @@
 import abc
 
+from py123d.api.log_writer.abstract_log_writer import AbstractLogWriter
+from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.dataset_converter_config import DatasetConverterConfig
-from py123d.store.log_writer.abstract_log_writer import AbstractLogWriter
-from py123d.store.map_writer.abstract_map_writer import AbstractMapWriter
 
 
 class AbstractDatasetConverter(abc.ABC):

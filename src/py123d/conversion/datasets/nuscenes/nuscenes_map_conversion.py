@@ -5,6 +5,7 @@ from typing import Dict, Final, List
 import numpy as np
 from shapely.geometry import LineString, Polygon
 
+from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.conversion.datasets.nuscenes.utils.nuscenes_constants import NUSCENES_MAPS
 from py123d.conversion.datasets.nuscenes.utils.nuscenes_map_utils import (
@@ -12,7 +13,6 @@ from py123d.conversion.datasets.nuscenes.utils.nuscenes_map_utils import (
     extract_nuscenes_centerline,
     order_lanes_left_to_right,
 )
-from py123d.store.map_writer.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,

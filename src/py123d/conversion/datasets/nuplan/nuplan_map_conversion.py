@@ -8,12 +8,12 @@ import pandas as pd
 import pyogrio
 from shapely import LineString, wkt
 
+from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.datasets.nuplan.utils.nuplan_constants import (
     NUPLAN_MAP_GPKG_LAYERS,
     NUPLAN_MAP_LOCATION_FILES,
     NUPLAN_ROAD_LINE_CONVERSION,
 )
-from py123d.store.map_writer.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,

@@ -3,7 +3,7 @@ from typing import Dict, Iterable, List, Optional, Union
 import shapely.geometry as geom
 from typing_extensions import Literal
 
-from py123d.store import MapAPI
+from py123d.api import MapAPI
 from py123d.datatypes.map_objects import BaseMapObject, MapLayer
 from py123d.datatypes.map_objects.base_map_objects import MapObjectIDType
 from py123d.datatypes.map_objects.map_objects import (

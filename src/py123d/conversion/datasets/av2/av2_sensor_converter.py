@@ -4,21 +4,17 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from py123d.api import AbstractLogWriter, AbstractMapWriter, CameraData, LidarData
 from py123d.conversion.abstract_dataset_converter import AbstractDatasetConverter
 from py123d.conversion.dataset_converter_config import DatasetConverterConfig
 from py123d.conversion.datasets.av2.av2_map_conversion import convert_av2_map
-from py123d.conversion.datasets.av2.utils.av2_constants import (
-    AV2_CAMERA_ID_MAPPING,
-    AV2_SENSOR_SPLITS,
-)
+from py123d.conversion.datasets.av2.utils.av2_constants import AV2_CAMERA_ID_MAPPING, AV2_SENSOR_SPLITS
 from py123d.conversion.datasets.av2.utils.av2_helper import (
     build_sensor_dataframe,
     build_synchronization_dataframe,
     find_closest_target_fpath,
     get_slice_with_timestamp_ns,
 )
-from py123d.store.log_writer.abstract_log_writer import AbstractLogWriter, CameraData, LidarData
-from py123d.store.map_writer.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.registry import AV2SensorBoxDetectionLabel
 from py123d.datatypes import (
     BoxDetectionMetadata,
@@ -159,8 +155,12 @@ class AV2SensorConverter(AbstractDatasetConverter):
                 ego_state = _extract_av2_sensor_ego_state(city_se3_egovehicle_df, lidar_timestamp_ns)
                 log_writer.write(
                     timestamp=Timestamp.from_ns(int(lidar_timestamp_ns)),
-                    ego_state=ego_state,
-                    box_detections=_extract_av2_sensor_box_detections(annotations_df, lidar_timestamp_ns, ego_state),
+                    ego_state_se3=ego_state,
+                    box_detections_se3=_extract_av2_sensor_box_detections(
+                        annotations_df,
+                        lidar_timestamp_ns,
+                        ego_state,
+                    ),
                     pinhole_cameras=_extract_av2_sensor_pinhole_cameras(
                         lidar_timestamp_ns,
                         egovehicle_se3_sensor_df,

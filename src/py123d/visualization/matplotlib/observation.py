@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import shapely.geometry as geom
 
-from py123d.store import MapAPI, SceneAPI
+from py123d.api import MapAPI, SceneAPI
 from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
 from py123d.datatypes.detections.box_detections import BoxDetectionsSE3
 from py123d.datatypes.detections.traffic_light_detections import TrafficLights
@@ -136,9 +136,7 @@ def add_ego_vehicle_to_ax(ax: plt.Axes, ego_vehicle_state: Union[EgoStateSE3, Eg
     add_bounding_boxes_to_ax(ax, [ego_vehicle_state.bounding_box_se2], EGO_VEHICLE_CONFIG)
 
 
-def add_traffic_lights_to_ax(
-    ax: plt.Axes, traffic_light_detections: TrafficLights, map_api: MapAPI
-) -> None:
+def add_traffic_lights_to_ax(ax: plt.Axes, traffic_light_detections: TrafficLights, map_api: MapAPI) -> None:
     for traffic_light_detection in traffic_light_detections:
         lane = map_api.get_map_object(traffic_light_detection.lane_id, MapLayer.LANE)
         assert isinstance(lane, Lane), f"Lane with id {traffic_light_detection.lane_id} not found."

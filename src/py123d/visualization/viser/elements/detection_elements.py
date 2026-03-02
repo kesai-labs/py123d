@@ -5,7 +5,7 @@ import numpy.typing as npt
 import trimesh
 import viser
 
-from py123d.store.scene.scene_api import SceneAPI
+from py123d.api.scene.scene_api import SceneAPI
 from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry.geometry_index import BoundingBoxSE3Index, Corners3DIndex, PoseSE3Index

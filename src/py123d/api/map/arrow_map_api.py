@@ -28,9 +28,9 @@ from py123d.datatypes.map_objects.map_objects import (
 )
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.geometry import OccupancyMap2D, Point2D, Point3D, Polyline3D
-from py123d.store.map.map_api import MapAPI
-from py123d.store.scene.arrow.utils.arrow_metadata_utils import get_map_metadata_from_arrow_table
-from py123d.store.utils.arrow_helper import get_lru_cached_arrow_table
+from py123d.api.map.map_api import MapAPI
+from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_map_metadata_from_arrow_table
+from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 
 # TODO: add to some configs
 MAX_LRU_CACHED_TABLES: Final[int] = 128

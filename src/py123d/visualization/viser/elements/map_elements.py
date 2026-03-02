@@ -4,7 +4,7 @@ import numpy as np
 import trimesh
 import viser
 
-from py123d.store import SceneAPI
+from py123d.api import SceneAPI
 from py123d.datatypes.map_objects.base_map_objects import BaseMapSurfaceObject
 from py123d.datatypes.map_objects.map_layer_types import MapLayer
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3

@@ -38,9 +38,7 @@ class TestTrafficLights:
         self.detection1 = TrafficLightDetection(lane_id=1, status=TrafficLightStatus.GREEN)
         self.detection2 = TrafficLightDetection(lane_id=2, status=TrafficLightStatus.RED)
         self.detection3 = TrafficLightDetection(lane_id=3, status=TrafficLightStatus.YELLOW)
-        self.wrapper = TrafficLights(
-            traffic_light_detections=[self.detection1, self.detection2, self.detection3]
-        )
+        self.wrapper = TrafficLights(traffic_light_detections=[self.detection1, self.detection2, self.detection3])
 
     def test_getitem(self):
         """Test __getitem__ method of TrafficLights."""

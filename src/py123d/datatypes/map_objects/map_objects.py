@@ -12,7 +12,7 @@ from py123d.datatypes.map_objects.utils import get_trimesh_from_boundaries
 from py123d.geometry import Polyline2D, Polyline3D
 
 if TYPE_CHECKING:
-    from py123d.store import MapAPI
+    from py123d.api import MapAPI
 
 
 class Lane(BaseMapSurfaceObject):

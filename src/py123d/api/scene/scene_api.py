@@ -3,6 +3,8 @@ from __future__ import annotations
 import abc
 from typing import List, Optional
 
+from py123d.api.map.map_api import MapAPI
+from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.datatypes import (
     BoxDetectionsSE3,
     EgoStateSE3,
@@ -18,8 +20,6 @@ from py123d.datatypes import (
     TrafficLights,
     VehicleParameters,
 )
-from py123d.store.map.map_api import MapAPI
-from py123d.store.scene.scene_metadata import SceneMetadata
 
 
 class SceneAPI(abc.ABC):
@@ -37,14 +37,14 @@ class SceneAPI(abc.ABC):
 
     @abc.abstractmethod
     def get_scene_metadata(self) -> SceneMetadata:
-        """Returns the :class:`~py123d.api.scene.scene_metadata.SceneMetadata` of the scene.
+        """Returns the :class:`~py123d.store.scene.scene_metadata.SceneMetadata` of the scene.
 
         :return: The scene metadata.
         """
 
     @abc.abstractmethod
     def get_map_api(self) -> Optional[MapAPI]:
-        """Returns the :class:`~py123d.api.MapAPI` of the scene, if available.
+        """Returns the :class:`~py123d.store.MapAPI` of the scene, if available.
 
         :return: The map API, or None if not available.
         """
@@ -136,7 +136,7 @@ class SceneAPI(abc.ABC):
 
     @property
     def scene_metadata(self) -> SceneMetadata:
-        """The :class:`~py123d.api.scene.SceneMetadata` of the scene."""
+        """The :class:`~py123d.store.scene.SceneMetadata` of the scene."""
         return self.get_scene_metadata()
 
     @property
@@ -146,7 +146,7 @@ class SceneAPI(abc.ABC):
 
     @property
     def map_api(self) -> Optional[MapAPI]:
-        """The :class:`~py123d.api.map.MapAPI` of the scene, if available."""
+        """The :class:`~py123d.store.map.MapAPI` of the scene, if available."""
         return self.get_map_api()
 
     @property

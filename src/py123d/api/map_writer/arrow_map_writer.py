@@ -5,10 +5,12 @@ from typing import Any, Dict, List, Optional, Union
 
 import pyarrow as pa
 
+from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
+from py123d.api.map_writer.utils.id_utils import ToIntMapping
+from py123d.api.utils.arrow_helper import write_arrow_table
 from py123d.common.utils.msgpack_utils import msgpack_encode_with_numpy
 from py123d.conversion.dataset_converter_config import DatasetConverterConfig
-from py123d.datatypes.map_objects.map_layer_types import MapLayer
-from py123d.datatypes.map_objects.map_objects import (
+from py123d.datatypes import (
     BaseMapLineObject,
     BaseMapSurfaceObject,
     Carpark,
@@ -17,17 +19,14 @@ from py123d.datatypes.map_objects.map_objects import (
     Intersection,
     Lane,
     LaneGroup,
+    MapLayer,
+    MapMetadata,
     RoadEdge,
     RoadLine,
     StopZone,
     Walkway,
 )
-from py123d.datatypes.metadata.map_metadata import MapMetadata
-from py123d.geometry.geometry_index import Point2DIndex, Point3DIndex
-from py123d.geometry.polyline import Polyline3D
-from py123d.store.map_writer.abstract_map_writer import AbstractMapWriter
-from py123d.store.map_writer.utils.id_utils import ToIntMapping
-from py123d.store.utils.arrow_helper import write_arrow_table
+from py123d.geometry import Point2DIndex, Point3DIndex, Polyline3D
 
 
 class ArrowMapWriter(AbstractMapWriter):

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 from tqdm import tqdm
 
-from py123d.store.scene.scene_api import SceneAPI
+from py123d.api.scene.scene_api import SceneAPI
 from py123d.visualization.matplotlib.observation import add_scene_on_ax
 
 

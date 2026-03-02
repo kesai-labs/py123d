@@ -10,6 +10,7 @@ import pandas as pd
 import shapely
 import shapely.geometry as geom
 
+from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.datasets.av2.utils.av2_constants import AV2_ROAD_LINE_TYPE_MAPPING
 from py123d.conversion.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
@@ -18,7 +19,6 @@ from py123d.conversion.utils.map_utils.road_edge.road_edge_2d_utils import (
 from py123d.conversion.utils.map_utils.road_edge.road_edge_3d_utils import lift_road_edges_to_3d
 from py123d.datatypes import Crosswalk, GenericDrivable, Intersection, Lane, LaneGroup, RoadEdge, RoadEdgeType, RoadLine
 from py123d.geometry import OccupancyMap2D, Point3DIndex, Polyline2D, Polyline3D
-from py123d.store.map_writer.abstract_map_writer import AbstractMapWriter
 
 LANE_GROUP_MARK_TYPES: List[str] = [
     "DASHED_WHITE",
@@ -288,11 +288,13 @@ def _extract_lane_group_dict(lanes: Dict[int, Any]) -> Dict[int, Any]:
         lane_group_dict[lane_group_id]["successor_ids"] = _get_lane_group_ids_of_lanes_ids(successor_lanes)
         lane_group_dict[lane_group_id]["left_boundary"] = left_boundary
         lane_group_dict[lane_group_id]["right_boundary"] = right_boundary
-        outline_array = np.vstack([
-            left_boundary.array[:, :3],
-            right_boundary.array[:, :3][::-1],
-            left_boundary.array[0, :3][None, ...],
-        ])
+        outline_array = np.vstack(
+            [
+                left_boundary.array[:, :3],
+                right_boundary.array[:, :3][::-1],
+                left_boundary.array[0, :3][None, ...],
+            ]
+        )
 
         lane_group_dict[lane_group_id]["outline"] = Polyline3D.from_array(outline_array)
 

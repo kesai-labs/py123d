@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from py123d.store import MapAPI, SceneAPI, SceneMetadata
+from py123d.api import MapAPI, SceneAPI, SceneMetadata
 from py123d.datatypes import (
     BoxDetectionsSE3,
     EgoStateSE3,
