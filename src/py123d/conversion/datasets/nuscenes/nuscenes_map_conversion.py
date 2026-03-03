@@ -5,7 +5,7 @@ from typing import Dict, Final, List
 import numpy as np
 from shapely.geometry import LineString, Polygon
 
-from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
+from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.conversion.datasets.nuscenes.utils.nuscenes_constants import NUSCENES_MAPS
 from py123d.conversion.datasets.nuscenes.utils.nuscenes_map_utils import (

@@ -1,4 +1,4 @@
-_target_: py123d.api.map_writer.arrow_map_writer.ArrowMapWriter
+_target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
 _convert_: 'all'
 
 maps_root: ${dataset_paths.py123d_maps_root}

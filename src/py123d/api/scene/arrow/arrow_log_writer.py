@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 
-from py123d.api.log_writer.abstract_log_writer import AbstractLogWriter, CameraData, LidarData
+from py123d.api.scene.abstract_log_writer import AbstractLogWriter, CameraData, LidarData
 from py123d.api.scene.arrow.utils.arrow_metadata_utils import add_log_metadata_to_arrow_schema
 from py123d.api.utils.arrow_schema import (
     BOX_DETECTIONS_SE3,

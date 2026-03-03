@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
+from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.conversion.datasets.wod.utils.wod_boundary_utils import WaymoLaneData, fill_lane_boundaries
 from py123d.conversion.datasets.wod.utils.wod_constants import (

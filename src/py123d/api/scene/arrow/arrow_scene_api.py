@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 
 import pyarrow as pa
 
-from py123d.api.map.arrow_map_api import get_global_map_api, get_local_map_api
+from py123d.api.map.arrow.arrow_map_api import get_global_map_api, get_local_map_api
 from py123d.api.map.map_api import MapAPI
 from py123d.api.scene.arrow.utils.arrow_getters import (
     get_box_detections_se3_from_arrow_table,

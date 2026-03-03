@@ -5,9 +5,9 @@ from typing import Dict, Iterable, List, Literal, Optional, Union
 
 import shapely.geometry as geom
 
+from py123d.datatypes import MapMetadata
 from py123d.datatypes.map_objects import BaseMapObject, MapLayer
 from py123d.datatypes.map_objects.base_map_objects import MapObjectIDType
-from py123d.datatypes.metadata import MapMetadata
 from py123d.geometry import Point2D, Point3D
 
 

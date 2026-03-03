@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 import shapely.geometry as geom
 
-from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
+from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.datasets.kitti360.utils.kitti360_helper import (
     KITTI360_MAP_Bbox3D,
 )

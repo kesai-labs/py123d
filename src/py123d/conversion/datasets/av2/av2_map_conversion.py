@@ -10,7 +10,7 @@ import pandas as pd
 import shapely
 import shapely.geometry as geom
 
-from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
+from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.datasets.av2.utils.av2_constants import AV2_ROAD_LINE_TYPE_MAPPING
 from py123d.conversion.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,

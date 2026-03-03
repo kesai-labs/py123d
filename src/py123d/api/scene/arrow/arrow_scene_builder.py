@@ -3,7 +3,7 @@ from functools import partial
 from pathlib import Path
 from typing import List, Optional, Union
 
-from py123d.api.scene.arrow.arrow_scene import ArrowSceneAPI
+from py123d.api.scene.arrow.arrow_scene_api import ArrowSceneAPI
 from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_log_metadata_from_arrow_schema
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_builder import SceneBuilder

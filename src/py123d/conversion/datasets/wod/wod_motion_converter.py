@@ -4,8 +4,8 @@ import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-from py123d.api.log_writer.abstract_log_writer import AbstractLogWriter
-from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
+from py123d.api.map.abstract_map_writer import AbstractMapWriter
+from py123d.api.scene.abstract_log_writer import AbstractLogWriter
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.conversion.abstract_dataset_converter import AbstractDatasetConverter
 from py123d.conversion.dataset_converter_config import DatasetConverterConfig

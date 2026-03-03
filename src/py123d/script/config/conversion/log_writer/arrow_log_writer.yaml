@@ -1,4 +1,4 @@
-_target_: py123d.api.log_writer.arrow_log_writer.ArrowLogWriter
+_target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
 _convert_: 'all'
 
 

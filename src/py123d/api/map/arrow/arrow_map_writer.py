@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import pyarrow as pa
 
-from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
-from py123d.api.map_writer.utils.id_utils import ToIntMapping
+from py123d.api.map.abstract_map_writer import AbstractMapWriter
+from py123d.api.map.arrow.arrow_id_utils import ToIntMapping
 from py123d.api.utils.arrow_helper import write_arrow_table
 from py123d.common.utils.msgpack_utils import msgpack_encode_with_numpy
 from py123d.conversion.dataset_converter_config import DatasetConverterConfig

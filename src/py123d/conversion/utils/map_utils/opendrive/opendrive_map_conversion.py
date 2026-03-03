@@ -5,7 +5,7 @@ from typing import Dict, Final, List
 import numpy as np
 import shapely
 
-from py123d.api.map_writer.abstract_map_writer import AbstractMapWriter
+from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.conversion.utils.map_utils.opendrive.parser.lane import XODRRoadMark
 from py123d.conversion.utils.map_utils.opendrive.parser.opendrive import XODR, Junction
 from py123d.conversion.utils.map_utils.opendrive.utils.collection import collect_element_helpers
