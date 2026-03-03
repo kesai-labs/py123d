@@ -1,0 +1,74 @@
+/* Copyright 2021 The Waymo Open Dataset Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+syntax = "proto2";
+
+package waymo.open_dataset.keypoints;
+
+import "vector.proto";
+
+message KeypointVisibility {
+  optional bool is_occluded = 1;
+}
+
+message Keypoint2d {
+  extensions 1000 to max;
+  optional Vector2d location_px = 1;
+  optional KeypointVisibility visibility = 2;
+}
+
+message Keypoint3d {
+  extensions 1000 to max;
+  optional Vector3d location_m = 1;
+  optional KeypointVisibility visibility = 2;
+}
+
+enum KeypointType {
+  KEYPOINT_TYPE_UNSPECIFIED = 0;
+  KEYPOINT_TYPE_NOSE = 1;
+  KEYPOINT_TYPE_LEFT_SHOULDER = 5;
+  KEYPOINT_TYPE_LEFT_ELBOW = 6;
+  KEYPOINT_TYPE_LEFT_WRIST = 7;
+  KEYPOINT_TYPE_LEFT_HIP = 8;
+  KEYPOINT_TYPE_LEFT_KNEE = 9;
+  KEYPOINT_TYPE_LEFT_ANKLE = 10;
+  KEYPOINT_TYPE_RIGHT_SHOULDER = 13;
+  KEYPOINT_TYPE_RIGHT_ELBOW = 14;
+  KEYPOINT_TYPE_RIGHT_WRIST = 15;
+  KEYPOINT_TYPE_RIGHT_HIP = 16;
+  KEYPOINT_TYPE_RIGHT_KNEE = 17;
+  KEYPOINT_TYPE_RIGHT_ANKLE = 18;
+  KEYPOINT_TYPE_FOREHEAD = 19;
+  KEYPOINT_TYPE_HEAD_CENTER = 20;
+}
+
+message CameraKeypoint {
+  optional KeypointType type = 1;
+  optional Keypoint2d keypoint_2d = 2;
+  optional Keypoint3d keypoint_3d = 3;
+}
+
+message CameraKeypoints {
+  repeated CameraKeypoint keypoint = 1;
+}
+
+message LaserKeypoint {
+  optional KeypointType type = 1;
+  optional Keypoint3d keypoint_3d = 2;
+}
+
+message LaserKeypoints {
+  repeated LaserKeypoint keypoint = 1;
+}

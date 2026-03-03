@@ -35,9 +35,10 @@ from py123d.geometry import (
     Vector3D,
 )
 
-check_dependencies(modules=["tensorflow", "waymo_open_dataset"], optional_name="waymo")
+check_dependencies(modules=["tensorflow"], optional_name="waymo")
 import tensorflow as tf
-from waymo_open_dataset.protos import scenario_pb2
+
+from py123d.conversion.datasets.wod.waymo_open_dataset.protos import scenario_pb2
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"

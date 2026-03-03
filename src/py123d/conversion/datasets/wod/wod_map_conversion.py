@@ -4,19 +4,20 @@ import numpy as np
 
 from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.common.utils.dependencies import check_dependencies
+
+check_dependencies(modules=["google.protobuf"], optional_name="waymo")
+
 from py123d.conversion.datasets.wod.utils.wod_boundary_utils import WaymoLaneData, fill_lane_boundaries
 from py123d.conversion.datasets.wod.utils.wod_constants import (
     WAYMO_LANE_TYPE_CONVERSION,
     WAYMO_ROAD_EDGE_TYPE_CONVERSION,
     WAYMO_ROAD_LINE_TYPE_CONVERSION,
 )
+from py123d.conversion.datasets.wod.waymo_open_dataset.protos import map_pb2
 from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType
 from py123d.datatypes.map_objects.map_objects import Carpark, Crosswalk, Lane, LaneGroup, RoadEdge, RoadLine
 from py123d.geometry import Polyline3D
 from py123d.geometry.utils.units import mph_to_mps
-
-check_dependencies(modules=["waymo_open_dataset"], optional_name="waymo")
-from waymo_open_dataset.protos import map_pb2
 
 # TODO:
 # - Implement stop signs

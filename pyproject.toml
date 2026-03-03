@@ -85,7 +85,8 @@ nuscenes = [
     "nuscenes-devkit==1.2.0",
 ]
 waymo = [
-    "waymo-open-dataset-tf-2-12-0==1.6.7",
+    "tensorflow>=2.13",
+    "protobuf>=6.31",
 ]
 ffmpeg = [
     "imageio[ffmpeg]",
@@ -95,7 +96,7 @@ ffmpeg = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-py123d = ["**/*.yaml", "**/*.yml"]
+py123d = ["**/*.yaml", "**/*.yml", "**/*.proto"]
 
 [project.urls]
 "Homepage" = "https://github.com/autonomousvision/py123d"

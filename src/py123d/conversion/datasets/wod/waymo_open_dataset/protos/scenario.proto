@@ -1,0 +1,77 @@
+/* Copyright 2021 The Waymo Open Dataset Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+syntax = "proto2";
+
+package waymo.open_dataset;
+
+import "camera_tokens.proto";
+import "compressed_lidar.proto";
+import "map.proto";
+
+message ObjectState {
+  optional double center_x = 2;
+  optional double center_y = 3;
+  optional double center_z = 4;
+  optional float length = 5;
+  optional float width = 6;
+  optional float height = 7;
+  optional float heading = 8;
+  optional float velocity_x = 9;
+  optional float velocity_y = 10;
+  optional bool valid = 11;
+}
+
+message Track {
+  enum ObjectType {
+    TYPE_UNSET = 0;
+    TYPE_VEHICLE = 1;
+    TYPE_PEDESTRIAN = 2;
+    TYPE_CYCLIST = 3;
+    TYPE_OTHER = 4;
+  }
+  optional int32 id = 1;
+  optional ObjectType object_type = 2;
+  repeated ObjectState states = 3;
+}
+
+message DynamicMapState {
+  repeated TrafficSignalLaneState lane_states = 1;
+}
+
+message RequiredPrediction {
+  enum DifficultyLevel {
+    NONE = 0;
+    LEVEL_1 = 1;
+    LEVEL_2 = 2;
+  }
+  optional int32 track_index = 1;
+  optional DifficultyLevel difficulty = 2;
+}
+
+message Scenario {
+  reserved 9;
+  optional string scenario_id = 5;
+  repeated double timestamps_seconds = 1;
+  optional int32 current_time_index = 10;
+  repeated Track tracks = 2;
+  repeated DynamicMapState dynamic_map_states = 7;
+  repeated MapFeature map_features = 8;
+  optional int32 sdc_track_index = 6;
+  repeated int32 objects_of_interest = 4;
+  repeated RequiredPrediction tracks_to_predict = 11;
+  repeated CompressedFrameLaserData compressed_frame_laser_data = 12;
+  repeated FrameCameraTokens frame_camera_tokens = 13;
+}

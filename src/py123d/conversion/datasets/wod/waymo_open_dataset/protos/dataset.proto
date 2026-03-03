@@ -1,0 +1,178 @@
+/* Copyright 2019 The Waymo Open Dataset Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+syntax = "proto2";
+
+package waymo.open_dataset;
+
+import "label.proto";
+import "map.proto";
+import "vector.proto";
+
+message MatrixShape {
+  repeated int32 dims = 1;
+}
+
+message MatrixFloat {
+  repeated float data = 1 [packed = true];
+  optional MatrixShape shape = 2;
+}
+
+message MatrixInt32 {
+  repeated int32 data = 1 [packed = true];
+  optional MatrixShape shape = 2;
+}
+
+message CameraName {
+  enum Name {
+    UNKNOWN = 0;
+    FRONT = 1;
+    FRONT_LEFT = 2;
+    FRONT_RIGHT = 3;
+    SIDE_LEFT = 4;
+    SIDE_RIGHT = 5;
+    REAR_LEFT = 6;
+    REAR = 7;
+    REAR_RIGHT = 8;
+  }
+}
+
+message LaserName {
+  enum Name {
+    UNKNOWN = 0;
+    TOP = 1;
+    FRONT = 2;
+    SIDE_LEFT = 3;
+    SIDE_RIGHT = 4;
+    REAR = 5;
+  }
+}
+
+message Transform {
+  repeated double transform = 1;
+}
+
+message Velocity {
+  optional float v_x = 1;
+  optional float v_y = 2;
+  optional float v_z = 3;
+  optional double w_x = 4;
+  optional double w_y = 5;
+  optional double w_z = 6;
+}
+
+message CameraCalibration {
+  optional CameraName.Name name = 1;
+  repeated double intrinsic = 2;
+  optional Transform extrinsic = 3;
+  optional int32 width = 4;
+  optional int32 height = 5;
+
+  enum RollingShutterReadOutDirection {
+    UNKNOWN = 0;
+    TOP_TO_BOTTOM = 1;
+    LEFT_TO_RIGHT = 2;
+    BOTTOM_TO_TOP = 3;
+    RIGHT_TO_LEFT = 4;
+    GLOBAL_SHUTTER = 5;
+  }
+  optional RollingShutterReadOutDirection rolling_shutter_direction = 6;
+}
+
+message LaserCalibration {
+  optional LaserName.Name name = 1;
+  repeated double beam_inclinations = 2;
+  optional double beam_inclination_min = 3;
+  optional double beam_inclination_max = 4;
+  optional Transform extrinsic = 5;
+}
+
+message Context {
+  optional string name = 1;
+  repeated CameraCalibration camera_calibrations = 2;
+  repeated LaserCalibration laser_calibrations = 3;
+  message Stats {
+    message ObjectCount {
+      optional Label.Type type = 1;
+      optional int32 count = 2;
+    }
+    repeated ObjectCount laser_object_counts = 1;
+    repeated ObjectCount camera_object_counts = 5;
+    optional string time_of_day = 2;
+    optional string location = 3;
+    optional string weather = 4;
+  }
+  optional Stats stats = 4;
+}
+
+message RangeImage {
+  optional bytes range_image_compressed = 2;
+  optional bytes camera_projection_compressed = 3;
+  optional bytes range_image_pose_compressed = 4;
+  optional bytes range_image_flow_compressed = 5;
+  optional bytes segmentation_label_compressed = 6;
+  optional MatrixFloat range_image = 1 [deprecated = true];
+}
+
+message CameraSegmentationLabel {
+  optional int32 panoptic_label_divisor = 1;
+  optional bytes panoptic_label = 2;
+  message InstanceIDToGlobalIDMapping {
+    optional int32 local_instance_id = 1;
+    optional int32 global_instance_id = 2;
+    optional bool is_tracked = 3;
+  }
+  repeated InstanceIDToGlobalIDMapping instance_id_to_global_id_mapping = 3;
+  optional string sequence_id = 4;
+  optional bytes num_cameras_covered = 5;
+}
+
+message CameraImage {
+  optional CameraName.Name name = 1;
+  optional bytes image = 2;
+  optional Transform pose = 3;
+  optional Velocity velocity = 4;
+  optional double pose_timestamp = 5;
+  optional double shutter = 6;
+  optional double camera_trigger_time = 7;
+  optional double camera_readout_done_time = 8;
+  optional CameraSegmentationLabel camera_segmentation_label = 10;
+}
+
+message CameraLabels {
+  optional CameraName.Name name = 1;
+  repeated Label labels = 2;
+}
+
+message Laser {
+  optional LaserName.Name name = 1;
+  optional RangeImage ri_return1 = 2;
+  optional RangeImage ri_return2 = 3;
+}
+
+message Frame {
+  extensions 1000 to max;
+  optional Context context = 1;
+  optional int64 timestamp_micros = 2;
+  optional Transform pose = 3;
+  repeated CameraImage images = 4;
+  repeated Laser lasers = 5;
+  repeated Label laser_labels = 6;
+  repeated CameraLabels projected_lidar_labels = 9;
+  repeated CameraLabels camera_labels = 8;
+  repeated Polygon2dProto no_label_zones = 7;
+  repeated MapFeature map_features = 10;
+  optional Vector3d map_pose_offset = 11;
+}

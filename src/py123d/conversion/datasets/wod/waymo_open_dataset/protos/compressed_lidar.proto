@@ -1,0 +1,48 @@
+/* Copyright 2023 The Waymo Open Dataset Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+syntax = "proto2";
+
+package waymo.open_dataset;
+
+import "dataset.proto";
+
+message CompressedRangeImage {
+  optional bytes range_image_delta_compressed = 1;
+  optional bytes range_image_pose_delta_compressed = 4;
+}
+
+message Metadata {
+  repeated int32 shape = 1;
+  repeated float quant_precision = 2;
+}
+
+message DeltaEncodedData {
+  repeated sint64 residual = 1 [packed = true];
+  repeated uint32 mask = 2 [packed = true];
+  optional Metadata metadata = 3;
+}
+
+message CompressedLaser {
+  optional LaserName.Name name = 1;
+  optional CompressedRangeImage ri_return1 = 2;
+  optional CompressedRangeImage ri_return2 = 3;
+}
+
+message CompressedFrameLaserData {
+  repeated CompressedLaser lasers = 1;
+  repeated LaserCalibration laser_calibrations = 2;
+  optional Transform pose = 3;
+}
