@@ -1,0 +1,8 @@
+nuplan-mini:
+  _target_: py123d.conversion.datasets.nuplan.nuplan_parser.NuplanParser
+  _convert_: 'all'
+
+  splits: ["nuplan-mini_train", "nuplan-mini_val", "nuplan-mini_test"]
+  nuplan_data_root: ${dataset_paths.nuplan_data_root}
+  nuplan_maps_root: ${dataset_paths.nuplan_maps_root}
+  nuplan_sensor_root: ${dataset_paths.nuplan_sensor_root}

@@ -35,7 +35,9 @@ class ProcessPoolExecutor(Executor):
 
         super().__init__(
             ExecutorResources(
-                number_of_nodes=1, number_of_cpus_per_node=number_of_cpus_per_node, number_of_gpus_per_node=0
+                number_of_nodes=1,
+                number_of_cpus_per_node=number_of_cpus_per_node,
+                number_of_gpus_per_node=0,
             )
         )
 

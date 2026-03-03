@@ -26,6 +26,7 @@ from py123d.datatypes import (
     StopZone,
     Walkway,
 )
+from py123d.datatypes.map_objects.base_map_objects import BaseMapObject
 from py123d.geometry import Point2DIndex, Point3DIndex, Polyline3D
 
 
@@ -68,8 +69,33 @@ class ArrowMapWriter(AbstractMapWriter):
 
         return map_needs_writing
 
-    def write_lane(self, lane: Lane) -> None:
+    def write_map_object(self, map_object: BaseMapObject) -> None:
         """Inherited, see superclass."""
+
+        if isinstance(map_object, Lane):
+            self._write_lane(map_object)
+        elif isinstance(map_object, LaneGroup):
+            self._write_lane_group(map_object)
+        elif isinstance(map_object, Intersection):
+            self._write_intersection(map_object)
+        elif isinstance(map_object, Crosswalk):
+            self._write_crosswalk(map_object)
+        elif isinstance(map_object, Carpark):
+            self._write_carpark(map_object)
+        elif isinstance(map_object, Walkway):
+            self._write_walkway(map_object)
+        elif isinstance(map_object, GenericDrivable):
+            self._write_generic_drivable(map_object)
+        elif isinstance(map_object, StopZone):
+            self._write_stop_zone(map_object)
+        elif isinstance(map_object, RoadEdge):
+            self._write_road_edge(map_object)
+        elif isinstance(map_object, RoadLine):
+            self._write_road_line(map_object)
+        else:
+            raise ValueError(f"Unsupported map object type: {type(map_object)}")
+
+    def _write_lane(self, lane: Lane) -> None:
         self._write_surface_layer(MapLayer.LANE, lane)
         self._map_data[MapLayer.LANE]["lane_group_id"].append(lane.lane_group_id)
         self._map_data[MapLayer.LANE]["left_boundary"].append(lane.left_boundary.array)
@@ -81,8 +107,7 @@ class ArrowMapWriter(AbstractMapWriter):
         self._map_data[MapLayer.LANE]["successor_ids"].append(lane.successor_ids)
         self._map_data[MapLayer.LANE]["speed_limit_mps"].append(lane.speed_limit_mps)
 
-    def write_lane_group(self, lane_group: LaneGroup) -> None:
-        """Inherited, see superclass."""
+    def _write_lane_group(self, lane_group: LaneGroup) -> None:
         self._write_surface_layer(MapLayer.LANE_GROUP, lane_group)
         self._map_data[MapLayer.LANE_GROUP]["lane_ids"].append(lane_group.lane_ids)
         self._map_data[MapLayer.LANE_GROUP]["intersection_id"].append(lane_group.intersection_id)
@@ -91,40 +116,35 @@ class ArrowMapWriter(AbstractMapWriter):
         self._map_data[MapLayer.LANE_GROUP]["left_boundary"].append(lane_group.left_boundary.array)
         self._map_data[MapLayer.LANE_GROUP]["right_boundary"].append(lane_group.right_boundary.array)
 
-    def write_intersection(self, intersection: Intersection) -> None:
-        """Inherited, see superclass."""
+    def _write_intersection(self, intersection: Intersection) -> None:
         self._write_surface_layer(MapLayer.INTERSECTION, intersection)
         self._map_data[MapLayer.INTERSECTION]["lane_group_ids"].append(intersection.lane_group_ids)
 
-    def write_crosswalk(self, crosswalk: Crosswalk) -> None:
-        """Inherited, see superclass."""
+    def _write_crosswalk(self, crosswalk: Crosswalk) -> None:
         self._write_surface_layer(MapLayer.CROSSWALK, crosswalk)
 
-    def write_carpark(self, carpark: Carpark) -> None:
+    def _write_carpark(self, carpark: Carpark) -> None:
         """Inherited, see superclass."""
         self._write_surface_layer(MapLayer.CARPARK, carpark)
 
-    def write_walkway(self, walkway: Walkway) -> None:
-        """Inherited, see superclass."""
+    def _write_walkway(self, walkway: Walkway) -> None:
         self._write_surface_layer(MapLayer.WALKWAY, walkway)
 
-    def write_generic_drivable(self, obj: GenericDrivable) -> None:
+    def _write_generic_drivable(self, obj: GenericDrivable) -> None:
         """Inherited, see superclass."""
         self._write_surface_layer(MapLayer.GENERIC_DRIVABLE, obj)
 
-    def write_stop_zone(self, stop_zone: StopZone) -> None:
-        """Inherited, see superclass."""
+    def _write_stop_zone(self, stop_zone: StopZone) -> None:
         self._write_surface_layer(MapLayer.STOP_ZONE, stop_zone)
         self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"].append(int(stop_zone.stop_zone_type))
         self._map_data[MapLayer.STOP_ZONE]["lane_ids"].append(stop_zone.lane_ids)
 
-    def write_road_edge(self, road_edge: RoadEdge) -> None:
+    def _write_road_edge(self, road_edge: RoadEdge) -> None:
         """Inherited, see superclass."""
         self._write_line_layer(MapLayer.ROAD_EDGE, road_edge)
         self._map_data[MapLayer.ROAD_EDGE]["road_edge_type"].append(int(road_edge.road_edge_type))
 
-    def write_road_line(self, road_line: RoadLine) -> None:
-        """Inherited, see superclass."""
+    def _write_road_line(self, road_line: RoadLine) -> None:
         self._write_line_layer(MapLayer.ROAD_LINE, road_line)
         self._map_data[MapLayer.ROAD_LINE]["road_line_type"].append(int(road_line.road_line_type))
 

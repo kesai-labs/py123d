@@ -133,6 +133,7 @@ lint.ignore = [
     "PLW0642",  # Reassigned self in instance method.
     "PLR0904",  # Checks for classes with too many public methods
     "PLR0917",  # Checks for function definitions that include too many positional arguments.
+    "PLR0914",  # Checks for functions that include too many local variables.
 ]
 
 exclude = [

@@ -452,19 +452,13 @@ class ArrowLogWriter(AbstractLogWriter):
         lidar_name = LidarID.LIDAR_MERGED.serialize()
         writer = self._modality_writers[LIDAR.prefix(lidar_name)]
 
-        timestamp_us = (
-            lidar_data.timestamp.time_us
-            if lidar_data.timestamp is not None
-            else (self._current_timestamp.time_us if self._current_timestamp is not None else 0)
-        )
-
         if self._dataset_converter_config.lidar_store_option == "path":
             data_path: Optional[str] = str(lidar_data.relative_path) if lidar_data.has_file_path else None
             writer.write_batch(
                 {
                     LIDAR.col("data", lidar_name): [data_path],
-                    LIDAR.col("start_timestamp_us", lidar_name): [timestamp_us],
-                    LIDAR.col("end_timestamp_us", lidar_name): [timestamp_us],
+                    LIDAR.col("start_timestamp_us", lidar_name): [lidar_data.start_timestamp.time_us],
+                    LIDAR.col("end_timestamp_us", lidar_name): [lidar_data.end_timestamp.time_us],
                 }
             )
         elif self._dataset_converter_config.lidar_store_option == "binary":
@@ -473,8 +467,8 @@ class ArrowLogWriter(AbstractLogWriter):
                 {
                     LIDAR.col("point_cloud_3d", lidar_name): [point_cloud_binary],
                     LIDAR.col("point_cloud_features", lidar_name): [features_binary],
-                    LIDAR.col("start_timestamp_us", lidar_name): [timestamp_us],
-                    LIDAR.col("end_timestamp_us", lidar_name): [timestamp_us],
+                    LIDAR.col("start_timestamp_us", lidar_name): [lidar_data.start_timestamp.time_us],
+                    LIDAR.col("end_timestamp_us", lidar_name): [lidar_data.end_timestamp.time_us],
                 }
             )
         else:

@@ -1,0 +1,6 @@
+av2-sensor:
+  _target_: py123d.conversion.datasets.av2.av2_sensor_parser.Av2SensorParser
+  _convert_: 'all'
+
+  splits: ["av2-sensor_train"]
+  av2_data_root: ${dataset_paths.av2_data_root}
