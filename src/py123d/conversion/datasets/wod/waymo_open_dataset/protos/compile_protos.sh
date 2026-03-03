@@ -1,10 +1,10 @@
 #!/bin/bash
 # Compile all proto files in this directory and fix imports to be relative.
-# Prerequisites: protoc (apt install protobuf-compiler)
+# Prerequisites: pip install grpcio-tools
 set -euo pipefail
 cd "$(dirname "$0")"
 
-protoc --proto_path=. --python_out=. *.proto
+python -m grpc_tools.protoc --proto_path=. --python_out=. *.proto
 
 # Fix bare imports → relative imports in generated _pb2.py files
 for f in *_pb2.py; do

@@ -1,10 +1,8 @@
-# Vendored Waymo Open Dataset Protos
+# Imported Waymo Open Dataset Protos
 
-Vendored from [waymo-open-dataset](https://github.com/waymo-research/waymo-open-dataset) **v1.6.7**.
+Imported from [waymo-open-dataset](https://github.com/waymo-research/waymo-open-dataset) **v1.6.7**.
 
-This eliminates the `waymo-open-dataset-tf-2-12-0` pip dependency which is heavy and pinned to a specific TF version.
-
-## What's vendored
+## What's imported
 
 - **8 proto files** in `protos/` — flattened from their original directory structure, import paths rewritten to be flat.
 - **3 Python utility files** in `utils/` — `frame_utils.py`, `range_image_utils.py`, `transform_utils.py` with import paths rewritten.
@@ -15,14 +13,14 @@ If you need to update the generated `_pb2.py` files (e.g. after editing a `.prot
 
 ```bash
 # Prerequisites
-sudo apt-get install -y protobuf-compiler  # or: brew install protobuf
+pip install grpcio-tools
 
 # Compile
 cd src/py123d/conversion/datasets/wod/waymo_open_dataset/protos/
 bash compile_protos.sh
 ```
 
-The generated `_pb2.py` files are committed so end users don't need `protoc`.
+The generated `_pb2.py` files are committed so end users don't need `grpcio-tools`.
 
 ## Updating to a new Waymo version
 
