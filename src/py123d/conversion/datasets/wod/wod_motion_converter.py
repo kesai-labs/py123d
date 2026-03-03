@@ -1,5 +1,4 @@
 import logging
-import os
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -19,15 +18,10 @@ from py123d.datatypes.detections.box_detections import BoxDetectionMetadata, Box
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetection, TrafficLights
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
-from py123d.datatypes.sensors import (
-    LidarID,
-    LidarMetadata,
-)
+from py123d.datatypes.sensors import LidarID, LidarMetadata
 from py123d.datatypes.time.time_point import Timestamp
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
-from py123d.datatypes.vehicle_state.vehicle_parameters import (
-    get_wod_motion_chrysler_pacifica_parameters,
-)
+from py123d.datatypes.vehicle_state.vehicle_parameters import get_wod_motion_chrysler_pacifica_parameters
 from py123d.geometry import (
     BoundingBoxSE3,
     EulerAngles,
@@ -39,11 +33,6 @@ check_dependencies(modules=["tensorflow"], optional_name="waymo")
 import tensorflow as tf
 
 from py123d.conversion.datasets.wod.waymo_open_dataset.protos import scenario_pb2
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-tf.config.set_visible_devices(tf.config.list_physical_devices("CPU"))
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +153,8 @@ class WODMotionConverter(AbstractDatasetConverter):
                 for time_idx in range(len(all_timestamps)):
                     log_writer.write(
                         timestamp=all_timestamps[time_idx],
-                        ego_state=all_ego_states[time_idx],
-                        box_detections=all_box_detections[time_idx],
+                        ego_state_se3=all_ego_states[time_idx],
+                        box_detections_se3=all_box_detections[time_idx],
                         traffic_lights=all_traffic_lights[time_idx],
                     )
 
@@ -320,7 +309,5 @@ def _get_wod_motion_lidar_metadata(
     raise NotImplementedError("WOD-Motion Lidar metadata extraction is not yet implemented.")
 
 
-def _extract_wod_motion_lidars(
-    scenario: scenario_pb2.Scenario,
-) -> None:
+def _extract_wod_motion_lidars(scenario: scenario_pb2.Scenario) -> None:
     raise NotImplementedError("WOD-Motion Lidar extraction is not yet implemented.")

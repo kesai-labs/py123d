@@ -191,8 +191,8 @@ class WODPerceptionConverter(AbstractDatasetConverter):
 
                     log_writer.write(
                         timestamp=Timestamp.from_us(frame.timestamp_micros),
-                        ego_state=_extract_wod_perception_ego_state(frame, map_pose_offset),
-                        box_detections=_extract_wod_perception_box_detections(
+                        ego_state_se3=_extract_wod_perception_ego_state(frame, map_pose_offset),
+                        box_detections_se3=_extract_wod_perception_box_detections(
                             frame, map_pose_offset, self._zero_roll_pitch
                         ),
                         traffic_lights=None,  # NOTE: traffic lights are in the map proto, but only found in motion dataset.

@@ -7,6 +7,16 @@ from py123d.datatypes import DynamicStateSE3Index
 from py123d.geometry import BoundingBoxSE3Index, PoseSE3Index
 from py123d.geometry.geometry_index import Vector3DIndex
 
+
+def _get_uuid_arrow_type():
+    """Gets the appropriate Arrow UUID data type based on pyarrow version."""
+    # NOTE @DanielDauner: pyarrow introduced native UUID type in version 18.0.0
+    if pa.__version__ >= "18.0.0":
+        return pa.uuid()
+    else:
+        return pa.binary(16)
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 # ModalitySchema descriptor
 # ----------------------------------------------------------------------------------------------------------------------
@@ -77,7 +87,7 @@ class ModalitySchema:
 SYNC = ModalitySchema(
     "sync",
     {
-        "uuid": pa.uuid(),
+        "uuid": _get_uuid_arrow_type(),
         "timestamp_us": pa.int64(),
     },
 )
