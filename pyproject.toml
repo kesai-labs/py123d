@@ -135,7 +135,10 @@ lint.ignore = [
     "PLR0917",  # Checks for function definitions that include too many positional arguments.
 ]
 
-exclude = ["__init__.py"]
+exclude = [
+    "__init__.py",
+    "src/py123d/conversion/datasets/wod/waymo_open_dataset/protos",
+]
 fixable = ["ALL"]
 unfixable = []
 
