@@ -1,13 +1,13 @@
 import pytest
 
-from py123d.conversion.registry.box_detection_label_registry import BoxDetectionLabel, DefaultBoxDetectionLabel
 from py123d.datatypes.detections import (
-    BoxDetectionMetadata,
+    BoxDetectionAttributes,
     BoxDetectionSE2,
     BoxDetectionSE3,
     BoxDetectionsSE2,
     BoxDetectionsSE3,
 )
+from py123d.datatypes.detections.box_detection_label import BoxDetectionLabel, DefaultBoxDetectionLabel
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, PoseSE2, PoseSE3, Vector2D, Vector3D
 
@@ -35,16 +35,16 @@ sample_metadata_args = {
 }
 
 
-class TestBoxDetectionMetadata:
+class TestBoxDetectionAttributes:
     def test_initialization(self):
-        metadata = BoxDetectionMetadata(**sample_metadata_args)
-        assert isinstance(metadata, BoxDetectionMetadata)
+        metadata = BoxDetectionAttributes(**sample_metadata_args)
+        assert isinstance(metadata, BoxDetectionAttributes)
         assert metadata.label == DummyBoxDetectionLabel.CAR
         assert metadata.track_token == "sample_token"
         assert metadata.num_lidar_points == 10
 
     def test_default_label(self):
-        metadata = BoxDetectionMetadata(**sample_metadata_args)
+        metadata = BoxDetectionAttributes(**sample_metadata_args)
         label = metadata.label
         default_label = metadata.default_label
         assert label == DummyBoxDetectionLabel.CAR
@@ -54,7 +54,7 @@ class TestBoxDetectionMetadata:
     def test_default_label_with_default_label(self):
         sample_args = sample_metadata_args.copy()
         sample_args["label"] = DefaultBoxDetectionLabel.PERSON
-        metadata = BoxDetectionMetadata(**sample_args)
+        metadata = BoxDetectionAttributes(**sample_args)
         label = metadata.label
         default_label = metadata.default_label
         assert label == DefaultBoxDetectionLabel.PERSON
@@ -65,8 +65,8 @@ class TestBoxDetectionMetadata:
             "label": DummyBoxDetectionLabel.BICYCLE,
             "track_token": "another_token",
         }
-        metadata = BoxDetectionMetadata(**sample_args)
-        assert isinstance(metadata, BoxDetectionMetadata)
+        metadata = BoxDetectionAttributes(**sample_args)
+        assert isinstance(metadata, BoxDetectionAttributes)
         assert metadata.label == DummyBoxDetectionLabel.BICYCLE
         assert metadata.track_token == "another_token"
         assert metadata.num_lidar_points is None
@@ -76,18 +76,18 @@ class TestBoxDetectionMetadata:
             "label": DummyBoxDetectionLabel.CAR,
         }
         with pytest.raises(TypeError):
-            BoxDetectionMetadata(**sample_args)
+            BoxDetectionAttributes(**sample_args)
 
         sample_args = {
             "track_token": "token_only",
         }
         with pytest.raises(TypeError):
-            BoxDetectionMetadata(**sample_args)
+            BoxDetectionAttributes(**sample_args)
 
 
 class TestBoxDetectionSE2:
     def setup_method(self):
-        self.metadata = BoxDetectionMetadata(**sample_metadata_args)
+        self.metadata = BoxDetectionAttributes(**sample_metadata_args)
         self.bounding_box_se2 = BoundingBoxSE2(
             center_se2=PoseSE2(x=0.0, y=0.0, yaw=0.0),
             length=4.0,
@@ -135,7 +135,7 @@ class TestBoxDetectionSE2:
 
 class TestBoxBoxDetectionSE3:
     def setup_method(self):
-        self.metadata = BoxDetectionMetadata(**sample_metadata_args)
+        self.metadata = BoxDetectionAttributes(**sample_metadata_args)
         self.bounding_box_se3 = BoundingBoxSE3(
             center_se3=PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
             length=4.0,
@@ -222,12 +222,12 @@ class TestBoxBoxDetectionSE3:
 
 class TestBoxDetectionsSE2:
     def setup_method(self):
-        self.metadata1 = BoxDetectionMetadata(
+        self.metadata1 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.CAR,
             track_token="token1",
             num_lidar_points=10,
         )
-        self.metadata2 = BoxDetectionMetadata(
+        self.metadata2 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.PEDESTRIAN,
             track_token="token2",
             num_lidar_points=5,
@@ -338,17 +338,17 @@ class TestBoxDetectionsSE2:
 
 class TestBoxDetectionsSE3:
     def setup_method(self):
-        self.metadata1 = BoxDetectionMetadata(
+        self.metadata1 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.CAR,
             track_token="token1",
             num_lidar_points=10,
         )
-        self.metadata2 = BoxDetectionMetadata(
+        self.metadata2 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.PEDESTRIAN,
             track_token="token2",
             num_lidar_points=5,
         )
-        self.metadata3 = BoxDetectionMetadata(
+        self.metadata3 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.BICYCLE,
             track_token="token3",
             num_lidar_points=8,

@@ -48,7 +48,7 @@ from py123d.datatypes.sensors import (
 )
 from py123d.datatypes.time import Timestamp
 from py123d.datatypes.vehicle_state import DynamicStateSE3, EgoStateSE3
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_nuplan_chrysler_pacifica_parameters
+from py123d.datatypes.vehicle_state.ego_metadata import get_nuplan_chrysler_pacifica_parameters
 from py123d.geometry import PoseSE3, Vector3D
 from py123d.geometry.transform.transform_se3 import reframe_se3_array
 
@@ -239,10 +239,15 @@ class NuplanLogParser(LogParser):
                         source_log_path=self._source_log_path,
                         nuplan_sensor_root=self._nuplan_sensor_root,
                     ),
-                    lidar=_extract_nuplan_lidar_data(
-                        nuplan_lidar_pc=nuplan_lidar_pc,
-                        nuplan_sensor_root=self._nuplan_sensor_root,
-                    ),
+                    lidars=[_l]
+                    if (
+                        _l := _extract_nuplan_lidar_data(
+                            nuplan_lidar_pc=nuplan_lidar_pc,
+                            nuplan_sensor_root=self._nuplan_sensor_root,
+                        )
+                    )
+                    is not None
+                    else None,
                 )
                 del nuplan_lidar_pc
         finally:

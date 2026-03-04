@@ -1,40 +1,41 @@
 from __future__ import annotations
 
 import abc
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from py123d.api.map.map_api import MapAPI
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.datatypes import (
+    BoxDetectionMetadata,
     BoxDetectionsSE3,
     CustomModality,
+    EgoMetadata,
     EgoStateSE3,
     FisheyeMEICamera,
     FisheyeMEICameraID,
+    FisheyeMEICameraMetadata,
     Lidar,
     LidarID,
+    LidarMetadata,
     LogMetadata,
     MapMetadata,
     PinholeCamera,
     PinholeCameraID,
+    PinholeCameraMetadata,
     Timestamp,
     TrafficLightDetections,
-    VehicleParameters,
 )
 
 
 class SceneAPI(abc.ABC):
     """Base class for all scene APIs. The scene API provides access to all data modalities at in a scene."""
 
-    # Abstract Methods, to be implemented by subclasses
+    # ------------------------------------------------------------------------------------------------------------------
+    # 1. Abstract Methods, to be implemented by subclasses
     # ------------------------------------------------------------------------------------------------------------------
 
-    @abc.abstractmethod
-    def get_log_metadata(self) -> LogMetadata:
-        """Returns the :class:`~py123d.datatypes.metadata.LogMetadata` of the scene.
-
-        :return: The log metadata.
-        """
+    # 1.1 Static Metadata
+    # ------------------------------------------------------------------------------------------------------------------
 
     @abc.abstractmethod
     def get_scene_metadata(self) -> SceneMetadata:
@@ -44,11 +45,69 @@ class SceneAPI(abc.ABC):
         """
 
     @abc.abstractmethod
+    def get_log_metadata(self) -> LogMetadata:
+        """Returns the :class:`~py123d.datatypes.metadata.LogMetadata` of the scene.
+
+        :return: The log metadata.
+        """
+
+    @abc.abstractmethod
+    def get_map_metadata(self) -> Optional[MapMetadata]:
+        """Returns the :class:`~py123d.datatypes.metadata.MapMetadata` of the scene, if available.
+
+        :return: The map metadata, or None if not available.
+        """
+
+    @abc.abstractmethod
+    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+        """Returns the :class:`~py123d.datatypes.EgoMetadata` of the ego vehicle, if available.
+
+        :return: The ego metadata, or None if not available.
+        """
+
+    @abc.abstractmethod
+    def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
+        """Returns the :class:`~py123d.datatypes.detections.BoxDetectionMetadata` of the scene, if available.
+
+        :return: The box detection metadata, or None if not available.
+        """
+
+    @abc.abstractmethod
+    def get_pinhole_camera_metadatas(self) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+        """Returns a dictionary mapping :class:`~py123d.datatypes.sensors.PinholeCameraID` to \
+            :class:`~py123d.datatypes.sensors.PinholeCameraMetadata` for all available pinhole cameras in the scene.
+
+        :return: The dictionary of pinhole camera metadatas.
+        """
+
+    @abc.abstractmethod
+    def get_fisheye_mei_camera_metadatas(self) -> Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]:
+        """Returns a dictionary mapping :class:`~py123d.datatypes.sensors.FisheyeMEICameraID` to \
+            :class:`~py123d.datatypes.sensors.FisheyeMEICameraMetadata` for all available fisheye MEI cameras in the scene.
+
+        :return: The dictionary of fisheye MEI camera metadatas.
+        """
+
+    @abc.abstractmethod
+    def get_lidar_metadatas(self) -> Dict[LidarID, LidarMetadata]:
+        """Returns a dictionary mapping :class:`~py123d.datatypes.sensors.LidarID` to \
+            :class:`~py123d.datatypes.sensors.LidarMetadata` for all available lidars in the scene.
+
+        :return: The dictionary of lidar metadatas.
+        """
+
+    # 1.2 Map
+    # ------------------------------------------------------------------------------------------------------------------
+
+    @abc.abstractmethod
     def get_map_api(self) -> Optional[MapAPI]:
         """Returns the :class:`~py123d.api.MapAPI` of the scene, if available.
 
         :return: The map API, or None if not available.
         """
+
+    # 1.2 Dynamic Log Data.
+    # ------------------------------------------------------------------------------------------------------------------
 
     @abc.abstractmethod
     def get_timestamp_at_iteration(self, iteration: int) -> Timestamp:
@@ -129,6 +188,7 @@ class SceneAPI(abc.ABC):
         :return: The custom modality, or None if not available.
         """
 
+    # ------------------------------------------------------------------------------------------------------------------
     # Deprecated Methods, to be removed in future versions
     # ------------------------------------------------------------------------------------------------------------------
     def get_ego_state_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
@@ -170,7 +230,7 @@ class SceneAPI(abc.ABC):
     @property
     def map_metadata(self) -> Optional[MapMetadata]:
         """The :class:`~py123d.datatypes.metadata.MapMetadata` of the scene, if available."""
-        return self.log_metadata.map_metadata
+        return self.get_map_metadata()
 
     @property
     def map_api(self) -> Optional[MapAPI]:
@@ -218,36 +278,36 @@ class SceneAPI(abc.ABC):
         return self.scene_metadata.number_of_history_iterations
 
     @property
-    def vehicle_parameters(self) -> Optional[VehicleParameters]:
-        """The :class:`~py123d.datatypes.vehicle_state.VehicleParameters` of the ego vehicle, if available."""
-        return self.log_metadata.vehicle_parameters
+    def vehicle_parameters(self) -> Optional[EgoMetadata]:
+        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the ego vehicle, if available."""
+        return self.get_ego_metadata()
 
     @property
     def available_pinhole_camera_ids(self) -> List[PinholeCameraID]:
-        """List of available :class:`~py123d.datatypes.sensors.PinholeCameraID` in the log metadata."""
-        return list(self.log_metadata.pinhole_camera_metadata.keys())
+        """List of available :class:`~py123d.datatypes.sensors.PinholeCameraID`."""
+        return list(self.get_pinhole_camera_metadatas().keys())
 
     @property
     def available_pinhole_camera_names(self) -> List[str]:
-        """List of available :class:`~py123d.datatypes.sensors.PinholeCameraID` in the log metadata."""
-        return [camera.camera_name for camera in self.log_metadata.pinhole_camera_metadata.values()]
+        """List of available pinhole camera names."""
+        return [camera.camera_name for camera in self.get_pinhole_camera_metadatas().values()]
 
     @property
     def available_fisheye_mei_camera_ids(self) -> List[FisheyeMEICameraID]:
-        """List of available :class:`~py123d.datatypes.sensors.FisheyeMEICameraType` in the log metadata."""
-        return list(self.log_metadata.fisheye_mei_camera_metadata.keys())
+        """List of available :class:`~py123d.datatypes.sensors.FisheyeMEICameraID`."""
+        return list(self.get_fisheye_mei_camera_metadatas().keys())
 
     @property
     def available_fisheye_mei_camera_names(self) -> List[str]:
-        """List of available :class:`~py123d.datatypes.sensors.FisheyeMEICameraType` in the log metadata."""
-        return [camera.camera_name for camera in self.log_metadata.fisheye_mei_camera_metadata.values()]
+        """List of available fisheye MEI camera names."""
+        return [camera.camera_name for camera in self.get_fisheye_mei_camera_metadatas().values()]
 
     @property
     def available_lidar_ids(self) -> List[LidarID]:
-        """List of available :class:`~py123d.datatypes.sensors.LidarID` in the log metadata."""
-        return list(self.log_metadata.lidar_metadata.keys())
+        """List of available :class:`~py123d.datatypes.sensors.LidarID`."""
+        return list(self.get_lidar_metadatas().keys())
 
     @property
     def available_lidar_names(self) -> List[str]:
-        """List of available Lidar names in the log metadata."""
-        return [lidar.lidar_name for lidar in self.log_metadata.lidar_metadata.values()]
+        """List of available Lidar names."""
+        return [lidar.lidar_name for lidar in self.get_lidar_metadatas().values()]

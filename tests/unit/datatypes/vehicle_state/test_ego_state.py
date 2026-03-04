@@ -1,15 +1,15 @@
 import numpy as np
 import pytest
 
-from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
 from py123d.datatypes import (
     DynamicStateSE2,
     DynamicStateSE3,
+    EgoMetadata,
     EgoStateSE2,
     EgoStateSE3,
     Timestamp,
-    VehicleParameters,
 )
+from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.vehicle_state.ego_state import EGO_TRACK_TOKEN
 from py123d.geometry import BoundingBoxSE2, PoseSE2, PoseSE3, Vector2D, Vector3D
 
@@ -18,7 +18,7 @@ class TestEgoStateSE2:
     def setup_method(self):
         """Set up test fixtures for EgoStateSE2 tests."""
         self.rear_axle_pose = PoseSE2(x=0.0, y=0.0, yaw=0.0)
-        self.vehicle_params = VehicleParameters(
+        self.vehicle_params = EgoMetadata(
             vehicle_name="test_vehicle",
             length=4.5,
             width=2.0,
@@ -144,7 +144,7 @@ class TestEgoStateSE3:
         """Set up test fixtures for EgoStateSE3 tests."""
 
         self.rear_axle_pose = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
-        self.vehicle_params = VehicleParameters(
+        self.vehicle_params = EgoMetadata(
             vehicle_name="test_vehicle",
             length=4.5,
             width=2.0,
@@ -213,7 +213,7 @@ class TestEgoStateSE3:
 
     def test_from_imu_with_offset(self):
         """Test creating EgoStateSE3 from IMU pose with a lateral offset (e.g. KITTI-360)."""
-        vehicle_params_with_offset = VehicleParameters(
+        vehicle_params_with_offset = EgoMetadata(
             vehicle_name="test_vehicle_offset",
             length=4.5,
             width=2.0,
@@ -240,7 +240,7 @@ class TestEgoStateSE3:
         # IMU rotated 90 degrees around Z axis
         imu_pose = PoseSE3(x=0.0, y=0.0, z=0.0, qw=np.cos(np.pi / 4), qx=0.0, qy=0.0, qz=np.sin(np.pi / 4))
 
-        vehicle_params_with_offset = VehicleParameters(
+        vehicle_params_with_offset = EgoMetadata(
             vehicle_name="test_vehicle_offset",
             length=4.5,
             width=2.0,

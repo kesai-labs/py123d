@@ -7,7 +7,7 @@ import numpy as np
 import shapely.geometry as geom
 
 from py123d.api import MapAPI, SceneAPI
-from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
+from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.detections.box_detections import BoxDetectionsSE3
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetections
 from py123d.datatypes.map_objects.map_layer_types import MapLayer

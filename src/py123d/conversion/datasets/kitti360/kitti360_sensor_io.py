@@ -4,13 +4,13 @@ from typing import Dict, Tuple
 
 import numpy as np
 
-from py123d.datatypes import LidarFeature, LidarID, LogMetadata
+from py123d.datatypes.sensors.lidar import LidarFeature, LidarID, LidarMetadata
 from py123d.geometry import PoseSE3
 from py123d.geometry.transform import reframe_points_3d_array
 
 
 def load_kitti360_point_cloud_data_from_path(
-    filepath: Path, log_metadata: LogMetadata
+    filepath: Path, lidar_metadatas: Dict[LidarID, LidarMetadata]
 ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
     """Loads KITTI-360 Lidar point clouds the original binary files."""
 
@@ -20,7 +20,7 @@ def load_kitti360_point_cloud_data_from_path(
 
     # NOTE @DanielDauner: KITTI-360 stores point clouds is binary files, that need to be reshaped to (N,4).
     # Indices: x,y,z and intensity. Intensity is stored as a float, but we will convert it to uint8 in the Lidar data structure.
-    lidar_extrinsic = log_metadata.lidar_metadata[LidarID.LIDAR_TOP].extrinsic
+    lidar_extrinsic = lidar_metadatas[LidarID.LIDAR_TOP].extrinsic
     lidar_data = np.fromfile(filepath, dtype=np.float32).reshape([-1, 4])
     lidar_ids = np.zeros(lidar_data.shape[0], dtype=np.uint8)  # nuScenes only has a top lidar.
     lidar_ids[:] = int(LidarID.LIDAR_TOP)

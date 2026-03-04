@@ -1,14 +1,21 @@
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.abstract_log_writer import AbstractLogWriter, CameraData, LidarData
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import add_log_metadata_to_arrow_schema
+from py123d.api.scene.arrow.utils.arrow_metadata_utils import (
+    add_box_detection_metadata_to_arrow_schema,
+    add_ego_metadata_to_arrow_schema,
+    add_fisheye_mei_camera_metadatas_to_arrow_schema,
+    add_lidar_metadatas_to_arrow_schema,
+    add_log_metadata_to_arrow_schema,
+    add_pinhole_camera_metadatas_to_arrow_schema,
+)
 from py123d.api.utils.arrow_schema import (
     BOX_DETECTIONS_SE3,
     CAMERA_STORE_TYPES,
@@ -53,6 +60,11 @@ from py123d.datatypes import (
     Timestamp,
     TrafficLightDetections,
 )
+from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
+from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID, FisheyeMEICameraMetadata
+from py123d.datatypes.sensors.lidar import LidarMetadata
+from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID, PinholeCameraMetadata
+from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata
 
 
 def _get_logs_root() -> Path:
@@ -119,13 +131,13 @@ class ArrowLogWriter(AbstractLogWriter):
     Directory layout per log::
 
         {logs_root}/{split}/{log_name}/
-            sync.arrow                        # reference timeline (uuid + timestamp_us)
+            sync.arrow                        # reference timeline with offset+count refs
             ego_state_se3.arrow               # imu_se3, dynamic_state_se3, timestamp_us
             box_detections_se3.arrow          # per-detection rows
             traffic_lights.arrow              # per-traffic-light rows
-            pinhole_camera.{name}.arrow       # data, state_se3, timestamp_us
-            fisheye_mei.{name}.arrow          # data, state_se3, timestamp_us
-            lidar.{name}.arrow                # point cloud data, timestamps
+            pinhole_camera.arrow              # all pinhole cameras row-wise (camera_id column)
+            fisheye_mei.arrow                 # all fisheye MEI cameras row-wise (camera_id column)
+            lidar.arrow                       # all lidars row-wise (lidar_id column)
             custom.{name}.arrow               # msgpack-encoded binary data, timestamp_us
 
     Use :meth:`write` for frame-wise synchronized writing (writes sync row + all modalities).
@@ -153,10 +165,12 @@ class ArrowLogWriter(AbstractLogWriter):
 
         self._dataset_converter_config: Optional[DatasetConverterConfig] = None
         self._log_metadata: Optional[LogMetadata] = None
+        self._lidar_metadatas: Optional[Dict[LidarID, LidarMetadata]] = None
         self._log_dir: Optional[Path] = None
         self._current_timestamp: Optional[Timestamp] = None
 
         self._modality_writers: Dict[str, _ModalityWriter] = {}
+        self._row_counts: Dict[str, int] = {}
         self._pinhole_mp4_writers: Dict[str, MP4Writer] = {}
         self._fisheye_mei_mp4_writers: Dict[str, MP4Writer] = {}
 
@@ -164,17 +178,26 @@ class ArrowLogWriter(AbstractLogWriter):
     # Writer lifecycle
     # ------------------------------------------------------------------------------------------------------------------
 
-    def _create_modality_writer(self, name: str, schema_dict: dict) -> _ModalityWriter:
+    def _create_modality_writer(
+        self,
+        name: str,
+        schema_dict: dict,
+        schema_post_hook: Optional[Callable[[pa.Schema], pa.Schema]] = None,
+    ) -> _ModalityWriter:
         """Create and register a :class:`_ModalityWriter` for one modality.
 
         :param name: Modality name used as the arrow file stem (e.g. ``sync``, ``ego_state_se3``).
         :param schema_dict: Column-name → Arrow-type mapping for the schema.
+        :param schema_post_hook: Optional callable that receives the schema (with log metadata already added)
+            and returns a schema with additional metadata embedded.
         :return: The created writer.
         """
         assert self._log_dir is not None
         assert self._log_metadata is not None
         file_path = self._log_dir / f"{name}.arrow"
         schema = add_log_metadata_to_arrow_schema(pa.schema(list(schema_dict.items())), self._log_metadata)
+        if schema_post_hook is not None:
+            schema = schema_post_hook(schema)
         writer = _ModalityWriter(file_path, schema, self._ipc_compression, self._ipc_compression_level)
         self._modality_writers[name] = writer
         return writer
@@ -185,12 +208,21 @@ class ArrowLogWriter(AbstractLogWriter):
             writer.close()
         self._modality_writers = {}
 
-    def reset(self, dataset_converter_config: DatasetConverterConfig, log_metadata: LogMetadata) -> bool:
+    def reset(
+        self,
+        dataset_converter_config: DatasetConverterConfig,
+        log_metadata: LogMetadata,
+        ego_metadata: Optional[EgoMetadata] = None,
+        box_detection_metadata: Optional[BoxDetectionMetadata] = None,
+        pinhole_camera_metadatas: Optional[Dict[PinholeCameraID, PinholeCameraMetadata]] = None,
+        fisheye_mei_camera_metadatas: Optional[Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]] = None,
+        lidar_metadatas: Optional[Dict[LidarID, LidarMetadata]] = None,
+    ) -> bool:
         """Inherited, see superclass."""
         log_needs_writing: bool = False
         log_dir: Path = self._logs_root / log_metadata.split / log_metadata.log_name
-
         sync_file_path = log_dir / f"{SYNC.prefix()}.arrow"
+
         if not sync_file_path.exists() or dataset_converter_config.force_log_conversion:
             log_needs_writing = True
 
@@ -203,41 +235,57 @@ class ArrowLogWriter(AbstractLogWriter):
 
             self._dataset_converter_config = dataset_converter_config
             self._log_metadata = log_metadata
+            self._lidar_metadatas = lidar_metadatas or {}
             self._log_dir = log_dir
 
-            # --- Create per-modality writers ---
+            # --- Create per-modality writers (each embeds its own metadata in the Arrow schema) ---
             self._create_modality_writer(SYNC.prefix(), SYNC.schema_dict())
 
-            if dataset_converter_config.include_ego:
-                self._create_modality_writer(EGO_STATE_SE3.prefix(), EGO_STATE_SE3.schema_dict())
+            if dataset_converter_config.include_ego and ego_metadata is not None:
+                self._create_modality_writer(
+                    EGO_STATE_SE3.prefix(),
+                    EGO_STATE_SE3.schema_dict(),
+                    schema_post_hook=lambda s: add_ego_metadata_to_arrow_schema(s, ego_metadata),
+                )
 
-            if dataset_converter_config.include_box_detections:
-                self._create_modality_writer(BOX_DETECTIONS_SE3.prefix(), BOX_DETECTIONS_SE3.schema_dict())
+            if dataset_converter_config.include_box_detections and box_detection_metadata is not None:
+                self._create_modality_writer(
+                    BOX_DETECTIONS_SE3.prefix(),
+                    BOX_DETECTIONS_SE3.schema_dict(),
+                    schema_post_hook=lambda s: add_box_detection_metadata_to_arrow_schema(s, box_detection_metadata),
+                )
 
             if dataset_converter_config.include_traffic_lights:
                 self._create_modality_writer(TRAFFIC_LIGHTS.prefix(), TRAFFIC_LIGHTS.schema_dict())
 
-            if dataset_converter_config.include_pinhole_cameras:
-                for cam_type in log_metadata.pinhole_camera_metadata.keys():
-                    cam_name = cam_type.serialize()
-                    store_overrides = CAMERA_STORE_TYPES[dataset_converter_config.pinhole_camera_store_option]
-                    self._create_modality_writer(
-                        PINHOLE_CAMERA.prefix(cam_name), PINHOLE_CAMERA.schema_dict(cam_name, store_overrides)
-                    )
+            if dataset_converter_config.include_pinhole_cameras and pinhole_camera_metadatas:
+                store_overrides = CAMERA_STORE_TYPES[dataset_converter_config.pinhole_camera_store_option]
+                _pcam_metas = pinhole_camera_metadatas
+                self._create_modality_writer(
+                    PINHOLE_CAMERA.prefix(),
+                    PINHOLE_CAMERA.schema_dict(type_overrides=store_overrides),
+                    schema_post_hook=lambda s: add_pinhole_camera_metadatas_to_arrow_schema(s, _pcam_metas),
+                )
 
-            if dataset_converter_config.include_fisheye_mei_cameras:
-                for cam_type in log_metadata.fisheye_mei_camera_metadata.keys():
-                    cam_name = cam_type.serialize()
-                    store_overrides = CAMERA_STORE_TYPES[dataset_converter_config.fisheye_mei_camera_store_option]
-                    self._create_modality_writer(
-                        FISHEYE_MEI.prefix(cam_name), FISHEYE_MEI.schema_dict(cam_name, store_overrides)
-                    )
+            if dataset_converter_config.include_fisheye_mei_cameras and fisheye_mei_camera_metadatas:
+                store_overrides = CAMERA_STORE_TYPES[dataset_converter_config.fisheye_mei_camera_store_option]
+                _fcam_metas = fisheye_mei_camera_metadatas
+                self._create_modality_writer(
+                    FISHEYE_MEI.prefix(),
+                    FISHEYE_MEI.schema_dict(type_overrides=store_overrides),
+                    schema_post_hook=lambda s: add_fisheye_mei_camera_metadatas_to_arrow_schema(s, _fcam_metas),
+                )
 
-            if dataset_converter_config.include_lidars and len(log_metadata.lidar_metadata) > 0:
-                lidar_name = LidarID.LIDAR_MERGED.serialize()
+            if dataset_converter_config.include_lidars and len(self._lidar_metadatas) > 0:
                 store_overrides = LIDAR_STORE_TYPES[dataset_converter_config.lidar_store_option]
-                self._create_modality_writer(LIDAR.prefix(lidar_name), LIDAR.schema_dict(lidar_name, store_overrides))
+                _lidar_metas = self._lidar_metadatas
+                self._create_modality_writer(
+                    LIDAR.prefix(),
+                    LIDAR.schema_dict(type_overrides=store_overrides),
+                    schema_post_hook=lambda s: add_lidar_metadatas_to_arrow_schema(s, _lidar_metas),
+                )
 
+            self._row_counts = {name: 0 for name in self._modality_writers}
             self._pinhole_mp4_writers = {}
             self._fisheye_mei_mp4_writers = {}
 
@@ -256,7 +304,7 @@ class ArrowLogWriter(AbstractLogWriter):
         traffic_lights: Optional[TrafficLightDetections] = None,
         pinhole_cameras: Optional[List[CameraData]] = None,
         fisheye_mei_cameras: Optional[List[CameraData]] = None,
-        lidar: Optional[LidarData] = None,
+        lidars: Optional[List[LidarData]] = None,
         custom_modalities: Optional[Dict[str, CustomModality]] = None,
     ) -> None:
         """Inherited, see superclass.
@@ -276,38 +324,71 @@ class ArrowLogWriter(AbstractLogWriter):
                 timestamp_us=timestamp.time_us,
             )
 
-        # Write sync row (reference timeline)
+        # 1. Record offsets BEFORE writing modality data
+        ego_offset = self._row_counts.get(EGO_STATE_SE3.prefix(), 0)
+        box_offset = self._row_counts.get(BOX_DETECTIONS_SE3.prefix(), 0)
+        tl_offset = self._row_counts.get(TRAFFIC_LIGHTS.prefix(), 0)
+        pcam_offset = self._row_counts.get(PINHOLE_CAMERA.prefix(), 0)
+        fcam_offset = self._row_counts.get(FISHEYE_MEI.prefix(), 0)
+        lidar_offset = self._row_counts.get(LIDAR.prefix(), 0)
+
+        # 2. Write modality data (each increments _row_counts)
+        ego_count = 0
+        if ego_state_se3 is not None:
+            self.write_ego_state_se3(ego_state_se3)
+            ego_count = 1
+
+        box_count = 0
+        if box_detections_se3 is not None:
+            self.write_box_detections_se3(box_detections_se3)
+            box_count = 1
+
+        tl_count = 0
+        if traffic_lights is not None:
+            self.write_traffic_lights(traffic_lights)
+            tl_count = 1
+
+        pcam_count = 0
+        if pinhole_cameras is not None:
+            for camera_data in pinhole_cameras:
+                self.write_pinhole_camera(camera_data)
+                pcam_count += 1
+
+        fcam_count = 0
+        if fisheye_mei_cameras is not None:
+            for camera_data in fisheye_mei_cameras:
+                self.write_fisheye_mei_camera(camera_data)
+                fcam_count += 1
+
+        lidar_count = 0
+        if lidars is not None:
+            for lidar_data in lidars:
+                self.write_lidar(lidar_data)
+                lidar_count += 1
+
+        if custom_modalities is not None:
+            self.write_custom_modalities(custom_modalities)
+
+        # 3. Write sync row with offset+count references to all modalities
         sync_writer = self._modality_writers[SYNC.prefix()]
         sync_writer.write_batch(
             {
                 SYNC.col("uuid"): [uuid.bytes],
                 SYNC.col("timestamp_us"): [timestamp.time_us],
+                SYNC.col("ego_state_se3_offset"): [ego_offset],
+                SYNC.col("ego_state_se3_count"): [ego_count],
+                SYNC.col("box_detections_se3_offset"): [box_offset],
+                SYNC.col("box_detections_se3_count"): [box_count],
+                SYNC.col("traffic_lights_offset"): [tl_offset],
+                SYNC.col("traffic_lights_count"): [tl_count],
+                SYNC.col("pinhole_camera_offset"): [pcam_offset],
+                SYNC.col("pinhole_camera_count"): [pcam_count],
+                SYNC.col("fisheye_mei_offset"): [fcam_offset],
+                SYNC.col("fisheye_mei_count"): [fcam_count],
+                SYNC.col("lidar_offset"): [lidar_offset],
+                SYNC.col("lidar_count"): [lidar_count],
             }
         )
-
-        # Dispatch to per-modality writers
-        if ego_state_se3 is not None:
-            self.write_ego_state_se3(ego_state_se3)
-
-        if box_detections_se3 is not None:
-            self.write_box_detections_se3(box_detections_se3)
-
-        if traffic_lights is not None:
-            self.write_traffic_lights(traffic_lights)
-
-        if pinhole_cameras is not None:
-            for camera_data in pinhole_cameras:
-                self.write_pinhole_camera(camera_data)
-
-        if fisheye_mei_cameras is not None:
-            for camera_data in fisheye_mei_cameras:
-                self.write_fisheye_mei_camera(camera_data)
-
-        if lidar is not None:
-            self.write_lidar(lidar)
-
-        if custom_modalities is not None:
-            self.write_custom_modalities(custom_modalities)
 
     # ------------------------------------------------------------------------------------------------------------------
     # Individual modality writers (usable independently for async writing)
@@ -327,6 +408,7 @@ class ArrowLogWriter(AbstractLogWriter):
                     EGO_STATE_SE3.col("timestamp_us"): [ego_state_se3.timestamp.time_us],
                 }
             )
+            self._row_counts[EGO_STATE_SE3.prefix()] += 1
 
     def write_box_detections_se3(self, box_detections_se3: BoxDetectionsSE3) -> None:
         """Write box detections to ``box_detections_se3.arrow`` (one row per detection)."""
@@ -359,6 +441,7 @@ class ArrowLogWriter(AbstractLogWriter):
                     BOX_DETECTIONS_SE3.col("num_lidar_points"): [num_lidar_points_list],
                 }
             )
+            self._row_counts[BOX_DETECTIONS_SE3.prefix()] += 1
 
     def write_traffic_lights(self, traffic_lights: TrafficLightDetections) -> None:
         """Write traffic lights to ``traffic_lights.arrow`` (one row per traffic light)."""
@@ -387,16 +470,16 @@ class ArrowLogWriter(AbstractLogWriter):
                     TRAFFIC_LIGHTS.col("timestamp_us"): [timestamp_list],
                 }
             )
+            self._row_counts[TRAFFIC_LIGHTS.prefix()] += 1
 
     def write_pinhole_camera(self, camera_data: CameraData) -> None:
-        """Write a single pinhole camera observation to ``pinhole_camera.{name}.arrow``."""
+        """Write a single pinhole camera observation to ``pinhole_camera.arrow``."""
         assert self._dataset_converter_config is not None, "Log writer is not initialized."
         assert self._log_metadata is not None, "Log writer is not initialized."
         if not self._dataset_converter_config.include_pinhole_cameras:
             return
 
-        cam_name = camera_data.camera_id.serialize()
-        writer = self._modality_writers[PINHOLE_CAMERA.prefix(cam_name)]
+        writer = self._modality_writers[PINHOLE_CAMERA.prefix()]
 
         store_option = self._dataset_converter_config.pinhole_camera_store_option
         data_value = self._get_camera_data_value(camera_data, store_option, self._pinhole_mp4_writers)
@@ -408,21 +491,22 @@ class ArrowLogWriter(AbstractLogWriter):
 
         writer.write_batch(
             {
-                PINHOLE_CAMERA.col("data", cam_name): [data_value],
-                PINHOLE_CAMERA.col("state_se3", cam_name): [camera_data.extrinsic],
-                PINHOLE_CAMERA.col("timestamp_us", cam_name): [timestamp_us],
+                PINHOLE_CAMERA.col("camera_id"): [int(camera_data.camera_id)],
+                PINHOLE_CAMERA.col("data"): [data_value],
+                PINHOLE_CAMERA.col("state_se3"): [camera_data.extrinsic],
+                PINHOLE_CAMERA.col("timestamp_us"): [timestamp_us],
             }
         )
+        self._row_counts[PINHOLE_CAMERA.prefix()] += 1
 
     def write_fisheye_mei_camera(self, camera_data: CameraData) -> None:
-        """Write a single fisheye MEI camera observation to ``fisheye_mei.{name}.arrow``."""
+        """Write a single fisheye MEI camera observation to ``fisheye_mei.arrow``."""
         assert self._dataset_converter_config is not None, "Log writer is not initialized."
         assert self._log_metadata is not None, "Log writer is not initialized."
         if not self._dataset_converter_config.include_fisheye_mei_cameras:
             return
 
-        cam_name = camera_data.camera_id.serialize()
-        writer = self._modality_writers[FISHEYE_MEI.prefix(cam_name)]
+        writer = self._modality_writers[FISHEYE_MEI.prefix()]
 
         store_option = self._dataset_converter_config.fisheye_mei_camera_store_option
         data_value = self._get_camera_data_value(camera_data, store_option, self._fisheye_mei_mp4_writers)
@@ -434,45 +518,49 @@ class ArrowLogWriter(AbstractLogWriter):
 
         writer.write_batch(
             {
-                FISHEYE_MEI.col("data", cam_name): [data_value],
-                FISHEYE_MEI.col("state_se3", cam_name): [camera_data.extrinsic],
-                FISHEYE_MEI.col("timestamp_us", cam_name): [timestamp_us],
+                FISHEYE_MEI.col("camera_id"): [int(camera_data.camera_id)],
+                FISHEYE_MEI.col("data"): [data_value],
+                FISHEYE_MEI.col("state_se3"): [camera_data.extrinsic],
+                FISHEYE_MEI.col("timestamp_us"): [timestamp_us],
             }
         )
+        self._row_counts[FISHEYE_MEI.prefix()] += 1
 
     def write_lidar(self, lidar_data: LidarData) -> None:
-        """Write a single lidar observation to ``lidar.{name}.arrow``."""
+        """Write a single lidar observation to ``lidar.arrow``."""
         assert self._dataset_converter_config is not None, "Log writer is not initialized."
         assert self._log_metadata is not None, "Log writer is not initialized."
         if not self._dataset_converter_config.include_lidars:
             return
-        if len(self._log_metadata.lidar_metadata) == 0:
+        if not self._lidar_metadatas:
             return
 
-        lidar_name = LidarID.LIDAR_MERGED.serialize()
-        writer = self._modality_writers[LIDAR.prefix(lidar_name)]
+        writer = self._modality_writers[LIDAR.prefix()]
 
         if self._dataset_converter_config.lidar_store_option == "path":
             data_path: Optional[str] = str(lidar_data.relative_path) if lidar_data.has_file_path else None
             writer.write_batch(
                 {
-                    LIDAR.col("data", lidar_name): [data_path],
-                    LIDAR.col("start_timestamp_us", lidar_name): [lidar_data.start_timestamp.time_us],
-                    LIDAR.col("end_timestamp_us", lidar_name): [lidar_data.end_timestamp.time_us],
+                    LIDAR.col("lidar_id"): [int(lidar_data.lidar_type)],
+                    LIDAR.col("data"): [data_path],
+                    LIDAR.col("start_timestamp_us"): [lidar_data.start_timestamp.time_us],
+                    LIDAR.col("end_timestamp_us"): [lidar_data.end_timestamp.time_us],
                 }
             )
         elif self._dataset_converter_config.lidar_store_option == "binary":
             point_cloud_binary, features_binary = self._prepare_lidar_data(lidar_data)
             writer.write_batch(
                 {
-                    LIDAR.col("point_cloud_3d", lidar_name): [point_cloud_binary],
-                    LIDAR.col("point_cloud_features", lidar_name): [features_binary],
-                    LIDAR.col("start_timestamp_us", lidar_name): [lidar_data.start_timestamp.time_us],
-                    LIDAR.col("end_timestamp_us", lidar_name): [lidar_data.end_timestamp.time_us],
+                    LIDAR.col("lidar_id"): [int(lidar_data.lidar_type)],
+                    LIDAR.col("point_cloud_3d"): [point_cloud_binary],
+                    LIDAR.col("point_cloud_features"): [features_binary],
+                    LIDAR.col("start_timestamp_us"): [lidar_data.start_timestamp.time_us],
+                    LIDAR.col("end_timestamp_us"): [lidar_data.end_timestamp.time_us],
                 }
             )
         else:
             raise ValueError(f"Unsupported lidar store option: {self._dataset_converter_config.lidar_store_option}")
+        self._row_counts[LIDAR.prefix()] += 1
 
     def write_custom_modalities(self, custom_modalities: Dict[str, CustomModality]) -> None:
         """Write custom modalities to ``custom.{name}.arrow`` (one file per named modality).
@@ -507,8 +595,10 @@ class ArrowLogWriter(AbstractLogWriter):
 
         self._dataset_converter_config = None
         self._log_metadata = None
+        self._lidar_metadatas = None
         self._log_dir = None
         self._current_timestamp = None
+        self._row_counts = {}
 
         for mp4_writer in self._pinhole_mp4_writers.values():
             mp4_writer.close()
@@ -578,6 +668,7 @@ class ArrowLogWriter(AbstractLogWriter):
                 self._log_metadata,
                 lidar_data.iteration,
                 lidar_data.dataset_root,
+                lidar_metadatas=self._lidar_metadatas,
             )
         else:
             raise ValueError("Lidar data must provide either point cloud data or a file path.")

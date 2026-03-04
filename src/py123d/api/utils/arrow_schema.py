@@ -89,6 +89,19 @@ SYNC = ModalitySchema(
     {
         "uuid": _get_uuid_arrow_type(),
         "timestamp_us": pa.int64(),
+        # References to other modality tables (offset = start row, count = number of rows)
+        "ego_state_se3_offset": pa.int64(),
+        "ego_state_se3_count": pa.int32(),
+        "box_detections_se3_offset": pa.int64(),
+        "box_detections_se3_count": pa.int32(),
+        "traffic_lights_offset": pa.int64(),
+        "traffic_lights_count": pa.int32(),
+        "pinhole_camera_offset": pa.int64(),
+        "pinhole_camera_count": pa.int32(),
+        "fisheye_mei_offset": pa.int64(),
+        "fisheye_mei_count": pa.int32(),
+        "lidar_offset": pa.int64(),
+        "lidar_count": pa.int32(),
     },
 )
 
@@ -124,31 +137,31 @@ TRAFFIC_LIGHTS = ModalitySchema(
 PINHOLE_CAMERA = ModalitySchema(
     "pinhole_camera",
     {
+        "camera_id": pa.uint8(),
         "data": pa.string(),
         "state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
         "timestamp_us": pa.int64(),
     },
-    parametric=True,
 )
 
 FISHEYE_MEI = ModalitySchema(
     "fisheye_mei",
     {
+        "camera_id": pa.uint8(),
         "data": pa.string(),
         "state_se3": pa.list_(pa.float64(), len(PoseSE3Index)),
         "timestamp_us": pa.int64(),
     },
-    parametric=True,
 )
 
 LIDAR = ModalitySchema(
     "lidar",
     {
+        "lidar_id": pa.uint8(),
         "data": pa.string(),
         "start_timestamp_us": pa.int64(),
         "end_timestamp_us": pa.int64(),
     },
-    parametric=True,
 )
 
 CUSTOM_MODALITY = ModalitySchema(

@@ -28,7 +28,7 @@ from py123d.conversion.datasets.pandaset.utils.pandaset_utlis import (
 )
 from py123d.conversion.registry import PandasetBoxDetectionLabel
 from py123d.datatypes import (
-    BoxDetectionMetadata,
+    BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
     EgoStateSE3,
@@ -40,7 +40,7 @@ from py123d.datatypes import (
     PinholeIntrinsics,
     Timestamp,
 )
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_pandaset_chrysler_pacifica_parameters
+from py123d.datatypes.vehicle_state.ego_metadata import get_pandaset_chrysler_pacifica_parameters
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, EulerAnglesIndex, PoseSE3
 from py123d.geometry.transform import abs_to_rel_se3_array
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
@@ -166,11 +166,16 @@ class PandasetConverter(AbstractDatasetConverter):
                         camera_timestamps,
                         self.dataset_converter_config,
                     ),
-                    lidar=_extract_pandaset_lidar(
-                        source_log_path,
-                        iteration,
-                        self.dataset_converter_config,
-                    ),
+                    lidars=[_l]
+                    if (
+                        _l := _extract_pandaset_lidar(
+                            source_log_path,
+                            iteration,
+                            self.dataset_converter_config,
+                        )
+                    )
+                    is not None
+                    else None,
                 )
 
         # 4. Finalize log writing
@@ -320,7 +325,7 @@ def _extract_pandaset_box_detections(source_log_path: Path, iteration: int, time
         ).array
 
         box_detection_se3 = BoxDetectionSE3(
-            metadata=BoxDetectionMetadata(
+            metadata=BoxDetectionAttributes(
                 label=pandaset_box_detection_label,
                 track_token=box_uuids[box_idx],
             ),

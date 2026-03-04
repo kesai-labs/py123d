@@ -28,7 +28,7 @@ from py123d.conversion.datasets.kitti360.utils.kitti360_labels import (
 from py123d.conversion.datasets.kitti360.utils.preprocess_detection import process_detection
 from py123d.conversion.registry import KITTI360BoxDetectionLabel
 from py123d.datatypes import (
-    BoxDetectionMetadata,
+    BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
     DynamicStateSE3,
@@ -47,7 +47,7 @@ from py123d.datatypes import (
     PinholeIntrinsics,
     Timestamp,
 )
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_kitti360_vw_passat_parameters
+from py123d.datatypes.vehicle_state.ego_metadata import get_kitti360_vw_passat_parameters
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Quaternion, Vector3D
 
 KITTI360_DT: Final[float] = 0.1
@@ -319,7 +319,7 @@ class Kitti360Converter(AbstractDatasetConverter):
                     box_detections=box_detection_wrapper_all[valid_idx],
                     pinhole_cameras=pinhole_cameras,
                     fisheye_mei_cameras=fisheye_cameras,
-                    lidar=lidar,
+                    lidars=[lidar] if lidar is not None else None,
                 )
 
         log_writer.close()
@@ -685,7 +685,7 @@ def _extract_kitti360_box_detections_all(
         ):
             if state is None:
                 break
-            detection_metadata = BoxDetectionMetadata(
+            detection_metadata = BoxDetectionAttributes(
                 label=detection_label,
                 track_token=token,
             )

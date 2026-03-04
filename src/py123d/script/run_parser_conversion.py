@@ -79,10 +79,26 @@ def _convert_logs(args: List[LogParser], cfg: DictConfig) -> List:
     for log_parser in args:
         try:
             log_metadata = log_parser.get_log_metadata()
-            log_needs_writing = log_writer.reset(cfg.dataset_converter_config, log_metadata)
+            ego_metadata = log_parser.get_ego_metadata()
+            box_detection_metadata = log_parser.get_box_detection_metadata()
+            pinhole_camera_metadatas = log_parser.get_pinhole_camera_metadatas()
+            fisheye_mei_camera_metadatas = log_parser.get_fisheye_mei_camera_metadatas()
+            lidar_metadatas = log_parser.get_lidar_metadatas()
+
+            log_needs_writing = log_writer.reset(
+                cfg.dataset_converter_config,
+                log_metadata,
+                ego_metadata,
+                box_detection_metadata,
+                pinhole_camera_metadatas,
+                fisheye_mei_camera_metadatas,
+                lidar_metadatas,
+            )
+
             if log_needs_writing:
                 for frame in log_parser.iter_frames():
                     log_writer.write(**frame.to_writer_kwargs())
+
             log_writer.close()
         except Exception as e:
             logger.error(f"Error converting log: {e}")

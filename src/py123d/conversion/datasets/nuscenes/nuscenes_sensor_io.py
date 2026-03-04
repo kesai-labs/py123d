@@ -3,14 +3,13 @@ from typing import Dict, Tuple
 
 import numpy as np
 
-from py123d.datatypes.metadata import LogMetadata
-from py123d.datatypes.sensors.lidar import LidarFeature, LidarID
+from py123d.datatypes.sensors.lidar import LidarFeature, LidarID, LidarMetadata
 from py123d.geometry import PoseSE3
 from py123d.geometry.transform import reframe_points_3d_array
 
 
 def load_nuscenes_point_cloud_data_from_path(
-    pcd_path: Path, log_metadata: LogMetadata
+    pcd_path: Path, lidar_metadatas: Dict[LidarID, LidarMetadata]
 ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
     """Loads nuScenes Lidar point clouds from the original binary files."""
 
@@ -18,7 +17,7 @@ def load_nuscenes_point_cloud_data_from_path(
     assert lidar_data.ndim == 2 and lidar_data.shape[1] == 5, (
         f"Expected Lidar data to have shape (N, 5) for nuScenes, but got shape {lidar_data.shape}."
     )
-    lidar_extrinsic = log_metadata.lidar_metadata[LidarID.LIDAR_TOP].extrinsic
+    lidar_extrinsic = lidar_metadatas[LidarID.LIDAR_TOP].extrinsic
     assert lidar_extrinsic is not None, "Lidar extrinsic must be available in log metadata for nuScenes Lidar loading."
 
     lidar_ids = np.zeros(lidar_data.shape[0], dtype=np.uint8)  # nuScenes only has a top lidar.

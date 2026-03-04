@@ -138,12 +138,12 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     )
 
     # 1. Filter location & whether map API is required
-    if filter.map_api_required and log_metadata.map_metadata is None:
+    if filter.map_api_required and log_metadata.location is None:
         pass
     elif (
         filter.locations is not None
-        and log_metadata.map_metadata is not None
-        and log_metadata.map_metadata.location not in filter.locations
+        and log_metadata.location is not None
+        and log_metadata.location not in filter.locations
     ):
         pass
 
@@ -198,32 +198,19 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
         add_scene = True
         start_idx = scene_extraction_metadata.initial_idx
         if filter.pinhole_camera_ids is not None:
-            for pinhole_camera_id in filter.pinhole_camera_ids:
-                cam_name = pinhole_camera_id.serialize()
-                cam_file = log_dir / f"{PINHOLE_CAMERA.prefix(cam_name)}.arrow"
-                if pinhole_camera_id in log_metadata.pinhole_camera_metadata and cam_file.exists():
-                    continue
-                else:
-                    add_scene = False
-                    break
+            cam_file = log_dir / f"{PINHOLE_CAMERA.prefix()}.arrow"
+            if not cam_file.exists():
+                add_scene = False
 
         if filter.fisheye_mei_camera_ids is not None:
-            for fisheye_mei_camera_id in filter.fisheye_mei_camera_ids:
-                cam_name = fisheye_mei_camera_id.serialize()
-                cam_file = log_dir / f"{FISHEYE_MEI.prefix(cam_name)}.arrow"
-                if fisheye_mei_camera_id in log_metadata.fisheye_mei_camera_metadata and cam_file.exists():
-                    continue
-                else:
-                    add_scene = False
-                    break
+            cam_file = log_dir / f"{FISHEYE_MEI.prefix()}.arrow"
+            if not cam_file.exists():
+                add_scene = False
 
         if filter.lidar_ids is not None:
-            for lidar_id in filter.lidar_ids:
-                lidar_name = lidar_id.serialize()
-                lidar_file = log_dir / f"{LIDAR.prefix(lidar_name)}.arrow"
-                if lidar_id not in log_metadata.lidar_metadata and lidar_file.exists():
-                    add_scene = False
-                    break
+            lidar_file = log_dir / f"{LIDAR.prefix()}.arrow"
+            if not lidar_file.exists():
+                add_scene = False
         if add_scene:
             scene_extraction_metadatas_.append(scene_extraction_metadata)
 

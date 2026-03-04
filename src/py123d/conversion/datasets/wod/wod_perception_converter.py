@@ -21,7 +21,7 @@ from py123d.conversion.datasets.wod.wod_perception_sensor_io import load_wod_per
 from py123d.conversion.registry.box_detection_label_registry import WODPerceptionBoxDetectionLabel
 from py123d.conversion.utils.sensor_utils.camera_conventions import CameraConvention, convert_camera_convention
 from py123d.datatypes import (
-    BoxDetectionMetadata,
+    BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
     EgoStateSE3,
@@ -35,7 +35,7 @@ from py123d.datatypes import (
     PinholeIntrinsics,
     Timestamp,
 )
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_wod_perception_chrysler_pacifica_parameters
+from py123d.datatypes.vehicle_state.ego_metadata import get_wod_perception_chrysler_pacifica_parameters
 from py123d.geometry import (
     BoundingBoxSE3,
     BoundingBoxSE3Index,
@@ -197,14 +197,19 @@ class WODPerceptionConverter(AbstractDatasetConverter):
                         ),
                         traffic_lights=None,  # NOTE: traffic lights are in the map proto, but only found in motion dataset.
                         pinhole_cameras=_extract_wod_perception_cameras(frame, self.dataset_converter_config),
-                        lidar=_extract_wod_perception_lidars(
-                            frame,
-                            self._keep_polar_features,
-                            frame_idx,
-                            self.dataset_converter_config,
-                            source_tf_record_path,
-                            self._wod_perception_data_root,
-                        ),
+                        lidars=[_l]
+                        if (
+                            _l := _extract_wod_perception_lidars(
+                                frame,
+                                self._keep_polar_features,
+                                frame_idx,
+                                self.dataset_converter_config,
+                                source_tf_record_path,
+                                self._wod_perception_data_root,
+                            )
+                        )
+                        is not None
+                        else None,
                     )
             except Exception as e:
                 logger.error(f"Error processing log {log_name}: {e}")
@@ -385,7 +390,7 @@ def _extract_wod_perception_box_detections(
     for detection_idx in range(num_detections):
         box_detections.append(
             BoxDetectionSE3(
-                metadata=BoxDetectionMetadata(
+                metadata=BoxDetectionAttributes(
                     label=detections_types[detection_idx],
                     track_token=detections_token[detection_idx],
                 ),

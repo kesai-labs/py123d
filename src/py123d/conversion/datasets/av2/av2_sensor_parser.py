@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from pathlib import Path
 from typing import Dict, Iterator, List, Literal, Optional, Tuple, Union
 
@@ -23,7 +24,7 @@ from py123d.conversion.datasets.av2.utils.av2_helper import (
 )
 from py123d.conversion.registry import AV2SensorBoxDetectionLabel
 from py123d.datatypes import (
-    BoxDetectionMetadata,
+    BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
     EgoStateSE3,
@@ -36,7 +37,9 @@ from py123d.datatypes import (
     PinholeIntrinsics,
     Timestamp,
 )
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_av2_ford_fusion_hybrid_parameters
+from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
+from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID, FisheyeMEICameraMetadata
+from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata, get_av2_ford_fusion_hybrid_parameters
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, PoseSE3, Vector3D, Vector3DIndex
 from py123d.geometry.transform import reframe_se3_array, rel_to_abs_se3_array
 
@@ -121,12 +124,47 @@ class Av2SensorLogParser(LogParser):
             log_name=self._source_log_path.name,
             location=map_metadata.location,
             timestep_seconds=0.1,
-            box_detection_label_class=AV2SensorBoxDetectionLabel,
-            vehicle_parameters=get_av2_ford_fusion_hybrid_parameters(),
-            pinhole_camera_metadata=_get_av2_pinhole_camera_metadata(self._source_log_path),
-            lidar_metadata=_get_av2_lidar_metadata(self._source_log_path),
-            map_metadata=map_metadata,
+            # box_detection_label_class=AV2SensorBoxDetectionLabel,
+            # vehicle_parameters=get_av2_ford_fusion_hybrid_parameters(),
+            # pinhole_camera_metadata=_get_av2_pinhole_camera_metadata(self._source_log_path),
+            # lidar_metadata=_get_av2_lidar_metadata(self._source_log_path),
+            # map_metadata=map_metadata,
         )
+
+    @typing.override
+    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+        """Inherited, see superclass."""
+        # [1] https://en.wikipedia.org/wiki/Ford_Fusion_Hybrid#Second_generation
+        # https://github.com/argoverse/av2-api/blob/6b22766247eda941cb1953d6a58e8d5631c561da/tests/unit/map/test_map_api.py#L375
+        return EgoMetadata(
+            vehicle_name="av2_ford_fusion_hybrid",
+            width=1.852 + 0.275,  # 0.275 is the estimated width of the side mirrors
+            length=4.869,
+            height=1.476,
+            wheel_base=2.850,
+            center_to_imu_se3=PoseSE3(x=1.339, y=0.0, z=0.438, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+            rear_axle_to_imu_se3=PoseSE3.identity(),
+        )
+
+    @typing.override
+    def get_box_detection_metadata(self) -> BoxDetectionMetadata:
+        """Inherited, see superclass."""
+        return BoxDetectionMetadata(box_detection_label_class=AV2SensorBoxDetectionLabel)
+
+    @typing.override
+    def get_pinhole_camera_metadatas(self) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+        """Inherited, see superclass."""
+        return _get_av2_pinhole_camera_metadata(self._source_log_path)
+
+    @typing.override
+    def get_fisheye_mei_camera_metadatas(self) -> Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]:
+        """Inherited, see superclass."""
+        return {}
+
+    @typing.override
+    def get_lidar_metadatas(self) -> Dict[LidarID, LidarMetadata]:
+        """Inherited, see superclass."""
+        return _get_av2_lidar_metadata(self._source_log_path)
 
     def iter_frames(self) -> Iterator[FrameData]:
         """Inherited, see superclass."""
@@ -167,7 +205,9 @@ class Av2SensorLogParser(LogParser):
                     synchronization_df,
                     self._source_log_path,
                 ),
-                lidar=_extract_av2_sensor_lidar(self._source_log_path, lidar_timestamp_ns),
+                lidars=[_l]
+                if (_l := _extract_av2_sensor_lidar(self._source_log_path, lidar_timestamp_ns)) is not None
+                else None,
             )
 
 
@@ -273,7 +313,7 @@ def _extract_av2_sensor_box_detections(
     for detection_idx in range(num_detections):
         box_detections.append(
             BoxDetectionSE3(
-                metadata=BoxDetectionMetadata(
+                metadata=BoxDetectionAttributes(
                     label=detections_labels[detection_idx],
                     track_token=detections_token[detection_idx],
                     num_lidar_points=detections_num_lidar_points[detection_idx],

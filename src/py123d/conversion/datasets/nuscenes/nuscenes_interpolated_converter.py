@@ -21,7 +21,7 @@ from py123d.conversion.datasets.nuscenes.utils.nuscenes_constants import (
 )
 from py123d.conversion.registry.box_detection_label_registry import NuScenesBoxDetectionLabel
 from py123d.datatypes import (
-    BoxDetectionMetadata,
+    BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
     DynamicStateSE3,
@@ -36,7 +36,7 @@ from py123d.datatypes import (
     PinholeIntrinsics,
     Timestamp,
 )
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_nuscenes_renault_zoe_parameters
+from py123d.datatypes.vehicle_state.ego_metadata import get_nuscenes_renault_zoe_parameters
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
 
 check_dependencies(["nuscenes"], "nuscenes")
@@ -243,11 +243,16 @@ class NuScenesInterpolatedConverter(AbstractDatasetConverter):
                             nuscenes_data_root=self._nuscenes_data_root,
                             dataset_converter_config=self.dataset_converter_config,
                         ),
-                        lidar=_extract_lidar_from_sample_data(
-                            sweep,
-                            nuscenes_data_root=self._nuscenes_data_root,
-                            dataset_converter_config=self.dataset_converter_config,
-                        ),
+                        lidars=[_l]
+                        if (
+                            _l := _extract_lidar_from_sample_data(
+                                sweep,
+                                nuscenes_data_root=self._nuscenes_data_root,
+                                dataset_converter_config=self.dataset_converter_config,
+                            )
+                        )
+                        is not None
+                        else None,
                     )
                 else:
                     # Non-keyframe: interpolated boxes, real ego pose, nearest sensors
@@ -290,7 +295,7 @@ class NuScenesInterpolatedConverter(AbstractDatasetConverter):
                         ego_state=ego_state,
                         box_detections=box_detections,
                         pinhole_cameras=cameras,
-                        lidar=lidar,
+                        lidars=[lidar] if lidar is not None else None,
                     )
 
         log_writer.close()
@@ -594,7 +599,7 @@ def _interpolate_box_detections(
         elif next_det.velocity_3d is not None:
             velocity_3d = next_det.velocity_3d
 
-        metadata = BoxDetectionMetadata(
+        metadata = BoxDetectionAttributes(
             label=prev_det.metadata.label,
             track_token=track_token,
             num_lidar_points=0,
@@ -784,7 +789,7 @@ def _extract_nuscenes_box_detections(nusc: NuScenes, sample: Dict[str, Any]) -> 
         velocity = nusc.box_velocity(ann_token)
         velocity_3d = Vector3D(x=velocity[0], y=velocity[1], z=velocity[2] if len(velocity) > 2 else 0.0)
 
-        metadata = BoxDetectionMetadata(
+        metadata = BoxDetectionAttributes(
             label=label,
             track_token=ann["instance_token"],
             num_lidar_points=ann.get("num_lidar_pts", 0),

@@ -20,7 +20,7 @@ from py123d.conversion.datasets.nuscenes.utils.nuscenes_constants import (
 )
 from py123d.conversion.registry.box_detection_label_registry import NuScenesBoxDetectionLabel
 from py123d.datatypes import (
-    BoxDetectionMetadata,
+    BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
     DynamicStateSE3,
@@ -35,7 +35,7 @@ from py123d.datatypes import (
     PinholeIntrinsics,
     Timestamp,
 )
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_nuscenes_renault_zoe_parameters
+from py123d.datatypes.vehicle_state.ego_metadata import get_nuscenes_renault_zoe_parameters
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
 
 check_dependencies(["nuscenes"], "nuscenes")
@@ -205,12 +205,17 @@ class NuScenesConverter(AbstractDatasetConverter):
                             nuscenes_data_root=self._nuscenes_data_root,
                             dataset_converter_config=self.dataset_converter_config,
                         ),
-                        lidar=_extract_nuscenes_lidar(
-                            nusc=nusc,
-                            sample=sample,
-                            nuscenes_data_root=self._nuscenes_data_root,
-                            dataset_converter_config=self.dataset_converter_config,
-                        ),
+                        lidars=[_l]
+                        if (
+                            _l := _extract_nuscenes_lidar(
+                                nusc=nusc,
+                                sample=sample,
+                                nuscenes_data_root=self._nuscenes_data_root,
+                                dataset_converter_config=self.dataset_converter_config,
+                            )
+                        )
+                        is not None
+                        else None,
                     )
 
                 sample_token = sample["next"]
@@ -381,7 +386,7 @@ def _extract_nuscenes_box_detections(nusc: NuScenes, sample: Dict[str, Any]) -> 
         velocity = nusc.box_velocity(ann_token)
         velocity_3d = Vector3D(x=velocity[0], y=velocity[1], z=velocity[2] if len(velocity) > 2 else 0.0)
 
-        metadata = BoxDetectionMetadata(
+        metadata = BoxDetectionAttributes(
             label=label,
             track_token=ann["instance_token"],
             num_lidar_points=ann.get("num_lidar_pts", 0),

@@ -14,14 +14,14 @@ from py123d.conversion.datasets.wod.utils.wod_constants import (
 )
 from py123d.conversion.datasets.wod.wod_map_conversion import convert_wod_map
 from py123d.conversion.registry.box_detection_label_registry import WODMotionBoxDetectionLabel
-from py123d.datatypes.detections.box_detections import BoxDetectionMetadata, BoxDetectionSE3, BoxDetectionsSE3
+from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE3, BoxDetectionsSE3
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetection, TrafficLightDetections
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.datatypes.sensors import LidarID, LidarMetadata
 from py123d.datatypes.time.timestamp import Timestamp
+from py123d.datatypes.vehicle_state.ego_metadata import get_wod_motion_chrysler_pacifica_parameters
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
-from py123d.datatypes.vehicle_state.vehicle_parameters import get_wod_motion_chrysler_pacifica_parameters
 from py123d.geometry import (
     BoundingBoxSE3,
     EulerAngles,
@@ -250,7 +250,7 @@ def _extract_all_wod_motion_box_detections(
                     height=state.height,
                 )
                 box_detection = BoxDetectionSE3(
-                    metadata=BoxDetectionMetadata(
+                    metadata=BoxDetectionAttributes(
                         label=label,
                         track_token=track_id,
                     ),

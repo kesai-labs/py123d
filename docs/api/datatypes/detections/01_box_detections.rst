@@ -6,7 +6,7 @@ Box Detections
    :exclude-members: __init__
    :autoclasstoc:
 
-.. autoclass:: py123d.datatypes.detections.BoxDetectionMetadata
+.. autoclass:: py123d.datatypes.detections.BoxDetectionAttributes
    :members:
    :exclude-members: __init__
    :autoclasstoc:

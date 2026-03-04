@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Final, Optional
 
-from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
-from py123d.datatypes.detections.box_detections import BoxDetectionMetadata, BoxDetectionSE2, BoxDetectionSE3
+from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
+from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE2, BoxDetectionSE3
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.datatypes.vehicle_state.dynamic_state import DynamicStateSE2, DynamicStateSE3
-from py123d.datatypes.vehicle_state.vehicle_parameters import (
-    VehicleParameters,
+from py123d.datatypes.vehicle_state.ego_metadata import (
+    EgoMetadata,
     center_se2_to_imu_se2,
     center_se3_to_imu_se3,
     imu_se2_to_center_se2,
@@ -38,7 +38,7 @@ class EgoStateSE3:
     )
 
     _imu_se3: PoseSE3
-    _vehicle_parameters: VehicleParameters
+    _vehicle_parameters: EgoMetadata
     _timestamp: Timestamp
     _dynamic_state_se3: Optional[DynamicStateSE3]
     _tire_steering_angle: Optional[float]
@@ -47,7 +47,7 @@ class EgoStateSE3:
     def from_imu(
         cls,
         imu_se3: PoseSE3,
-        vehicle_parameters: VehicleParameters,
+        vehicle_parameters: EgoMetadata,
         timestamp: Timestamp,
         dynamic_state_se3: Optional[DynamicStateSE3] = None,
         tire_steering_angle: float = 0.0,
@@ -75,7 +75,7 @@ class EgoStateSE3:
     def from_rear_axle(
         cls,
         rear_axle_se3: PoseSE3,
-        vehicle_parameters: VehicleParameters,
+        vehicle_parameters: EgoMetadata,
         timestamp: Timestamp,
         dynamic_state_se3: Optional[DynamicStateSE3] = None,
         tire_steering_angle: float = 0.0,
@@ -108,7 +108,7 @@ class EgoStateSE3:
     def from_center(
         cls,
         center_se3: PoseSE3,
-        vehicle_parameters: VehicleParameters,
+        vehicle_parameters: EgoMetadata,
         timestamp: Timestamp,
         dynamic_state_se3: Optional[DynamicStateSE3] = None,
         tire_steering_angle: float = 0.0,
@@ -158,8 +158,8 @@ class EgoStateSE3:
         return self.rear_axle_se3.pose_se2
 
     @property
-    def vehicle_parameters(self) -> VehicleParameters:
-        """The :class:`~py123d.datatypes.vehicle_state.VehicleParameters` of the vehicle."""
+    def vehicle_parameters(self) -> EgoMetadata:
+        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the vehicle."""
         return self._vehicle_parameters
 
     @property
@@ -206,7 +206,7 @@ class EgoStateSE3:
     def box_detection_se3(self) -> BoxDetectionSE3:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE3` projection of the ego vehicle."""
         return BoxDetectionSE3(
-            metadata=BoxDetectionMetadata(
+            metadata=BoxDetectionAttributes(
                 label=DefaultBoxDetectionLabel.EGO,
                 track_token=EGO_TRACK_TOKEN,
             ),
@@ -241,7 +241,7 @@ class EgoStateSE2:
     __slots__ = ("_imu_se2", "_vehicle_parameters", "_timestamp", "_dynamic_state_se2", "_tire_steering_angle")
 
     _imu_se2: PoseSE2
-    _vehicle_parameters: VehicleParameters
+    _vehicle_parameters: EgoMetadata
     _timestamp: Timestamp
     _dynamic_state_se2: Optional[DynamicStateSE2]
     _tire_steering_angle: Optional[float]
@@ -250,7 +250,7 @@ class EgoStateSE2:
     def from_imu(
         cls,
         imu_se2: PoseSE2,
-        vehicle_parameters: VehicleParameters,
+        vehicle_parameters: EgoMetadata,
         timestamp: Timestamp,
         dynamic_state_se2: Optional[DynamicStateSE2] = None,
         tire_steering_angle: float = 0.0,
@@ -278,7 +278,7 @@ class EgoStateSE2:
     def from_rear_axle(
         cls,
         rear_axle_se2: PoseSE2,
-        vehicle_parameters: VehicleParameters,
+        vehicle_parameters: EgoMetadata,
         timestamp: Timestamp,
         dynamic_state_se2: Optional[DynamicStateSE2] = None,
         tire_steering_angle: float = 0.0,
@@ -311,7 +311,7 @@ class EgoStateSE2:
     def from_center(
         cls,
         center_se2: PoseSE2,
-        vehicle_parameters: VehicleParameters,
+        vehicle_parameters: EgoMetadata,
         timestamp: Timestamp,
         dynamic_state_se2: Optional[DynamicStateSE2] = None,
         tire_steering_angle: float = 0.0,
@@ -351,8 +351,8 @@ class EgoStateSE2:
         return imu_se2_to_rear_axle_se2(imu_se2=self._imu_se2, vehicle_parameters=self._vehicle_parameters)
 
     @property
-    def vehicle_parameters(self) -> VehicleParameters:
-        """The :class:`~py123d.datatypes.vehicle_state.VehicleParameters` of the vehicle."""
+    def vehicle_parameters(self) -> EgoMetadata:
+        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the vehicle."""
         return self._vehicle_parameters
 
     @property
@@ -388,7 +388,7 @@ class EgoStateSE2:
     def box_detection_se2(self) -> BoxDetectionSE2:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE2` projection of the ego vehicle."""
         return BoxDetectionSE2(
-            metadata=BoxDetectionMetadata(
+            metadata=BoxDetectionAttributes(
                 label=DefaultBoxDetectionLabel.EGO,
                 track_token=EGO_TRACK_TOKEN,
             ),

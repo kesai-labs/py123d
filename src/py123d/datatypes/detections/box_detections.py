@@ -5,12 +5,12 @@ from typing import List, Optional, Union
 
 import shapely
 
-from py123d.conversion.registry import BoxDetectionLabel, DefaultBoxDetectionLabel
+from py123d.datatypes.detections.box_detection_label import BoxDetectionLabel, DefaultBoxDetectionLabel
 from py123d.datatypes.time import Timestamp
 from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, OccupancyMap2D, PoseSE2, PoseSE3, Vector2D, Vector3D
 
 
-class BoxDetectionMetadata:
+class BoxDetectionAttributes:
     """Stores data about the box detection, including its label, track token, and number of Lidar points."""
 
     __slots__ = ("_label", "_track_token", "_num_lidar_points")
@@ -21,7 +21,7 @@ class BoxDetectionMetadata:
         track_token: str,
         num_lidar_points: Optional[int] = None,
     ) -> None:
-        """Initialize a BoxDetectionMetadata instance.
+        """Initialize a BoxDetectionAttributes instance.
 
         :param label: The label of the detection.
         :param track_token: The track token of the detection.
@@ -61,13 +61,13 @@ class BoxDetectionSE2:
 
     def __init__(
         self,
-        metadata: BoxDetectionMetadata,
+        metadata: BoxDetectionAttributes,
         bounding_box_se2: BoundingBoxSE2,
         velocity_2d: Optional[Vector2D] = None,
     ) -> None:
         """Initialize a BoxDetectionSE2 instance.
 
-        :param metadata: The :class:`BoxDetectionMetadata` of the detection.
+        :param metadata: The :class:`BoxDetectionAttributes` of the detection.
         :param bounding_box_se2: The :class:`~py123d.datatypes.geometry.BoundingBoxSE2` of the detection.
         :param velocity: Optionally, a :class:`~py123d.geometry.Vector2D` representing the velocity.
         """
@@ -77,8 +77,8 @@ class BoxDetectionSE2:
         self._velocity_2d = velocity_2d
 
     @property
-    def metadata(self) -> BoxDetectionMetadata:
-        """The :class:`BoxDetectionMetadata` of the detection."""
+    def metadata(self) -> BoxDetectionAttributes:
+        """The :class:`BoxDetectionAttributes` of the detection."""
         return self._metadata
 
     @property
@@ -114,13 +114,13 @@ class BoxDetectionSE3:
 
     def __init__(
         self,
-        metadata: BoxDetectionMetadata,
+        metadata: BoxDetectionAttributes,
         bounding_box_se3: BoundingBoxSE3,
         velocity_3d: Optional[Vector3D] = None,
     ) -> None:
         """Initialize a BoxDetectionSE3 instance.
 
-        :param metadata: The :class:`BoxDetectionMetadata` of the detection.
+        :param metadata: The :class:`BoxDetectionAttributes` of the detection.
         :param bounding_box_se3: The :class:`~py123d.datatypes.geometry.BoundingBoxSE3` of the detection.
         :param velocity_3d: Optionally, a :class:`~py123d.geometry.Vector3D` representing the velocity.
         """
@@ -129,8 +129,8 @@ class BoxDetectionSE3:
         self._velocity = velocity_3d
 
     @property
-    def metadata(self) -> BoxDetectionMetadata:
-        """The :class:`BoxDetectionMetadata` of the detection."""
+    def metadata(self) -> BoxDetectionAttributes:
+        """The :class:`BoxDetectionAttributes` of the detection."""
         return self._metadata
 
     @property

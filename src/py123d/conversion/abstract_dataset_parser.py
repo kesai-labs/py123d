@@ -10,14 +10,16 @@ import numpy as np
 import numpy.typing as npt
 
 from py123d.datatypes.custom.custom_modality import CustomModality
+from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
 from py123d.datatypes.detections.box_detections import BoxDetectionsSE3
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetections
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject
 from py123d.datatypes.metadata import LogMetadata, MapMetadata
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID
-from py123d.datatypes.sensors.lidar import LidarID
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
+from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID, FisheyeMEICameraMetadata
+from py123d.datatypes.sensors.lidar import LidarID, LidarMetadata
+from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID, PinholeCameraMetadata
 from py123d.datatypes.time.timestamp import Timestamp
+from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry.pose import PoseSE3
 
@@ -117,7 +119,7 @@ class FrameData:
     traffic_lights: Optional[TrafficLightDetections] = None
     pinhole_cameras: Optional[List[CameraData]] = None
     fisheye_mei_cameras: Optional[List[CameraData]] = None
-    lidar: Optional[LidarData] = None
+    lidars: Optional[List[LidarData]] = None
     custom_modalities: Optional[Dict[str, CustomModality]] = None
 
     def to_writer_kwargs(self) -> dict:
@@ -135,11 +137,27 @@ class FrameData:
             kwargs["pinhole_cameras"] = self.pinhole_cameras
         if self.fisheye_mei_cameras is not None:
             kwargs["fisheye_mei_cameras"] = self.fisheye_mei_cameras
-        if self.lidar is not None:
-            kwargs["lidar"] = self.lidar
+        if self.lidars is not None:
+            kwargs["lidars"] = self.lidars
         if self.custom_modalities is not None:
             kwargs["custom_modalities"] = self.custom_modalities
         return kwargs
+
+
+class DatasetParser(abc.ABC):
+    """Top-level parser that produces per-log and per-map containers.
+
+    An orchestrator calls :meth:`get_log_parsers` / :meth:`get_map_parsers` once on
+    the main process, then distributes the resulting lightweight containers to workers.
+    """
+
+    @abc.abstractmethod
+    def get_log_parsers(self) -> List[LogParser]:
+        """Returns one :class:`LogParser` per log in the dataset."""
+
+    @abc.abstractmethod
+    def get_map_parsers(self) -> List[MapParser]:
+        """Returns one :class:`MapParser` per map region in the dataset."""
 
 
 class LogParser(abc.ABC):
@@ -151,7 +169,27 @@ class LogParser(abc.ABC):
 
     @abc.abstractmethod
     def get_log_metadata(self) -> LogMetadata:
-        """Returns metadata describing this log (sensors, calibration, etc.)."""
+        pass
+
+    @abc.abstractmethod
+    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+        pass
+
+    @abc.abstractmethod
+    def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
+        pass
+
+    @abc.abstractmethod
+    def get_pinhole_camera_metadatas(self) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+        pass
+
+    @abc.abstractmethod
+    def get_fisheye_mei_camera_metadatas(self) -> Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]:
+        pass
+
+    @abc.abstractmethod
+    def get_lidar_metadatas(self) -> Dict[LidarID, LidarMetadata]:
+        pass
 
     @abc.abstractmethod
     def iter_frames(self) -> Iterator[FrameData]:
@@ -172,19 +210,3 @@ class MapParser(abc.ABC):
     @abc.abstractmethod
     def iter_map_objects(self) -> Iterator[BaseMapObject]:
         """Yields map objects lazily, one at a time."""
-
-
-class DatasetParser(abc.ABC):
-    """Top-level parser that produces per-log and per-map containers.
-
-    An orchestrator calls :meth:`get_log_parsers` / :meth:`get_map_parsers` once on
-    the main process, then distributes the resulting lightweight containers to workers.
-    """
-
-    @abc.abstractmethod
-    def get_log_parsers(self) -> List[LogParser]:
-        """Returns one :class:`LogParser` per log in the dataset."""
-
-    @abc.abstractmethod
-    def get_map_parsers(self) -> List[MapParser]:
-        """Returns one :class:`MapParser` per map region in the dataset."""

@@ -298,7 +298,7 @@ The ego vehicle state (``EgoStateSE3``, ``EgoStateSE2``) is defined at the
 kinematics and the bicycle model.
 
 Key reference frames on the vehicle are related through extrinsic transforms
-stored in ``VehicleParameters``:
+stored in ``EgoMetadata``:
 
 - ``center_to_imu_se3``: maps coordinates from the vehicle center frame to the
   IMU frame.

@@ -1,8 +1,15 @@
+from py123d.datatypes.detections.box_detection_label import (
+    BOX_DETECTION_LABEL_REGISTRY,
+    BoxDetectionLabel,
+    DefaultBoxDetectionLabel,
+    register_box_detection_label,
+)
+from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
 from py123d.datatypes.detections.box_detections import (
-    BoxDetectionMetadata,
+    BoxDetection,
+    BoxDetectionAttributes,
     BoxDetectionSE2,
     BoxDetectionSE3,
-    BoxDetection,
     BoxDetectionsSE2,
     BoxDetectionsSE3,
 )

@@ -1,6 +1,6 @@
 from typing import Dict
 
-from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
+from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightStatus
 from py123d.datatypes.map_objects.map_layer_types import MapLayer
 from py123d.visualization.color.color import (

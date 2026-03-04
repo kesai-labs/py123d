@@ -17,7 +17,7 @@ defaults:
   - map_writer: arrow_map_writer
   - dataset_converter_config: av2-sensor
   - datasets:
-      - nuplan-mini
+      - av2-sensor
   - _self_
 
 

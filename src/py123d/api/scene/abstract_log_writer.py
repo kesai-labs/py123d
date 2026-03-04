@@ -11,13 +11,15 @@ import numpy.typing as npt
 
 from py123d.conversion.dataset_converter_config import DatasetConverterConfig
 from py123d.datatypes.custom.custom_modality import CustomModality
+from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
 from py123d.datatypes.detections.box_detections import BoxDetectionsSE3
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetections
 from py123d.datatypes.metadata import LogMetadata
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID
-from py123d.datatypes.sensors.lidar import LidarID
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
+from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID, FisheyeMEICameraMetadata
+from py123d.datatypes.sensors.lidar import LidarID, LidarMetadata
+from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID, PinholeCameraMetadata
 from py123d.datatypes.time.timestamp import Timestamp
+from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry import PoseSE3
 
@@ -34,6 +36,11 @@ class AbstractLogWriter(abc.ABC):
         self,
         dataset_converter_config: DatasetConverterConfig,
         log_metadata: LogMetadata,
+        ego_metadata: Optional[EgoMetadata] = None,
+        box_detection_metadata: Optional[BoxDetectionMetadata] = None,
+        pinhole_camera_metadatas: Optional[Dict[PinholeCameraID, PinholeCameraMetadata]] = None,
+        fisheye_mei_camera_metadatas: Optional[Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]] = None,
+        lidar_metadatas: Optional[Dict[LidarID, LidarMetadata]] = None,
     ) -> bool:
         """Resets the log writer to start writing a new log according to the provided configuration and metadata.
 
@@ -51,7 +58,7 @@ class AbstractLogWriter(abc.ABC):
         traffic_lights: Optional[TrafficLightDetections] = None,
         pinhole_cameras: Optional[List[CameraData]] = None,
         fisheye_mei_cameras: Optional[List[CameraData]] = None,
-        lidar: Optional[LidarData] = None,
+        lidars: Optional[List[LidarData]] = None,
         custom_modalities: Optional[Dict[str, CustomModality]] = None,
     ) -> None:
         """Writes a single iteration of data to the log.
@@ -62,7 +69,7 @@ class AbstractLogWriter(abc.ABC):
         :param traffic_lights: Optional, the traffic light detections, defaults to None
         :param pinhole_cameras: Optional, the pinhole camera data, defaults to None
         :param fisheye_mei_cameras: Optional, the fisheye MEI camera data, defaults to None
-        :param lidar: Optional, the Lidar data, defaults to None
+        :param lidars: Optional, the Lidar data list, defaults to None
         :param custom_modalities: Optional, the custom modalities, defaults to None
         """
         pass

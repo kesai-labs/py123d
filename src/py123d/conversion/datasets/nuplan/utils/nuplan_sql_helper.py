@@ -2,7 +2,7 @@ from typing import List, Tuple
 
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.conversion.datasets.nuplan.utils.nuplan_constants import NUPLAN_DETECTION_NAME_DICT
-from py123d.datatypes.detections.box_detections import BoxDetectionMetadata, BoxDetectionSE3
+from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE3
 from py123d.geometry import BoundingBoxSE3, EulerAngles, PoseSE3, Vector3D
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
 
@@ -57,7 +57,7 @@ def get_box_detections_for_lidarpc_token_from_db(log_file: str, token: str) -> L
             height=row["height"],
         )
         box_detection = BoxDetectionSE3(
-            metadata=BoxDetectionMetadata(
+            metadata=BoxDetectionAttributes(
                 label=NUPLAN_DETECTION_NAME_DICT[row["category_name"]],
                 track_token=row["track_token"].hex(),
             ),

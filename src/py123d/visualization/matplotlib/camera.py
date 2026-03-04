@@ -6,8 +6,8 @@ import numpy as np
 import numpy.typing as npt
 from pyquaternion import Quaternion
 
-from py123d.conversion.registry import DefaultBoxDetectionLabel
 from py123d.datatypes.detections import BoxDetectionsSE3
+from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.sensors import Lidar, PinholeCamera, PinholeIntrinsics
 from py123d.datatypes.vehicle_state import EgoStateSE3
 from py123d.geometry import BoundingBoxSE3Index, Corners3DIndex
