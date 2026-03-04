@@ -68,7 +68,7 @@ class MockMapAPI(MapAPI):
             log_name="test_log_name",
             location="test_location",
             map_has_z=True,
-            map_is_local=True,
+            map_is_per_log=True,
         )
 
     def get_available_map_layers(self) -> List[MapLayer]:

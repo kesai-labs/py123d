@@ -41,6 +41,7 @@ from py123d.datatypes.detections import (
 )
 from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
 from py123d.datatypes.metadata import LogMetadata
+from py123d.datatypes.metadata.sensor_metadata import LidarMetadatas
 from py123d.datatypes.sensors import (
     FisheyeMEICamera,
     FisheyeMEICameraID,
@@ -52,6 +53,7 @@ from py123d.datatypes.sensors import (
     PinholeCameraID,
     PinholeCameraMetadata,
 )
+from py123d.datatypes.sensors.lidar import LidarFeature
 from py123d.datatypes.time import Timestamp
 from py123d.datatypes.vehicle_state import DynamicStateSE3, EgoMetadata, EgoStateSE3
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
@@ -289,7 +291,7 @@ def get_lidar_from_arrow_table(
     arrow_table: pa.Table,
     index: int,
     lidar_type: LidarID,
-    lidar_metadatas: Dict[LidarID, LidarMetadata],
+    lidar_metadatas: LidarMetadatas,
     log_metadata: LogMetadata,
 ) -> Optional[Lidar]:
     """Builds a Lidar object from an Arrow table at a given index.
@@ -337,11 +339,26 @@ def get_lidar_from_arrow_table(
 
     lidar: Optional[Lidar] = None
     if point_cloud_3d is not None:
-        lidar = Lidar(
-            metadata=lidar_metadatas[lidar_type],
-            point_cloud_3d=point_cloud_3d,
-            point_cloud_features=point_cloud_feature,
-        )
+        if lidar_type != LidarID.LIDAR_MERGED:
+            if point_cloud_feature is not None and LidarFeature.IDS.serialize() in point_cloud_feature.keys():
+                mask = point_cloud_feature[LidarFeature.IDS.serialize()] == int(lidar_type.value)
+                point_cloud_feature = {key: value[mask] for key, value in point_cloud_feature.items()}
+                point_cloud_3d = point_cloud_3d[mask]
+                lidar = Lidar(
+                    metadata=lidar_metadatas[lidar_type],
+                    point_cloud_3d=point_cloud_3d,
+                    point_cloud_features=point_cloud_feature,
+                )
+        else:
+            lidar = Lidar(
+                metadata=LidarMetadata(
+                    lidar_name=LidarID.LIDAR_MERGED.serialize(),
+                    lidar_id=LidarID.LIDAR_MERGED,
+                    lidar_to_imu_se3=PoseSE3.identity(),
+                ),
+                point_cloud_3d=point_cloud_3d,
+                point_cloud_features=point_cloud_feature,
+            )
 
     return lidar
 

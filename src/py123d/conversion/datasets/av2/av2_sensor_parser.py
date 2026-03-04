@@ -38,7 +38,7 @@ from py123d.datatypes import (
     Timestamp,
 )
 from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID, FisheyeMEICameraMetadata
+from py123d.datatypes.metadata.sensor_metadata import FisheyeMEICameraMetadatas, LidarMetadatas, PinholeCameraMetadatas
 from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata, get_av2_ford_fusion_hybrid_parameters
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, PoseSE3, Vector3D, Vector3DIndex
 from py123d.geometry.transform import reframe_se3_array, rel_to_abs_se3_array
@@ -124,11 +124,6 @@ class Av2SensorLogParser(LogParser):
             log_name=self._source_log_path.name,
             location=map_metadata.location,
             timestep_seconds=0.1,
-            # box_detection_label_class=AV2SensorBoxDetectionLabel,
-            # vehicle_parameters=get_av2_ford_fusion_hybrid_parameters(),
-            # pinhole_camera_metadata=_get_av2_pinhole_camera_metadata(self._source_log_path),
-            # lidar_metadata=_get_av2_lidar_metadata(self._source_log_path),
-            # map_metadata=map_metadata,
         )
 
     @typing.override
@@ -147,22 +142,22 @@ class Av2SensorLogParser(LogParser):
         )
 
     @typing.override
-    def get_box_detection_metadata(self) -> BoxDetectionMetadata:
+    def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
         """Inherited, see superclass."""
         return BoxDetectionMetadata(box_detection_label_class=AV2SensorBoxDetectionLabel)
 
     @typing.override
-    def get_pinhole_camera_metadatas(self) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+    def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
         """Inherited, see superclass."""
-        return _get_av2_pinhole_camera_metadata(self._source_log_path)
+        return _get_av2_pinhole_camera_metadatas(self._source_log_path)
 
     @typing.override
-    def get_fisheye_mei_camera_metadatas(self) -> Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]:
+    def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
         """Inherited, see superclass."""
-        return {}
+        return None  # NOTE: AV2 sensor dataset does not have fisheye MEI cameras
 
     @typing.override
-    def get_lidar_metadatas(self) -> Dict[LidarID, LidarMetadata]:
+    def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
         """Inherited, see superclass."""
         return _get_av2_lidar_metadata(self._source_log_path)
 
@@ -205,9 +200,7 @@ class Av2SensorLogParser(LogParser):
                     synchronization_df,
                     self._source_log_path,
                 ),
-                lidars=[_l]
-                if (_l := _extract_av2_sensor_lidar(self._source_log_path, lidar_timestamp_ns)) is not None
-                else None,
+                lidar=_extract_av2_sensor_lidar(self._source_log_path, lidar_timestamp_ns),
             )
 
 
@@ -216,9 +209,9 @@ class Av2SensorLogParser(LogParser):
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def _get_av2_pinhole_camera_metadata(source_log_path: Path) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+def _get_av2_pinhole_camera_metadatas(source_log_path: Path) -> PinholeCameraMetadatas:
     """Helper to get pinhole camera metadata for AV2 sensor dataset."""
-    pinhole_camera_metadata: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    metadata_dict: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
     intrinsics_file = source_log_path / "calibration" / "intrinsics.feather"
     intrinsics_df = pd.read_feather(intrinsics_file)
 
@@ -230,7 +223,7 @@ def _get_av2_pinhole_camera_metadata(source_log_path: Path) -> Dict[PinholeCamer
         if row_callib["sensor_name"] in AV2_CAMERA_ID_MAPPING.keys():
             row_intrinsics = intrinsics_df[intrinsics_df["sensor_name"] == row_callib["sensor_name"]].iloc[0].to_dict()
             camera_id = AV2_CAMERA_ID_MAPPING[row_callib["sensor_name"]]
-            pinhole_camera_metadata[camera_id] = PinholeCameraMetadata(
+            metadata_dict[camera_id] = PinholeCameraMetadata(
                 camera_name=str(row_callib["sensor_name"]),
                 camera_id=camera_id,
                 width=row_intrinsics["width_px"],
@@ -252,30 +245,30 @@ def _get_av2_pinhole_camera_metadata(source_log_path: Path) -> Dict[PinholeCamer
                 is_undistorted=True,
             )
 
-    return pinhole_camera_metadata
+    return PinholeCameraMetadatas(metadata_dict)
 
 
-def _get_av2_lidar_metadata(source_log_path: Path) -> Dict[LidarID, LidarMetadata]:
+def _get_av2_lidar_metadata(source_log_path: Path) -> LidarMetadatas:
     """Helper to get Lidar metadata for AV2 sensor dataset."""
-    metadata: Dict[LidarID, LidarMetadata] = {}
+    metadata_dict: Dict[LidarID, LidarMetadata] = {}
     calibration_file = source_log_path / "calibration" / "egovehicle_SE3_sensor.feather"
     calibration_df = pd.read_feather(calibration_file)
 
-    metadata[LidarID.LIDAR_TOP] = LidarMetadata(
+    metadata_dict[LidarID.LIDAR_TOP] = LidarMetadata(
         lidar_name="up_lidar",
         lidar_id=LidarID.LIDAR_TOP,
         lidar_to_imu_se3=_row_dict_to_pose_se3(
             calibration_df[calibration_df["sensor_name"] == "up_lidar"].iloc[0].to_dict()
         ),
     )
-    metadata[LidarID.LIDAR_DOWN] = LidarMetadata(
+    metadata_dict[LidarID.LIDAR_DOWN] = LidarMetadata(
         lidar_name="down_lidar",
         lidar_id=LidarID.LIDAR_DOWN,
         lidar_to_imu_se3=_row_dict_to_pose_se3(
             calibration_df[calibration_df["sensor_name"] == "down_lidar"].iloc[0].to_dict()
         ),
     )
-    return metadata
+    return LidarMetadatas(metadata_dict)
 
 
 def _extract_av2_sensor_box_detections(

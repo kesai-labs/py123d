@@ -1,4 +1,6 @@
 _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
 _convert_: 'all'
 
+force_map_conversion: ${force_map_conversion}
 maps_root: ${dataset_paths.py123d_maps_root}
+logs_root: ${dataset_paths.py123d_logs_root}

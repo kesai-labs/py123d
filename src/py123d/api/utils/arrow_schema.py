@@ -89,19 +89,6 @@ SYNC = ModalitySchema(
     {
         "uuid": _get_uuid_arrow_type(),
         "timestamp_us": pa.int64(),
-        # References to other modality tables (offset = start row, count = number of rows)
-        "ego_state_se3_offset": pa.int64(),
-        "ego_state_se3_count": pa.int32(),
-        "box_detections_se3_offset": pa.int64(),
-        "box_detections_se3_count": pa.int32(),
-        "traffic_lights_offset": pa.int64(),
-        "traffic_lights_count": pa.int32(),
-        "pinhole_camera_offset": pa.int64(),
-        "pinhole_camera_count": pa.int32(),
-        "fisheye_mei_offset": pa.int64(),
-        "fisheye_mei_count": pa.int32(),
-        "lidar_offset": pa.int64(),
-        "lidar_count": pa.int32(),
     },
 )
 
@@ -130,7 +117,7 @@ TRAFFIC_LIGHTS = ModalitySchema(
     {
         "lane_id": pa.list_(pa.int32()),
         "status": pa.list_(pa.uint8()),
-        "timestamp_us": pa.list_(pa.int64()),
+        "timestamp_us": pa.int64(),
     },
 )
 
@@ -182,7 +169,6 @@ CAMERA_STORE_TYPES: Dict[str, Dict[str, pa.DataType]] = {
     "path": {},
     "jpeg_binary": {"data": pa.binary()},
     "png_binary": {"data": pa.binary()},
-    "mp4": {"data": pa.int64()},
 }
 
 LIDAR_STORE_TYPES: Dict[str, Dict[str, Optional[pa.DataType]]] = {

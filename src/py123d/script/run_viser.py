@@ -4,6 +4,7 @@ import hydra
 from omegaconf import DictConfig
 
 from py123d.script.builders.execution_builder import build_executor
+from py123d.script.builders.logging_builder import build_logger
 from py123d.script.builders.scene_builder_builder import build_scene_builder
 from py123d.script.builders.scene_filter_builder import build_scene_filter
 from py123d.script.builders.viser_config_builder import build_viser_config
@@ -18,6 +19,9 @@ CONFIG_NAME = "default_viser"
 
 @hydra.main(config_path=CONFIG_PATH, config_name=CONFIG_NAME, version_base=None)
 def main(cfg: DictConfig) -> None:
+    # Setup logging
+    build_logger(cfg)
+
     # Initialize dataset paths
     setup_dataset_paths(cfg.dataset_paths)
 

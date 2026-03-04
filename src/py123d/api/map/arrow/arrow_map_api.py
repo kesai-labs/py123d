@@ -11,9 +11,8 @@ import shapely
 import shapely.geometry as geom
 
 from py123d.api.map.map_api import MapAPI
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_map_metadata_from_arrow_table
+from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
-from py123d.common.dataset_paths import get_dataset_paths
 from py123d.common.utils.msgpack_utils import msgpack_decode_with_numpy
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject, MapObjectIDType
 from py123d.datatypes.map_objects.map_layer_types import MapLayer, RoadEdgeType, RoadLineType, StopZoneType
@@ -33,7 +32,7 @@ from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.geometry import OccupancyMap2D, Point2D, Point3D, Polyline3D
 
 # TODO: add to some configs
-MAX_LRU_CACHED_TABLES: Final[int] = 128
+MAX_LRU_CACHED_MAPS: Final[int] = 128
 MAP_OBJECT_CACHE_SIZE: Final[int] = 10_000
 
 
@@ -89,7 +88,7 @@ class ArrowMapAPI(MapAPI):
         }
 
         _map_table = get_lru_cached_arrow_table(str(self._file_path))
-        self._map_metadata: MapMetadata = get_map_metadata_from_arrow_table(_map_table)
+        self._map_metadata: MapMetadata = get_metadata_from_arrow_schema(_map_table.schema, MapMetadata)
         _occupancy_maps, _object_ids_to_row_idx = _load_map_layers_from_arrow_table(_map_table)
         self._occupancy_maps: Dict[MapLayer, OccupancyMap2D] = _occupancy_maps
         self._object_ids_to_row_idx: Dict[MapLayer, Dict[MapObjectIDType, int]] = _object_ids_to_row_idx
@@ -423,26 +422,10 @@ class ArrowMapAPI(MapAPI):
         return road_line
 
 
-@lru_cache(maxsize=MAX_LRU_CACHED_TABLES)
-def get_global_map_api(dataset: str, location: str) -> ArrowMapAPI:
-    """Get the global map API for a given dataset and location."""
-    PY123D_MAPS_ROOT: Optional[Path] = get_dataset_paths().py123d_maps_root
-    assert PY123D_MAPS_ROOT is not None, (
-        "PY123D_MAPS_ROOT is not configured. Please set the environment variable or configure dataset paths accordingly."
-    )
-    arrow_path = PY123D_MAPS_ROOT / dataset / f"{dataset}_{location}.arrow"
-    assert arrow_path.is_file(), f"{dataset}_{location}.arrow not found in {str(PY123D_MAPS_ROOT)}."
-    map_api = ArrowMapAPI(arrow_path)
-    return map_api
-
-
-def get_local_map_api(split_name: str, log_name: str) -> ArrowMapAPI:
-    """Get the local map API for a given split name and log name."""
-    PY123D_MAPS_ROOT: Optional[Path] = get_dataset_paths().py123d_maps_root
-    assert PY123D_MAPS_ROOT is not None, (
-        "PY123D_MAPS_ROOT is not configured. Please set the environment variable or configure dataset paths accordingly."
-    )
-    arrow_path = PY123D_MAPS_ROOT / split_name / f"{log_name}.arrow"
-    assert arrow_path.is_file(), f"{log_name}.arrow not found in {str(PY123D_MAPS_ROOT)}."
-    map_api = ArrowMapAPI(arrow_path)
+@lru_cache(maxsize=MAX_LRU_CACHED_MAPS)
+def get_lru_cached_map_api(arrow_file_path: Union[Path, str]) -> ArrowMapAPI:
+    """Get the map API for a given dataset and location."""
+    arrow_file_path = Path(arrow_file_path)
+    assert arrow_file_path.exists(), f"Arrow file of map not found: {arrow_file_path}"
+    map_api = ArrowMapAPI(arrow_file_path)
     return map_api

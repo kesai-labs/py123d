@@ -15,7 +15,7 @@ class MapMetadata(AbstractMetadata):
         "_log_name",
         "_location",
         "_map_has_z",
-        "_map_is_local",
+        "_map_is_per_log",
         "_version",
     )
 
@@ -24,7 +24,7 @@ class MapMetadata(AbstractMetadata):
         dataset: str,
         location: Optional[str],
         map_has_z: bool,
-        map_is_local: bool,
+        map_is_per_log: bool,
         split: Optional[str] = None,
         log_name: Optional[str] = None,
         version: str = str(py123d.__version__),
@@ -34,7 +34,7 @@ class MapMetadata(AbstractMetadata):
         :param dataset: The dataset name in lowercase.
         :param location: The location of the map data.
         :param map_has_z: Indicates if the map includes Z (elevation) data.
-        :param map_is_local: Indicates if the map is local (map for each log) or
+        :param map_is_per_log: Indicates if the map is per-log (map for each log) or
             global (map for multiple logs in dataset).
         :param split: Data split name, typically ``{dataset_name}_{train/val/test}``, defaults to None
         :param log_name: Name of the log file, defaults to None
@@ -46,8 +46,12 @@ class MapMetadata(AbstractMetadata):
         self._log_name = log_name
         self._location = location
         self._map_has_z = map_has_z
-        self._map_is_local = map_is_local
+        self._map_is_per_log = map_is_per_log
         self._version = version
+
+        if self._map_is_per_log:
+            assert self._split is not None, "For per-log maps, split must be provided."
+            assert self._log_name is not None, "For per-log maps, log_name must be provided."
 
     @property
     def dataset(self) -> str:
@@ -75,9 +79,9 @@ class MapMetadata(AbstractMetadata):
         return self._map_has_z
 
     @property
-    def map_is_local(self) -> bool:
-        """Indicates if the map is local (map for each log) or global (map for multiple logs in dataset)."""
-        return self._map_is_local
+    def map_is_per_log(self) -> bool:
+        """Indicates if the map is per-log (map for each log) or global (map for multiple logs in dataset)."""
+        return self._map_is_per_log
 
     @property
     def version(self) -> str:
@@ -108,7 +112,7 @@ class MapMetadata(AbstractMetadata):
             f"log_name={self.log_name!r}, "
             f"location={self.location!r}, "
             f"map_has_z={self.map_has_z}, "
-            f"map_is_local={self.map_is_local}, "
+            f"map_is_per_log={self.map_is_per_log}, "
             f"version={self.version!r}"
             f")"
         )

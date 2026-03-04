@@ -172,7 +172,7 @@ def _get_wod_motion_map_metadata(scenario: scenario_pb2.Scenario, split: str) ->
         log_name=str(scenario.scenario_id),
         location=None,  # TODO: Add location information.
         map_has_z=True,
-        map_is_local=True,
+        map_is_per_log=True,
     )
     return map_metadata
 

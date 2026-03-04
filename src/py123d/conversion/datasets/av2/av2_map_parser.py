@@ -132,7 +132,7 @@ def get_av2_map_metadata(split: str, source_log_path: Path, dataset: str = "av2-
         log_name=source_log_path.name,
         location=location,
         map_has_z=True,
-        map_is_local=True,
+        map_is_per_log=True,
     )
 
 

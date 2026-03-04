@@ -300,7 +300,7 @@ def _get_nuscenes_map_metadata(location):
         log_name=None,
         location=location,
         map_has_z=False,
-        map_is_local=False,
+        map_is_per_log=False,
     )
 
 

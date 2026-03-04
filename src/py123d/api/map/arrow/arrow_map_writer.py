@@ -9,7 +9,6 @@ from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.api.map.arrow.arrow_id_utils import ToIntMapping
 from py123d.api.utils.arrow_helper import write_arrow_table
 from py123d.common.utils.msgpack_utils import msgpack_encode_with_numpy
-from py123d.conversion.dataset_converter_config import DatasetConverterConfig
 from py123d.datatypes import (
     BaseMapLineObject,
     BaseMapSurfaceObject,
@@ -33,35 +32,42 @@ from py123d.geometry import Point2DIndex, Point3DIndex, Polyline3D
 class ArrowMapWriter(AbstractMapWriter):
     """Abstract base class for map writers."""
 
-    def __init__(self, maps_root: Union[str, Path]) -> None:
+    def __init__(
+        self,
+        force_map_conversion: bool,
+        maps_root: Union[str, Path],
+        logs_root: Union[str, Path],
+    ) -> None:
+        self._force_map_conversion = force_map_conversion
         self._maps_root = Path(maps_root)
+        self._logs_root = Path(logs_root)
 
         # Data to be written to the map for each object type
         self._map_data: Dict[MapLayer, Dict[str, Any]] = {}
         self._map_file: Optional[Path] = None
         self._map_metadata: Optional[MapMetadata] = None
 
-    def reset(self, dataset_converter_config: DatasetConverterConfig, map_metadata: MapMetadata) -> bool:
+    def reset(self, map_metadata: MapMetadata) -> bool:
         """Inherited, see superclass."""
 
         map_needs_writing: bool = False
 
-        if dataset_converter_config.include_map:
-            if map_metadata.map_is_local:
-                split, log_name = map_metadata.split, map_metadata.log_name
-                assert split is not None, "For local maps, split must be provided in map metadata."
-                map_file = self._maps_root / split / f"{log_name}.arrow"
-            else:
-                dataset, location = map_metadata.dataset, map_metadata.location
-                assert location is not None, "For global maps, location must be provided in map metadata."
-                map_file = self._maps_root / dataset / f"{dataset}_{location}.arrow"
+        if map_metadata.map_is_per_log:
+            split, log_name = map_metadata.split, map_metadata.log_name
+            assert split is not None, "For per-log maps, split must be provided in map metadata."
+            assert log_name is not None, "For per-log maps, log_name must be provided in map metadata."
+            map_file = self._logs_root / split / log_name / "map.arrow"
+        else:
+            dataset, location = map_metadata.dataset, map_metadata.location
+            assert location is not None, "For global maps, location must be provided in map metadata."
+            map_file = self._maps_root / dataset / f"{dataset}_{location}.arrow"
 
-            map_needs_writing = dataset_converter_config.force_map_conversion or not map_file.exists()
-            if map_needs_writing:
-                # Reset all map layers and update map file / metadata
-                self._map_data = {map_layer: defaultdict(list) for map_layer in MapLayer}
-                self._map_file = Path(map_file)
-                self._map_metadata = map_metadata
+        map_needs_writing = self._force_map_conversion or not map_file.exists()
+        if map_needs_writing:
+            # Reset all map layers and update map file / metadata
+            self._map_data = {map_layer: defaultdict(list) for map_layer in MapLayer}
+            self._map_file = Path(map_file)
+            self._map_metadata = map_metadata
         else:
             self._map_file = None
             self._map_metadata = None
@@ -311,7 +317,7 @@ class ArrowMapWriter(AbstractMapWriter):
                 names=["object_id", "map_layer", "features", "wkb"],
             )
             # Add metadata to the table and write to file
-            table = table.replace_schema_metadata({"map_metadata": json.dumps(self._map_metadata.to_dict())})
+            table = table.replace_schema_metadata({"metadata": json.dumps(self._map_metadata.to_dict())})
             write_arrow_table(table, self._map_file)
 
         del self._map_file, self._map_data, self._map_metadata

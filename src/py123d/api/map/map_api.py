@@ -165,9 +165,9 @@ class MapAPI(abc.ABC):
         return self.map_metadata.location
 
     @property
-    def map_is_local(self) -> bool:
-        """Indicates if the map is local (map for each log) or global (map for multiple logs in dataset)."""
-        return self.map_metadata.map_is_local
+    def map_is_per_log(self) -> bool:
+        """Indicates if the map is per-log (map for each log) or global (map for multiple logs in dataset)."""
+        return self.map_metadata.map_is_per_log
 
     @property
     def map_has_z(self) -> bool:

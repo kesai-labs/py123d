@@ -24,11 +24,11 @@ class DatasetConverterConfig:
 
     # Pinhole Cameras
     include_pinhole_cameras: bool = False
-    pinhole_camera_store_option: Literal["path", "jpeg_binary", "png_binary", "mp4"] = "path"
+    pinhole_camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
 
     # Fisheye MEI Cameras
     include_fisheye_mei_cameras: bool = False
-    fisheye_mei_camera_store_option: Literal["path", "jpeg_binary", "png_binary", "mp4"] = "path"
+    fisheye_mei_camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
 
     # Lidars
     include_lidars: bool = False
@@ -46,14 +46,12 @@ class DatasetConverterConfig:
             "path",
             "jpeg_binary",
             "png_binary",
-            "mp4",
         }, f"Invalid Pinhole camera store option, got {self.pinhole_camera_store_option}."
 
         assert self.fisheye_mei_camera_store_option in {
             "path",
             "jpeg_binary",
             "png_binary",
-            "mp4",
         }, f"Invalid Fisheye MEI camera store option, got {self.fisheye_mei_camera_store_option}."
 
         assert self.lidar_store_option in {

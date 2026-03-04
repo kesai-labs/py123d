@@ -3,13 +3,13 @@ from typing import Dict, Tuple
 
 import numpy as np
 
-from py123d.datatypes.sensors.lidar import LidarFeature, LidarID, LidarMetadata
+from py123d.datatypes import LidarFeature, LidarID, LidarMetadatas
 from py123d.geometry import PoseSE3
 from py123d.geometry.transform import reframe_points_3d_array
 
 
 def load_nuscenes_point_cloud_data_from_path(
-    pcd_path: Path, lidar_metadatas: Dict[LidarID, LidarMetadata]
+    pcd_path: Path, lidar_metadatas: LidarMetadatas
 ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
     """Loads nuScenes Lidar point clouds from the original binary files."""
 

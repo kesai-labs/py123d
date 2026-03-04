@@ -1,7 +1,6 @@
 import abc
 from abc import abstractmethod
 
-from py123d.conversion.dataset_converter_config import DatasetConverterConfig
 from py123d.datatypes import BaseMapObject, MapMetadata
 
 
@@ -9,7 +8,7 @@ class AbstractMapWriter(abc.ABC):
     """Abstract base class for map writers."""
 
     @abstractmethod
-    def reset(self, dataset_converter_config: DatasetConverterConfig, map_metadata: MapMetadata) -> bool:
+    def reset(self, map_metadata: MapMetadata) -> bool:
         """Reset the writer to its initial state."""
 
     @abstractmethod

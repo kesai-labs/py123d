@@ -59,7 +59,7 @@ def _convert_maps(args: List[MapParser], cfg: DictConfig) -> List:
     for map_parser in args:
         try:
             map_metadata = map_parser.get_map_metadata()
-            map_needs_writing = map_writer.reset(cfg.dataset_converter_config, map_metadata)
+            map_needs_writing = map_writer.reset(map_metadata)
             if map_needs_writing:
                 for map_object in map_parser.iter_map_objects():
                     map_writer.write_map_object(map_object)
@@ -86,7 +86,6 @@ def _convert_logs(args: List[LogParser], cfg: DictConfig) -> List:
             lidar_metadatas = log_parser.get_lidar_metadatas()
 
             log_needs_writing = log_writer.reset(
-                cfg.dataset_converter_config,
                 log_metadata,
                 ego_metadata,
                 box_detection_metadata,

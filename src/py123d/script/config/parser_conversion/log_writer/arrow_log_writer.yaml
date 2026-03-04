@@ -1,7 +1,7 @@
 _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
 _convert_: 'all'
 
-
+dataset_converter_config: ${dataset_converter_config}
 logs_root: ${dataset_paths.py123d_logs_root}
 sensors_root: ${dataset_paths.py123d_sensors_root}
 ipc_compression: null # Compression method for ipc files. Options: None, 'lz4', 'zstd'

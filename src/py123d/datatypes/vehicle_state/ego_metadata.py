@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
 from py123d.geometry import PoseSE2, PoseSE3
 from py123d.geometry.transform import abs_to_rel_se2, abs_to_rel_se3, rel_to_abs_se2, rel_to_abs_se3
 
 
-@dataclass
 class EgoMetadata(AbstractMetadata):
     """Metadata that describes the physical dimensions of the ego vehicle.
 
@@ -21,6 +18,8 @@ class EgoMetadata(AbstractMetadata):
     ``rear_axle_to_imu_se3`` is the identity. KITTI-360 is the notable exception
     where the IMU has a lateral offset from the rear axle.
     """
+
+    __slots__ = ("vehicle_name", "width", "length", "height", "wheel_base", "center_to_imu_se3", "rear_axle_to_imu_se3")
 
     vehicle_name: str
     """Name of the vehicle model."""
@@ -50,6 +49,24 @@ class EgoMetadata(AbstractMetadata):
     Maps coordinates from the rear axle frame to the IMU frame. Identity for most
     datasets where the IMU is co-located with the rear axle.
     """
+
+    def __init__(
+        self,
+        vehicle_name: str,
+        width: float,
+        length: float,
+        height: float,
+        wheel_base: float,
+        center_to_imu_se3: PoseSE3,
+        rear_axle_to_imu_se3: PoseSE3,
+    ) -> None:
+        self.vehicle_name = vehicle_name
+        self.width = width
+        self.length = length
+        self.height = height
+        self.wheel_base = wheel_base
+        self.center_to_imu_se3 = center_to_imu_se3
+        self.rear_axle_to_imu_se3 = rear_axle_to_imu_se3
 
     @classmethod
     def from_dict(cls, data_dict: dict) -> EgoMetadata:

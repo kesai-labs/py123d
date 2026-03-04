@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from py123d.api.map.map_api import MapAPI
 from py123d.api.scene.scene_metadata import SceneMetadata
@@ -13,17 +13,19 @@ from py123d.datatypes import (
     EgoStateSE3,
     FisheyeMEICamera,
     FisheyeMEICameraID,
-    FisheyeMEICameraMetadata,
     Lidar,
     LidarID,
-    LidarMetadata,
     LogMetadata,
     MapMetadata,
     PinholeCamera,
     PinholeCameraID,
-    PinholeCameraMetadata,
     Timestamp,
     TrafficLightDetections,
+)
+from py123d.datatypes.metadata.sensor_metadata import (
+    FisheyeMEICameraMetadatas,
+    LidarMetadatas,
+    PinholeCameraMetadatas,
 )
 
 
@@ -73,27 +75,27 @@ class SceneAPI(abc.ABC):
         """
 
     @abc.abstractmethod
-    def get_pinhole_camera_metadatas(self) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
-        """Returns a dictionary mapping :class:`~py123d.datatypes.sensors.PinholeCameraID` to \
-            :class:`~py123d.datatypes.sensors.PinholeCameraMetadata` for all available pinhole cameras in the scene.
+    def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
+        """Returns the :class:`~py123d.datatypes.metadata.sensor_metadata.PinholeCameraMetadatas` for all available \
+            pinhole cameras in the scene, if available.
 
-        :return: The dictionary of pinhole camera metadatas.
+        :return: The pinhole camera metadatas, or None if not available.
         """
 
     @abc.abstractmethod
-    def get_fisheye_mei_camera_metadatas(self) -> Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]:
-        """Returns a dictionary mapping :class:`~py123d.datatypes.sensors.FisheyeMEICameraID` to \
-            :class:`~py123d.datatypes.sensors.FisheyeMEICameraMetadata` for all available fisheye MEI cameras in the scene.
+    def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
+        """Returns the :class:`~py123d.datatypes.metadata.sensor_metadata.FisheyeMEICameraMetadatas` for all available \
+            fisheye MEI cameras in the scene, if available.
 
-        :return: The dictionary of fisheye MEI camera metadatas.
+        :return: The fisheye MEI camera metadatas, or None if not available.
         """
 
     @abc.abstractmethod
-    def get_lidar_metadatas(self) -> Dict[LidarID, LidarMetadata]:
-        """Returns a dictionary mapping :class:`~py123d.datatypes.sensors.LidarID` to \
-            :class:`~py123d.datatypes.sensors.LidarMetadata` for all available lidars in the scene.
+    def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
+        """Returns the :class:`~py123d.datatypes.metadata.sensor_metadata.LidarMetadatas` for all available \
+            lidars in the scene, if available.
 
-        :return: The dictionary of lidar metadatas.
+        :return: The lidar metadatas, or None if not available.
         """
 
     # 1.2 Map
@@ -285,29 +287,35 @@ class SceneAPI(abc.ABC):
     @property
     def available_pinhole_camera_ids(self) -> List[PinholeCameraID]:
         """List of available :class:`~py123d.datatypes.sensors.PinholeCameraID`."""
-        return list(self.get_pinhole_camera_metadatas().keys())
+        metadatas = self.get_pinhole_camera_metadatas()
+        return list(metadatas.keys()) if metadatas is not None else []
 
     @property
     def available_pinhole_camera_names(self) -> List[str]:
         """List of available pinhole camera names."""
-        return [camera.camera_name for camera in self.get_pinhole_camera_metadatas().values()]
+        metadatas = self.get_pinhole_camera_metadatas()
+        return [camera.camera_name for camera in metadatas.values()] if metadatas is not None else []
 
     @property
     def available_fisheye_mei_camera_ids(self) -> List[FisheyeMEICameraID]:
         """List of available :class:`~py123d.datatypes.sensors.FisheyeMEICameraID`."""
-        return list(self.get_fisheye_mei_camera_metadatas().keys())
+        metadatas = self.get_fisheye_mei_camera_metadatas()
+        return list(metadatas.keys()) if metadatas is not None else []
 
     @property
     def available_fisheye_mei_camera_names(self) -> List[str]:
         """List of available fisheye MEI camera names."""
-        return [camera.camera_name for camera in self.get_fisheye_mei_camera_metadatas().values()]
+        metadatas = self.get_fisheye_mei_camera_metadatas()
+        return [camera.camera_name for camera in metadatas.values()] if metadatas is not None else []
 
     @property
     def available_lidar_ids(self) -> List[LidarID]:
         """List of available :class:`~py123d.datatypes.sensors.LidarID`."""
-        return list(self.get_lidar_metadatas().keys())
+        metadatas = self.get_lidar_metadatas()
+        return list(metadatas.keys()) if metadatas is not None else []
 
     @property
     def available_lidar_names(self) -> List[str]:
         """List of available Lidar names."""
-        return [lidar.lidar_name for lidar in self.get_lidar_metadatas().values()]
+        metadatas = self.get_lidar_metadatas()
+        return [lidar.lidar_name for lidar in metadatas.values()] if metadatas is not None else []

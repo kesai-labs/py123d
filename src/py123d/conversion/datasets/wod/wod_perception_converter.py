@@ -245,7 +245,7 @@ def _get_wod_perception_map_metadata(initial_frame: dataset_pb2.Frame, split: st
         log_name=str(initial_frame.context.name),
         location=None,  # TODO: Add location information.
         map_has_z=True,
-        map_is_local=True,
+        map_is_per_log=True,
     )
     return map_metadata
 

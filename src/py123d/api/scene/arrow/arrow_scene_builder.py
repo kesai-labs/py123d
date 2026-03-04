@@ -1,24 +1,24 @@
+import logging
 import random
+import traceback
 from functools import partial
 from pathlib import Path
 from typing import List, Optional, Union
 
+logger = logging.getLogger(__name__)
+
 from py123d.api.scene.arrow.arrow_scene_api import ArrowSceneAPI
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_log_metadata_from_arrow_schema
+from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_builder import SceneBuilder
 from py123d.api.scene.scene_filter import SceneFilter
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import open_arrow_table
-from py123d.api.utils.arrow_schema import (
-    FISHEYE_MEI,
-    LIDAR,
-    PINHOLE_CAMERA,
-    SYNC,
-)
+from py123d.api.utils.arrow_schema import FISHEYE_MEI, LIDAR, PINHOLE_CAMERA, SYNC
 from py123d.common.dataset_paths import get_dataset_paths
 from py123d.common.execution import Executor, executor_map_chunked_list
 from py123d.common.utils.uuid_utils import convert_to_str_uuid
+from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 
 class ArrowSceneBuilder(SceneBuilder):
@@ -103,8 +103,10 @@ def _extract_scenes_from_logs(log_paths: List[Path], filter: SceneFilter) -> Lis
     for log_dir in log_paths:
         try:
             scene_extraction_metadatas = _get_scene_extraction_metadatas(log_dir, filter)
-        except Exception as e:
-            print(f"Error extracting scenes from {log_dir}: {e}")
+        except Exception:
+            # logger.warning("Error extracting scenes from %s: %s", log_dir, e)
+            # logger.debug("Full traceback for %s:", log_dir, exc_info=True)
+            traceback.print_exc()  # noqa: F821
             continue
         for scene_extraction_metadata in scene_extraction_metadatas:
             scenes.append(
@@ -126,9 +128,9 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     sync_path = log_dir / f"{SYNC.prefix()}.arrow"
 
     scene_metadatas: List[SceneMetadata] = []
-    recording_table = open_arrow_table(str(sync_path))
-    log_metadata = get_log_metadata_from_arrow_schema(recording_table.schema)
-    num_log_iterations = len(recording_table)
+    sync_table = open_arrow_table(str(sync_path))
+    log_metadata = get_metadata_from_arrow_schema(sync_table.schema, LogMetadata)
+    num_log_iterations = len(sync_table)
 
     start_idx = int(filter.history_s / log_metadata.timestep_seconds) if filter.history_s is not None else 0
     end_idx = (
@@ -150,7 +152,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     elif filter.duration_s is None:
         scene_metadatas.append(
             SceneMetadata(
-                initial_uuid=convert_to_str_uuid(recording_table[SYNC.col("uuid")][start_idx].as_py()),
+                initial_uuid=convert_to_str_uuid(sync_table[SYNC.col("uuid")][start_idx].as_py()),
                 initial_idx=start_idx,
                 duration_s=(end_idx - start_idx) * log_metadata.timestep_seconds,
                 history_s=filter.history_s if filter.history_s is not None else 0.0,
@@ -160,7 +162,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     else:
         scene_uuid_set = set(filter.scene_uuids) if filter.scene_uuids is not None else None
         step_idx = int(filter.duration_s / log_metadata.timestep_seconds)
-        all_row_uuids = recording_table[SYNC.col("uuid")].to_pylist()
+        all_row_uuids = sync_table[SYNC.col("uuid")].to_pylist()
         history_s = filter.history_s if filter.history_s is not None else 0.0
 
         for idx in range(start_idx, end_idx, step_idx):
@@ -214,5 +216,5 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
         if add_scene:
             scene_extraction_metadatas_.append(scene_extraction_metadata)
 
-    del recording_table
+    del sync_table
     return scene_extraction_metadatas_

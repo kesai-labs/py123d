@@ -423,7 +423,7 @@ def _get_kitti360_map_metadata(split: str, log_name: str) -> MapMetadata:
         log_name=log_name,
         location=log_name,
         map_has_z=True,
-        map_is_local=True,
+        map_is_per_log=True,
     )
 
 
