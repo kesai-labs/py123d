@@ -34,6 +34,9 @@ class XODRGeometry:
     def interpolate_se2(self, s: float, t: float = 0.0) -> npt.NDArray[np.float64]:
         raise NotImplementedError
 
+    def interpolate_se2_batch(self, s: npt.NDArray[np.float64], t: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        raise NotImplementedError
+
 
 @dataclass
 class XODRLine(XODRGeometry):
@@ -56,6 +59,18 @@ class XODRLine(XODRGeometry):
             interpolated_se2[PoseSE2Index.Y] += t * np.sin(interpolated_se2[PoseSE2Index.YAW] + np.pi / 2)
 
         return interpolated_se2
+
+    def interpolate_se2_batch(self, s: npt.NDArray[np.float64], t: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        n = len(s)
+        result = np.broadcast_to(self.start_se2, (n, len(PoseSE2Index))).copy()
+        result[:, PoseSE2Index.X] += s * np.cos(self.hdg)
+        result[:, PoseSE2Index.Y] += s * np.sin(self.hdg)
+        mask = t != 0.0
+        if np.any(mask):
+            yaw_half_pi = result[mask, PoseSE2Index.YAW] + np.pi / 2
+            result[mask, PoseSE2Index.X] += t[mask] * np.cos(yaw_half_pi)
+            result[mask, PoseSE2Index.Y] += t[mask] * np.sin(yaw_half_pi)
+        return result
 
 
 @dataclass
@@ -98,6 +113,25 @@ class XODRArc(XODRGeometry):
 
         return interpolated_se2
 
+    def interpolate_se2_batch(self, s: npt.NDArray[np.float64], t: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        kappa = self.curvature
+        radius = 1.0 / kappa if kappa != 0 else float("inf")
+        initial_heading = self.hdg
+        final_heading = initial_heading + s * kappa
+        dx = radius * (np.sin(final_heading) - np.sin(initial_heading))
+        dy = -radius * (np.cos(final_heading) - np.cos(initial_heading))
+        n = len(s)
+        result = np.broadcast_to(self.start_se2, (n, len(PoseSE2Index))).copy()
+        result[:, PoseSE2Index.X] += dx
+        result[:, PoseSE2Index.Y] += dy
+        result[:, PoseSE2Index.YAW] = final_heading
+        mask = t != 0.0
+        if np.any(mask):
+            yaw_half_pi = result[mask, PoseSE2Index.YAW] + np.pi / 2
+            result[mask, PoseSE2Index.X] += t[mask] * np.cos(yaw_half_pi)
+            result[mask, PoseSE2Index.Y] += t[mask] * np.sin(yaw_half_pi)
+        return result
+
 
 @dataclass
 class XODRSpiral(XODRGeometry):
@@ -138,6 +172,42 @@ class XODRSpiral(XODRGeometry):
             interpolated_se2[PoseSE2Index.Y] += t * np.sin(interpolated_se2[PoseSE2Index.YAW] + np.pi / 2)
 
         return interpolated_se2
+
+    def interpolate_se2_batch(self, s: npt.NDArray[np.float64], t: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        gamma = (self.curvature_end - self.curvature_start) / self.length
+        dx, dy = self._compute_spiral_position_batch(s, gamma)
+        n = len(s)
+        result = np.broadcast_to(self.start_se2, (n, len(PoseSE2Index))).copy()
+        result[:, PoseSE2Index.X] += dx
+        result[:, PoseSE2Index.Y] += dy
+        result[:, PoseSE2Index.YAW] += gamma * s**2 / 2 + self.curvature_start * s
+        mask = t != 0.0
+        if np.any(mask):
+            yaw_half_pi = result[mask, PoseSE2Index.YAW] + np.pi / 2
+            result[mask, PoseSE2Index.X] += t[mask] * np.cos(yaw_half_pi)
+            result[mask, PoseSE2Index.Y] += t[mask] * np.sin(yaw_half_pi)
+        return result
+
+    def _compute_spiral_position_batch(
+        self, s: npt.NDArray[np.float64], gamma: float
+    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        sqrt_2gamma = (2 * abs(gamma)) ** 0.5
+        if gamma > 0:
+            u_start = self.curvature_start / sqrt_2gamma
+            u_end = u_start + sqrt_2gamma * s
+        else:
+            u_start = self.curvature_start / sqrt_2gamma
+            u_end = u_start - sqrt_2gamma * s
+        S_start, C_start = fresnel(u_start)
+        S_end, C_end = fresnel(u_end)
+        scale_factor = 1.0 / sqrt_2gamma if gamma > 0 else -1.0 / sqrt_2gamma
+        dC = C_end - C_start
+        dS = S_end - S_start
+        cos_hdg = np.cos(self.hdg)
+        sin_hdg = np.sin(self.hdg)
+        dx = scale_factor * (dC * cos_hdg - dS * sin_hdg)
+        dy = scale_factor * (dC * sin_hdg + dS * cos_hdg)
+        return dx, dy
 
     def _compute_spiral_position(self, s: float, gamma: float) -> Tuple[float, float]:
         # Transform to normalized Fresnel spiral parameter
