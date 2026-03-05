@@ -1,11 +1,34 @@
-defaults:
-  - /dataset_converter_config@_global_: opendrive
+parser:
+  _target_: py123d.parser.opendrive.opendrive_parser.OpenDriveParser
+  _convert_: 'all'
 
-_target_: py123d.parser.opendrive.opendrive_parser.OpenDriveParser
-_convert_: 'all'
+  xodr_paths: []
+  location: null
+  interpolation_step_size: 1.0
+  connection_distance_threshold: 0.1
+  internal_only: true
 
-xodr_paths: []
-location: null
-interpolation_step_size: 1.0
-connection_distance_threshold: 0.1
-internal_only: true
+dataset_converter_config:
+  _target_: py123d.parser.dataset_converter_config.DatasetConverterConfig
+  _convert_: 'all'
+
+  force_log_conversion: false
+  force_map_conversion: ${force_map_conversion}
+
+  # Map only
+  include_map: true
+
+  # No sensor data for OpenDRIVE
+  include_ego: false
+  include_box_detections: false
+  include_pinhole_cameras: false
+  include_fisheye_mei_cameras: false
+  include_lidars: false
+  include_traffic_lights: false
+  include_scenario_tags: false
+  include_route: false
+
+  pinhole_camera_store_option: "path"
+  lidar_store_option: "path"
+  lidar_point_cloud_codec: null
+  lidar_point_feature_codec: null

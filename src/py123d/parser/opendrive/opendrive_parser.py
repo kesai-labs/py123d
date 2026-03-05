@@ -1,11 +1,9 @@
-from __future__ import annotations
-
+import typing
 from pathlib import Path
-from typing import Iterator, List, Optional, Union
+from typing import List, Optional, Union
 
-from py123d.datatypes import BaseMapObject, MapMetadata
 from py123d.parser.abstract_dataset_parser import DatasetParser, LogParser, MapParser
-from py123d.parser.opendrive.opendrive_map_conversion import iter_xodr_map_objects
+from py123d.parser.opendrive.opendrive_map_parser import OpenDriveMapParser
 
 
 class OpenDriveParser(DatasetParser):
@@ -39,11 +37,7 @@ class OpenDriveParser(DatasetParser):
         self._connection_distance_threshold = connection_distance_threshold
         self._internal_only = internal_only
 
-    def get_log_parsers(self) -> List[LogParser]:
-        """No log conversion for OpenDRIVE maps."""
-        return []
-
-    def get_map_parsers(self) -> List[OpenDriveMapParser]:
+    def get_map_parsers(self) -> List[MapParser]:
         """Returns one map parser per XODR file."""
         return [
             OpenDriveMapParser(
@@ -56,38 +50,7 @@ class OpenDriveParser(DatasetParser):
             for xodr_path in self._xodr_paths
         ]
 
-
-class OpenDriveMapParser(MapParser):
-    """Lightweight, picklable handle to one OpenDRIVE map."""
-
-    def __init__(
-        self,
-        xodr_path: Path,
-        location: Optional[str] = None,
-        interpolation_step_size: float = 1.0,
-        connection_distance_threshold: float = 0.1,
-        internal_only: bool = True,
-    ) -> None:
-        self._xodr_path = xodr_path
-        self._location = location
-        self._interpolation_step_size = interpolation_step_size
-        self._connection_distance_threshold = connection_distance_threshold
-        self._internal_only = internal_only
-
-    def get_map_metadata(self) -> MapMetadata:
-        """Returns metadata for this OpenDRIVE map."""
-        return MapMetadata(
-            dataset="opendrive",
-            location=self._location,
-            map_has_z=True,
-            map_is_per_log=False,
-        )
-
-    def iter_map_objects(self) -> Iterator[BaseMapObject]:
-        """Yields map objects lazily from the XODR file."""
-        yield from iter_xodr_map_objects(
-            xodr_file=self._xodr_path,
-            interpolation_step_size=self._interpolation_step_size,
-            connection_distance_threshold=self._connection_distance_threshold,
-            internal_only=self._internal_only,
-        )
+    @typing.override
+    def get_log_parsers(self) -> List[LogParser]:
+        """No log conversion for OpenDRIVE maps."""
+        return []

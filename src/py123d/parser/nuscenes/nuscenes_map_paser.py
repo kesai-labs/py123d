@@ -6,23 +6,24 @@ import numpy as np
 from shapely.geometry import LineString, Polygon
 
 from py123d.common.utils.dependencies import check_dependencies
-from py123d.datatypes import BaseMapObject
-from py123d.datatypes.map_objects.map_layer_types import RoadEdgeType, RoadLineType, StopZoneType
-from py123d.datatypes.map_objects.map_objects import (
+from py123d.datatypes import (
+    BaseMapObject,
     Carpark,
     Crosswalk,
     GenericDrivable,
     Intersection,
     Lane,
     LaneGroup,
+    MapMetadata,
     RoadEdge,
+    RoadEdgeType,
     RoadLine,
+    RoadLineType,
     StopZone,
+    StopZoneType,
     Walkway,
 )
-from py123d.datatypes.metadata.map_metadata import MapMetadata
-from py123d.geometry import OccupancyMap2D, Polyline2D, Polyline3D
-from py123d.geometry.point import Point2D
+from py123d.geometry import OccupancyMap2D, Point2D, Polyline2D, Polyline3D
 from py123d.geometry.utils.polyline_utils import offset_points_perpendicular
 from py123d.parser.abstract_dataset_parser import MapParser
 from py123d.parser.nuscenes.utils.nuscenes_constants import NUSCENES_MAP_LOCATIONS
@@ -40,6 +41,7 @@ from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
 check_dependencies(["nuscenes"], optional_name="nuscenes")
 from nuscenes.map_expansion.map_api import NuScenesMap
 
+# TODO @DanielDauner: Add to config.
 MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0  # [m]
 MAX_LANE_WIDTH: Final[float] = 4.0  # [m]
 MIN_LANE_WIDTH: Final[float] = 1.0  # [m]
@@ -100,14 +102,14 @@ class NuScenesMapParser(MapParser):
 def _extract_nuscenes_lanes(nuscenes_map: NuScenesMap) -> List[Lane]:
     """Helper function to extract lanes from a nuScenes map."""
 
-    # NOTE: nuScenes does not provide explicitly provide lane groups and does not assign lanes to roadblocks.
+    # NOTE: nuScenes does not explicitly provide lane groups and does not assign lanes to roadblocks.
     # Therefore, we query the roadblocks given the middle-point of the centerline to assign lanes to a road block.
     # Unlike road segments, road blocks outline a lane group going in the same direction.
     # In case a roadblock cannot be assigned, e.g. because the lane is not located within any roadblock, or the
     # roadblock data is invalid [1], we assign a new lane group with only this lane.
     # [1] https://github.com/nutonomy/nuscenes-devkit/issues/862
 
-    road_blocks_invalid = nuscenes_map.map_name in ["singapore-queenstown", "singapore-hollandvillage"]
+    road_blocks_invalid = nuscenes_map.map_name in {"singapore-queenstown", "singapore-hollandvillage"}
 
     road_block_dict: Dict[str, Polygon] = {}
     if not road_blocks_invalid:
@@ -116,7 +118,7 @@ def _extract_nuscenes_lanes(nuscenes_map: NuScenesMap) -> List[Lane]:
             for road_block in nuscenes_map.road_block
         }
 
-    road_block_map = OccupancyMap2D.from_dict(road_block_dict)
+    road_block_map = OccupancyMap2D.from_dict(road_block_dict)  # type: ignore
     lanes: List[Lane] = []
     for lane_record in nuscenes_map.lane:
         token = lane_record["token"]
@@ -130,13 +132,13 @@ def _extract_nuscenes_lanes(nuscenes_map: NuScenesMap) -> List[Lane]:
         # 2. Query road block for lane group assignment
         lane_group_id: str = token  # default to self, override if road block found
         if not road_blocks_invalid:
-            query_point = centerline.interpolate(0.5, normalized=True).shapely_point
+            query_point = centerline.interpolate(0.5, normalized=True).shapely_point  # type: ignore
             intersecting_roadblock = road_block_map.query_nearest(query_point, max_distance=0.1, all_matches=False)
 
             # NOTE: if a lane cannot be assigned to a road block, we assume a new lane group with only this lane.
             # The lane group id is set to be the same as the lane id in this case.
             if len(intersecting_roadblock) > 0:
-                lane_group_id = road_block_map.ids[intersecting_roadblock[0]]
+                lane_group_id = road_block_map.ids[intersecting_roadblock[0]]  # type: ignore
 
         # Get topology
         incoming = nuscenes_map.get_incoming_lane_ids(token)
@@ -151,8 +153,8 @@ def _extract_nuscenes_lanes(nuscenes_map: NuScenesMap) -> List[Lane]:
                 centerline=centerline,
                 left_lane_id=None,
                 right_lane_id=None,
-                predecessor_ids=incoming,
-                successor_ids=outgoing,
+                predecessor_ids=incoming,  # type: ignore
+                successor_ids=outgoing,  # type: ignore
                 speed_limit_mps=None,
                 outline=None,
                 shapely_polygon=None,
@@ -225,7 +227,7 @@ def _extract_nuscenes_lane_groups(
 
     for lane_group_id, lane_ids in lane_group_lane_dict.items():
         if len(lane_ids) > 1:
-            lane_centerlines: List[Polyline2D] = [lanes_dict[lane_id].centerline for lane_id in lane_ids]
+            lane_centerlines: List[Polyline2D] = [lanes_dict[lane_id].centerline for lane_id in lane_ids]  # type: ignore
             ordered_lane_indices = order_lanes_left_to_right(lane_centerlines)
             left_boundary = lanes_dict[lane_ids[ordered_lane_indices[0]]].left_boundary
             right_boundary = lanes_dict[lane_ids[ordered_lane_indices[-1]]].right_boundary
@@ -261,7 +263,7 @@ def _extract_nuscenes_lane_groups(
         lane_groups.append(
             LaneGroup(
                 object_id=lane_group_id,
-                lane_ids=lane_ids,
+                lane_ids=lane_ids,  # type: ignore
                 left_boundary=left_boundary,
                 right_boundary=right_boundary,
                 intersection_id=intersection_id,
@@ -297,7 +299,7 @@ def _extract_intersections_and_assignment(
     for lane_connector in lane_connectors:
         lane_connector_midpoint = lane_connector.centerline.interpolate(0.5, normalized=True)
         assert isinstance(lane_connector_midpoint, Point2D)
-        lane_connector_center_point_dict[lane_connector.object_id] = lane_connector_midpoint
+        lane_connector_center_point_dict[lane_connector.object_id] = lane_connector_midpoint.shapely_point
 
     centerpoint_map = OccupancyMap2D.from_dict(lane_connector_center_point_dict)  # type: ignore
     for idx, intersection_polygon in enumerate(intersection_polygons):
@@ -438,7 +440,7 @@ def _extract_nuscenes_road_edges(nuscenes_map: NuScenesMap) -> List[RoadEdge]:
             drivable_polygons.append(polygon)
 
     road_edge_linear_rings = get_road_edge_linear_rings(drivable_polygons)
-    road_edges_linestrings = split_line_geometry_by_max_length(road_edge_linear_rings, MAX_ROAD_EDGE_LENGTH)
+    road_edges_linestrings = split_line_geometry_by_max_length(road_edge_linear_rings, MAX_ROAD_EDGE_LENGTH)  # type: ignore
 
     road_edges_cache: List[RoadEdge] = []
     for idx in range(len(road_edges_linestrings)):

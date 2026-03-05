@@ -11,28 +11,29 @@ import yaml
 
 import py123d.parser.nuplan.utils as nuplan_utils
 from py123d.common.utils.dependencies import check_dependencies
-from py123d.datatypes.detections import (
+from py123d.datatypes import (
+    BoxDetectionMetadata,
     BoxDetectionSE3,
     BoxDetectionsSE3,
+    DynamicStateSE3,
+    EgoMetadata,
+    EgoStateSE3,
+    FisheyeMEICameraMetadatas,
+    LidarID,
+    LidarMetadata,
+    LidarMetadatas,
+    LogMetadata,
+    PinholeCameraID,
+    PinholeCameraMetadata,
+    PinholeCameraMetadatas,
+    PinholeDistortion,
+    PinholeIntrinsics,
+    Timestamp,
     TrafficLightDetection,
     TrafficLightDetections,
 )
-from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
-from py123d.datatypes.metadata import LogMetadata
-from py123d.datatypes.metadata.sensor_metadata import FisheyeMEICameraMetadatas, LidarMetadatas, PinholeCameraMetadatas
-from py123d.datatypes.sensors import (
-    LidarID,
-    LidarMetadata,
-    PinholeCameraID,
-    PinholeCameraMetadata,
-    PinholeDistortion,
-    PinholeIntrinsics,
-)
-from py123d.datatypes.time import Timestamp
-from py123d.datatypes.vehicle_state import DynamicStateSE3, EgoStateSE3
-from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata, get_nuplan_chrysler_pacifica_parameters
 from py123d.geometry import PoseSE3, Vector3D
-from py123d.geometry.transform.transform_se3 import reframe_se3_array
+from py123d.geometry.transform import reframe_se3_array
 from py123d.parser.abstract_dataset_parser import (
     CameraData,
     DatasetParser,
@@ -205,7 +206,18 @@ class NuplanLogParser(LogParser):
     @typing.override
     def get_ego_metadata(self) -> Optional[EgoMetadata]:
         """Inherited, see superclass."""
-        return get_nuplan_chrysler_pacifica_parameters()
+        # NOTE: These parameters are mostly available in nuPlan, except for the rear_axle_to_center_vertical.
+        # The value is estimated based the Lidar point cloud.
+        # [1] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
+        return EgoMetadata(
+            vehicle_name="nuplan_chrysler_pacifica",
+            width=2.297,
+            length=5.176,
+            height=1.777,
+            wheel_base=3.089,
+            center_to_imu_se3=PoseSE3(x=1.461, y=0.0, z=0.45, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+            rear_axle_to_imu_se3=PoseSE3.identity(),
+        )
 
     @typing.override
     def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
@@ -241,6 +253,8 @@ class NuplanLogParser(LogParser):
     def iter_frames(self) -> Iterator[FrameData]:
         """Inherited, see superclass."""
         nuplan_log_db = NuPlanDB(str(self._nuplan_data_root), str(self._source_log_path), None)
+        ego_metadata = self.get_ego_metadata()
+        assert ego_metadata is not None
 
         try:
             step_interval: int = int(TARGET_DT / NUPLAN_DEFAULT_DT)
@@ -254,7 +268,7 @@ class NuplanLogParser(LogParser):
 
                 yield FrameData(
                     timestamp=timestamp,
-                    ego_state_se3=_extract_nuplan_ego_state(nuplan_lidar_pc),
+                    ego_state_se3=_extract_nuplan_ego_state(nuplan_lidar_pc, ego_metadata),
                     box_detections_se3=_extract_nuplan_box_detections(
                         nuplan_lidar_pc,
                         self._source_log_path,
@@ -351,9 +365,8 @@ def _get_nuplan_lidar_metadata(
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def _extract_nuplan_ego_state(nuplan_lidar_pc: LidarPc) -> EgoStateSE3:
+def _extract_nuplan_ego_state(nuplan_lidar_pc: LidarPc, ego_metadata: EgoMetadata) -> EgoStateSE3:
     """Extracts the nuPlan ego state from a given LidarPc database object."""
-    vehicle_parameters = get_nuplan_chrysler_pacifica_parameters()
     imu_pose = PoseSE3(
         x=nuplan_lidar_pc.ego_pose.x,
         y=nuplan_lidar_pc.ego_pose.y,
@@ -382,7 +395,7 @@ def _extract_nuplan_ego_state(nuplan_lidar_pc: LidarPc) -> EgoStateSE3:
     )
     return EgoStateSE3.from_imu(
         imu_se3=imu_pose,
-        vehicle_parameters=vehicle_parameters,
+        vehicle_parameters=ego_metadata,
         dynamic_state_se3=dynamic_state_se3,
         timestamp=Timestamp.from_us(nuplan_lidar_pc.ego_pose.timestamp),
     )

@@ -1,12 +1,12 @@
 import logging
 from pathlib import Path
-from typing import Dict, Final, Iterator, List
+from typing import Dict, Final, Iterator, List, Optional
 
 import numpy as np
 import shapely
 
-from py123d.datatypes import BaseMapObject
-from py123d.datatypes.map_objects import (
+from py123d.datatypes import (
+    BaseMapObject,
     Carpark,
     Crosswalk,
     GenericDrivable,
@@ -19,8 +19,10 @@ from py123d.datatypes.map_objects import (
     RoadLineType,
     Walkway,
 )
+from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.geometry.geometry_index import Point3DIndex
 from py123d.geometry.polyline import Polyline3D
+from py123d.parser.abstract_dataset_parser import MapParser
 from py123d.parser.opendrive.utils.collection import collect_element_helpers
 from py123d.parser.opendrive.utils.id_system import lane_section_id_from_lane_group_id
 from py123d.parser.opendrive.utils.lane_helper import (
@@ -43,6 +45,42 @@ from py123d.parser.utils.map_utils.road_edge.road_edge_3d_utils import (
 logger = logging.getLogger(__name__)
 
 MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0  # [m]
+
+
+class OpenDriveMapParser(MapParser):
+    """Lightweight, picklable handle to one OpenDRIVE map."""
+
+    def __init__(
+        self,
+        xodr_path: Path,
+        location: Optional[str] = None,
+        interpolation_step_size: float = 1.0,
+        connection_distance_threshold: float = 0.1,
+        internal_only: bool = True,
+    ) -> None:
+        self._xodr_path = xodr_path
+        self._location = location
+        self._interpolation_step_size = interpolation_step_size
+        self._connection_distance_threshold = connection_distance_threshold
+        self._internal_only = internal_only
+
+    def get_map_metadata(self) -> MapMetadata:
+        """Returns metadata for this OpenDRIVE map."""
+        return MapMetadata(
+            dataset="opendrive",
+            location=self._location,
+            map_has_z=True,
+            map_is_per_log=False,
+        )
+
+    def iter_map_objects(self) -> Iterator[BaseMapObject]:
+        """Yields map objects lazily from the XODR file."""
+        yield from iter_xodr_map_objects(
+            xodr_file=self._xodr_path,
+            interpolation_step_size=self._interpolation_step_size,
+            connection_distance_threshold=self._connection_distance_threshold,
+            internal_only=self._internal_only,
+        )
 
 
 def iter_xodr_map_objects(

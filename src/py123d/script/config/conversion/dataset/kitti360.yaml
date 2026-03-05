@@ -1,30 +1,63 @@
-defaults:
-  - /dataset_converter_config@_global_: kitti360
+parser:
+  _target_: py123d.parser.kitti360.kitti360_parser.Kitti360Parser
+  _convert_: 'all'
 
-_target_: py123d.parser.kitti360.kitti360_parser.Kitti360Parser
-_convert_: 'all'
+  splits: ["kitti360_train", "kitti360_val", "kitti360_test"]
 
-splits: ["kitti360_train", "kitti360_val", "kitti360_test"]
+  kitti360_data_root: ${dataset_paths.kitti360_data_root}
 
-kitti360_data_root: ${dataset_paths.kitti360_data_root}
+  # NOTE: We preprocess detections into cache directory to speed up repeated conversions
+  # The bounding boxes are preprocessed into a per-frame format based on the ego distance and
+  # visibility based on the lidar point cloud.
+  detection_cache_root: ${dataset_paths.kitti360_data_root}/preprocessed_detections
+  detection_radius: 60.0
 
-# NOTE: We preprocess detections into cache directory to speed up repeated conversions
-# The bounding boxes are preprocessed into a per-frame format based on the ego distance and
-# visibility based on the lidar point cloud.
-detection_cache_root: ${dataset_paths.kitti360_data_root}/preprocessed_detections
-detection_radius: 60.0
+  # NOTE: KITTI-360 does not have official splits, so we just put all sequences in the training set.
+  train_sequences:
+    - "2013_05_28_drive_0000_sync"
+    - "2013_05_28_drive_0002_sync"
+    - "2013_05_28_drive_0003_sync"
+    - "2013_05_28_drive_0004_sync"
+    - "2013_05_28_drive_0005_sync"
+    - "2013_05_28_drive_0006_sync"
+    - "2013_05_28_drive_0007_sync"
+    - "2013_05_28_drive_0009_sync"
+    - "2013_05_28_drive_0010_sync"
 
-# NOTE: KITTI-360 does not have official splits, so we just put all sequences in the training set.
-train_sequences:
-  - "2013_05_28_drive_0000_sync"
-  - "2013_05_28_drive_0002_sync"
-  - "2013_05_28_drive_0003_sync"
-  - "2013_05_28_drive_0004_sync"
-  - "2013_05_28_drive_0005_sync"
-  - "2013_05_28_drive_0006_sync"
-  - "2013_05_28_drive_0007_sync"
-  - "2013_05_28_drive_0009_sync"
-  - "2013_05_28_drive_0010_sync"
+  val_sequences: []
+  test_sequences: []
 
-val_sequences: []
-test_sequences: []
+dataset_converter_config:
+  _target_: py123d.parser.dataset_converter_config.DatasetConverterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+
+  # Map
+  include_map: true
+
+  # Ego
+  include_ego: true
+
+  # Box Detections
+  include_box_detections: true
+
+  # Pinhole Cameras
+  include_pinhole_cameras: true
+  pinhole_camera_store_option: "path" # "path", "jpeg_binary", "png_binary", "mp4"
+
+  # Fisheye Cameras
+  include_fisheye_mei_cameras: true
+  fisheye_mei_camera_store_option: "path" # "path", "jpeg_binary", "png_binary", "mp4"
+
+  # Lidars
+  include_lidars: true
+  lidar_store_option: "path" #  "path", "binary"
+  lidar_point_cloud_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+  lidar_point_feature_codec: null # None or "ipc_zstd", "ipc_lz4", "ipc"
+
+  # Not available:
+  include_traffic_lights: false
+  include_route: false
+  include_scenario_tags: false

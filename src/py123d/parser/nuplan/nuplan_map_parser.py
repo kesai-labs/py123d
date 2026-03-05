@@ -36,26 +36,26 @@ from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     split_line_geometry_by_max_length,
 )
 
-MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0
+# TODO: Refactor and remove all of the "type: ignore" comment.
 
-
-# Map parser
-# ----------------------------------------------------------------------------------------------------------------------
+MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0  # TODO: Add to config
 
 
 class NuplanMapParser(MapParser):
-    """Lightweight, picklable handle to one nuPlan map location.
-
-    nuPlan has 4 fixed map locations shared across all logs.
-    """
-
     def __init__(self, nuplan_maps_root: Path, location: str) -> None:
         self._nuplan_maps_root = nuplan_maps_root
         self._location = location
 
     def get_map_metadata(self) -> MapMetadata:
         """Inherited, see superclass."""
-        return get_nuplan_map_metadata(self._location)
+        return MapMetadata(
+            dataset="nuplan",
+            split=None,
+            log_name=None,
+            location=self._location,
+            map_has_z=False,
+            map_is_per_log=False,
+        )
 
     def iter_map_objects(self) -> Iterator[BaseMapObject]:
         """Inherited, see superclass."""
@@ -78,26 +78,6 @@ class NuplanMapParser(MapParser):
         del nuplan_gdf
 
 
-# Public helpers
-# ----------------------------------------------------------------------------------------------------------------------
-
-
-def get_nuplan_map_metadata(location: str) -> MapMetadata:
-    """Get map metadata for a nuPlan map location.
-
-    :param location: nuPlan map location name, e.g. "us-ma-boston".
-    :return: MapMetadata for this location.
-    """
-    return MapMetadata(
-        dataset="nuplan",
-        split=None,
-        log_name=None,
-        location=location,
-        map_has_z=False,
-        map_is_per_log=False,
-    )
-
-
 # Map object iterators
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -115,33 +95,35 @@ def _iter_nuplan_lanes(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Lane
             nuplan_gdf["lane_connectors"],
             "entry_lane_fid",
             lane_id,
-        )["fid"].tolist()
+        )["fid"].tolist()  # type: ignore
         successor_ids = get_all_rows_with_value(
             nuplan_gdf["lane_connectors"],
             "exit_lane_fid",
             lane_id,
-        )["fid"].tolist()
+        )["fid"].tolist()  # type: ignore
 
         # 2. left_boundary, right_boundary
         lane_series = get_row_with_value(nuplan_gdf["lanes_polygons"], "fid", str(lane_id))
-        left_boundary_fid = lane_series["left_boundary_fid"]
-        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]
+        left_boundary_fid = lane_series["left_boundary_fid"]  # type: ignore
+        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]  # type: ignore
 
-        right_boundary_fid = lane_series["right_boundary_fid"]
-        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]
+        right_boundary_fid = lane_series["right_boundary_fid"]  # type: ignore
+        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]  # type: ignore
 
         # 3. left_lane_id, right_lane_id
-        lane_index = lane_series["lane_index"]
+        lane_index = lane_series["lane_index"]  # type: ignore
         all_group_lanes = get_all_rows_with_value(
-            nuplan_gdf["lanes_polygons"], "lane_group_fid", lane_series["lane_group_fid"]
+            nuplan_gdf["lanes_polygons"],
+            "lane_group_fid",
+            lane_series["lane_group_fid"],  # type: ignore
         )
-        left_lane_id = all_group_lanes[all_group_lanes["lane_index"] == int(lane_index) - 1]["fid"]
-        right_lane_id = all_group_lanes[all_group_lanes["lane_index"] == int(lane_index) + 1]["fid"]
+        left_lane_id = all_group_lanes[all_group_lanes["lane_index"] == int(lane_index) - 1]["fid"]  # type: ignore
+        right_lane_id = all_group_lanes[all_group_lanes["lane_index"] == int(lane_index) + 1]["fid"]  # type: ignore
         left_lane_id = left_lane_id.item() if not left_lane_id.empty else None
         right_lane_id = right_lane_id.item() if not right_lane_id.empty else None
 
         # 3. centerline (aka. baseline_path)
-        centerline = get_row_with_value(nuplan_gdf["baseline_paths"], "lane_fid", float(lane_id))["geometry"]
+        centerline = get_row_with_value(nuplan_gdf["baseline_paths"], "lane_fid", float(lane_id))["geometry"]  # type: ignore
 
         # Ensure the left/right boundaries are aligned with the baseline path direction.
         left_boundary = align_boundary_direction(centerline, left_boundary)
@@ -159,7 +141,7 @@ def _iter_nuplan_lanes(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Lane
             successor_ids=successor_ids,
             speed_limit_mps=all_speed_limits_mps[idx],
             outline=None,
-            shapely_polygon=all_geometries[idx],
+            shapely_polygon=all_geometries[idx],  # type: ignore
         )
 
 
@@ -182,13 +164,13 @@ def _iter_nuplan_lane_connectors(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Ite
         )
         assert lane_connector_polygons_row is not None, f"Could not find lane connector polygon with id {lane_id}"
         left_boundary_fid = lane_connector_polygons_row["left_boundary_fid"]
-        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]
+        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]  # type: ignore
 
         right_boundary_fid = lane_connector_polygons_row["right_boundary_fid"]
-        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]
+        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]  # type: ignore
 
         # 3. baseline_paths
-        centerline = get_row_with_value(nuplan_gdf["baseline_paths"], "lane_connector_fid", float(lane_id))["geometry"]
+        centerline = get_row_with_value(nuplan_gdf["baseline_paths"], "lane_connector_fid", float(lane_id))["geometry"]  # type: ignore
 
         left_boundary = align_boundary_direction(centerline, left_boundary)
         right_boundary = align_boundary_direction(centerline, right_boundary)
@@ -219,30 +201,30 @@ def _iter_nuplan_lane_groups(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterato
             nuplan_gdf["lanes_polygons"],
             "lane_group_fid",
             lane_group_id,
-        )["fid"].tolist()
+        )["fid"].tolist()  # type: ignore
 
         # 2. predecessor_lane_group_ids, successor_lane_group_ids
         predecessor_lane_group_ids = get_all_rows_with_value(
             nuplan_gdf["lane_group_connectors"],
             "to_lane_group_fid",
             lane_group_id,
-        )["fid"].tolist()
+        )["fid"].tolist()  # type: ignore
         successor_lane_group_ids = get_all_rows_with_value(
             nuplan_gdf["lane_group_connectors"],
             "from_lane_group_fid",
             lane_group_id,
-        )["fid"].tolist()
+        )["fid"].tolist()  # type: ignore
 
         # 3. left_boundaries, right_boundaries
         lane_group_row = get_row_with_value(nuplan_gdf["lane_groups_polygons"], "fid", str(lane_group_id))
-        left_boundary_fid = lane_group_row["left_boundary_fid"]
-        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]
+        left_boundary_fid = lane_group_row["left_boundary_fid"]  # type: ignore
+        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]  # type: ignore
 
-        right_boundary_fid = lane_group_row["right_boundary_fid"]
-        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]
+        right_boundary_fid = lane_group_row["right_boundary_fid"]  # type: ignore
+        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]  # type: ignore
 
         # Flip the boundaries to align with the first lane's baseline path direction.
-        repr_centerline = get_row_with_value(nuplan_gdf["baseline_paths"], "lane_fid", float(lane_ids[0]))["geometry"]
+        repr_centerline = get_row_with_value(nuplan_gdf["baseline_paths"], "lane_fid", float(lane_ids[0]))["geometry"]  # type: ignore
 
         left_boundary = align_boundary_direction(repr_centerline, left_boundary)
         right_boundary = align_boundary_direction(repr_centerline, right_boundary)
@@ -256,7 +238,7 @@ def _iter_nuplan_lane_groups(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterato
             predecessor_ids=predecessor_lane_group_ids,
             successor_ids=successor_lane_group_ids,
             outline=None,
-            shapely_polygon=lane_group_row.geometry,
+            shapely_polygon=lane_group_row.geometry,  # type: ignore
         )
 
 
@@ -269,20 +251,20 @@ def _iter_nuplan_lane_connector_groups(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) 
         # 1. lane_ids
         lane_ids = get_all_rows_with_value(
             nuplan_gdf["lane_connectors"], "lane_group_connector_fid", lane_group_connector_id
-        )["fid"].tolist()
+        )["fid"].tolist()  # type: ignore
 
         # 2. predecessor_lane_group_ids, successor_lane_group_ids
         lane_group_connector_row = get_row_with_value(
             nuplan_gdf["lane_group_connectors"], "fid", lane_group_connector_id
         )
-        predecessor_lane_group_ids = [str(lane_group_connector_row["from_lane_group_fid"])]
-        successor_lane_group_ids = [str(lane_group_connector_row["to_lane_group_fid"])]
+        predecessor_lane_group_ids = [str(lane_group_connector_row["from_lane_group_fid"])]  # type: ignore
+        successor_lane_group_ids = [str(lane_group_connector_row["to_lane_group_fid"])]  # type: ignore
 
         # 3. left_boundaries, right_boundaries
-        left_boundary_fid = lane_group_connector_row["left_boundary_fid"]
-        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]
-        right_boundary_fid = lane_group_connector_row["right_boundary_fid"]
-        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]
+        left_boundary_fid = lane_group_connector_row["left_boundary_fid"]  # type: ignore
+        left_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(left_boundary_fid))["geometry"]  # type: ignore
+        right_boundary_fid = lane_group_connector_row["right_boundary_fid"]  # type: ignore
+        right_boundary = get_row_with_value(nuplan_gdf["boundaries"], "fid", str(right_boundary_fid))["geometry"]  # type: ignore
 
         yield LaneGroup(
             object_id=int(lane_group_connector_id),
@@ -290,10 +272,10 @@ def _iter_nuplan_lane_connector_groups(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) 
             left_boundary=Polyline3D.from_linestring(left_boundary),
             right_boundary=Polyline3D.from_linestring(right_boundary),
             intersection_id=all_intersection_ids[idx],
-            predecessor_ids=predecessor_lane_group_ids,
-            successor_ids=successor_lane_group_ids,
+            predecessor_ids=predecessor_lane_group_ids,  # type: ignore
+            successor_ids=successor_lane_group_ids,  # type: ignore
             outline=None,
-            shapely_polygon=lane_group_connector_row.geometry,
+            shapely_polygon=lane_group_connector_row.geometry,  # type: ignore
         )
 
 
@@ -304,31 +286,31 @@ def _iter_nuplan_intersections(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Itera
     for idx, intersection_id in enumerate(all_ids):
         lane_group_connector_ids = get_all_rows_with_value(
             nuplan_gdf["lane_group_connectors"], "intersection_fid", str(intersection_id)
-        )["fid"].tolist()
+        )["fid"].tolist()  # type: ignore
 
         yield Intersection(
             object_id=int(intersection_id),
             lane_group_ids=lane_group_connector_ids,
-            shapely_polygon=all_geometries[idx],
+            shapely_polygon=all_geometries[idx],  # type: ignore
         )
 
 
 def _iter_nuplan_crosswalks(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Crosswalk]:
     """Yield Crosswalk objects from nuPlan crosswalk data."""
     for id, geometry in zip(nuplan_gdf["crosswalks"].fid.to_list(), nuplan_gdf["crosswalks"].geometry.to_list()):
-        yield Crosswalk(object_id=int(id), shapely_polygon=geometry)
+        yield Crosswalk(object_id=int(id), shapely_polygon=geometry)  # type: ignore
 
 
 def _iter_nuplan_walkways(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Walkway]:
     """Yield Walkway objects from nuPlan walkway data."""
     for id, geometry in zip(nuplan_gdf["walkways"].fid.to_list(), nuplan_gdf["walkways"].geometry.to_list()):
-        yield Walkway(object_id=int(id), shapely_polygon=geometry)
+        yield Walkway(object_id=int(id), shapely_polygon=geometry)  # type: ignore
 
 
 def _iter_nuplan_carparks(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Carpark]:
     """Yield Carpark objects from nuPlan carpark data."""
     for id, geometry in zip(nuplan_gdf["carpark_areas"].fid.to_list(), nuplan_gdf["carpark_areas"].geometry.to_list()):
-        yield Carpark(object_id=int(id), shapely_polygon=geometry)
+        yield Carpark(object_id=int(id), shapely_polygon=geometry)  # type: ignore
 
 
 def _iter_nuplan_generic_drivables(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[GenericDrivable]:
@@ -336,7 +318,7 @@ def _iter_nuplan_generic_drivables(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> I
     for id, geometry in zip(
         nuplan_gdf["generic_drivable_areas"].fid.to_list(), nuplan_gdf["generic_drivable_areas"].geometry.to_list()
     ):
-        yield GenericDrivable(object_id=int(id), shapely_polygon=geometry)
+        yield GenericDrivable(object_id=int(id), shapely_polygon=geometry)  # type: ignore
 
 
 def _iter_nuplan_road_edges(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[RoadEdge]:
@@ -347,8 +329,8 @@ def _iter_nuplan_road_edges(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator
         + nuplan_gdf["carpark_areas"].geometry.to_list()
         + nuplan_gdf["generic_drivable_areas"].geometry.to_list()
     )
-    road_edge_linear_rings = get_road_edge_linear_rings(drivable_polygons)
-    road_edges = split_line_geometry_by_max_length(road_edge_linear_rings, MAX_ROAD_EDGE_LENGTH)
+    road_edge_linear_rings = get_road_edge_linear_rings(drivable_polygons)  # type: ignore
+    road_edges = split_line_geometry_by_max_length(road_edge_linear_rings, MAX_ROAD_EDGE_LENGTH)  # type: ignore
 
     for idx in range(len(road_edges)):
         yield RoadEdge(
@@ -368,7 +350,7 @@ def _iter_nuplan_road_lines(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator
         yield RoadLine(
             object_id=int(fids[idx]),
             road_line_type=NUPLAN_ROAD_LINE_CONVERSION[boundary_types[idx]],
-            polyline=Polyline2D.from_linestring(boundaries[idx]),
+            polyline=Polyline2D.from_linestring(boundaries[idx]),  # type: ignore
         )
 
 
@@ -390,7 +372,7 @@ def _load_nuplan_gdf(map_file_path: Path) -> Dict[str, gpd.GeoDataFrame]:
             warnings.filterwarnings("ignore")
 
             gdf_in_pixel_coords = pyogrio.read_dataframe(map_file_path, layer=layer_name, fid_as_index=True)
-            gdf_in_utm_coords = gdf_in_pixel_coords.to_crs(projection_system)
+            gdf_in_utm_coords = gdf_in_pixel_coords.to_crs(projection_system)  # type: ignore
 
             # For backwards compatibility, cast the index to string datatype.
             #   and mirror it to the "fid" column.
@@ -418,7 +400,7 @@ def lines_same_direction(centerline: LineString, boundary: LineString) -> bool:
     same_dir_dist = np.linalg.norm(center_start - boundary_start) + np.linalg.norm(center_end - boundary_end)
     opposite_dir_dist = np.linalg.norm(center_start - boundary_end) + np.linalg.norm(center_end - boundary_start)
 
-    return same_dir_dist <= opposite_dir_dist
+    return bool(same_dir_dist <= opposite_dir_dist)
 
 
 def align_boundary_direction(centerline: LineString, boundary: LineString) -> LineString:
@@ -444,7 +426,7 @@ def get_all_rows_with_value(
     mask = elements[column_label].notna()
     valid_elements = elements[mask]
 
-    return valid_elements.iloc[np.where(valid_elements[column_label].to_numpy().astype(int) == int(desired_value))]
+    return valid_elements.iloc[np.where(valid_elements[column_label].to_numpy().astype(int) == int(desired_value))]  # type: ignore
 
 
 def get_row_with_value(

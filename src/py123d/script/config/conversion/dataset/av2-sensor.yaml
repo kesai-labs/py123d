@@ -1,8 +1,38 @@
-defaults:
-  - /dataset_converter_config@_global_: av2-sensor
+parser:
+  _target_: py123d.parser.av2.av2_sensor_parser.Av2SensorParser
+  _convert_: 'all'
 
-_target_: py123d.parser.av2.av2_sensor_parser.Av2SensorParser
-_convert_: 'all'
+  splits: ["av2-sensor_train"]
+  av2_data_root: ${dataset_paths.av2_data_root}
 
-splits: ["av2-sensor_train"]
-av2_data_root: ${dataset_paths.av2_data_root}
+dataset_converter_config:
+  _target_: py123d.parser.dataset_converter_config.DatasetConverterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+
+  # Map
+  include_map: true
+
+  # Ego
+  include_ego: true
+
+  # Box Detections
+  include_box_detections: true
+
+  # Pinhole Cameras
+  include_pinhole_cameras: true
+  pinhole_camera_store_option: "path" # "path", "jpeg_binary", "png_binary", "mp4"
+
+  # Lidars
+  include_lidars: true
+  lidar_store_option: "path" #  "path", "binary"
+  lidar_point_cloud_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+  lidar_point_feature_codec: null # None or "ipc_zstd", "ipc_lz4", "ipc"
+
+  # Not available:
+  include_traffic_lights: false
+  include_scenario_tags: false
+  include_route: false
+  include_fisheye_mei_cameras: false

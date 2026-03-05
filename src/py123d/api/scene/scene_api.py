@@ -235,6 +235,11 @@ class SceneAPI(abc.ABC):
         return self.get_map_metadata()
 
     @property
+    def ego_metadata(self) -> Optional[EgoMetadata]:
+        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the ego vehicle, if available."""
+        return self.get_ego_metadata()
+
+    @property
     def map_api(self) -> Optional[MapAPI]:
         """The :class:`~py123d.api.map.MapAPI` of the scene, if available."""
         return self.get_map_api()
@@ -278,11 +283,6 @@ class SceneAPI(abc.ABC):
     def number_of_history_iterations(self) -> int:
         """The number of history iterations in the scene."""
         return self.scene_metadata.number_of_history_iterations
-
-    @property
-    def vehicle_parameters(self) -> Optional[EgoMetadata]:
-        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the ego vehicle, if available."""
-        return self.get_ego_metadata()
 
     @property
     def available_pinhole_camera_ids(self) -> List[PinholeCameraID]:

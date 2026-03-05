@@ -31,7 +31,7 @@ def main(cfg: DictConfig) -> None:
     setup_dataset_paths(cfg.dataset_paths)
 
     logger.info("Starting Dataset Conversion...")
-    dataset_parser: DatasetParser = hydra.utils.instantiate(cfg.dataset)
+    dataset_parser: DatasetParser = hydra.utils.instantiate(cfg.dataset.parser)
 
     executor = build_executor(cfg)
     parser_class_name = dataset_parser.__class__.__name__

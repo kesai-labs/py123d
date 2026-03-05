@@ -125,7 +125,6 @@ def endpoints_intersect(left_edge: np.ndarray, right_edge: np.ndarray) -> bool:
 
     # NOTE @DanielDauner: Code adapted from trajdata, Apache 2.0 License. Thank you!
     # https://github.com/NVlabs/trajdata/blob/main/src/trajdata/utils/map_utils.py#L177
-
     def ccw(A, B, C):
         return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
 
@@ -138,11 +137,9 @@ def order_matches(pts: np.ndarray, ref: np.ndarray) -> bool:
     """Check if two polylines have the same ordering direction, by comparing
     the distance of their start and end points to the start point of the reference polyline.
     """
-
     # NOTE @DanielDauner: Code adapted from trajdata, Apache 2.0 License. Thank you!
     # https://github.com/NVlabs/trajdata/blob/main/src/trajdata/utils/map_utils.py#L162
-
-    return np.linalg.norm(pts[0] - ref[0]) <= np.linalg.norm(pts[-1] - ref[0])
+    return bool(np.linalg.norm(pts[0] - ref[0]) <= np.linalg.norm(pts[-1] - ref[0]))
 
 
 def order_lanes_left_to_right(polylines: List[Polyline2D]) -> List[int]:
@@ -167,7 +164,7 @@ def order_lanes_left_to_right(polylines: List[Polyline2D]) -> List[int]:
         all_directions.append(direction)
 
     avg_direction = np.mean(all_directions, axis=0)
-    avg_direction = avg_direction / np.linalg.norm(avg_direction)
+    avg_direction /= np.linalg.norm(avg_direction)
 
     # Step 2: Compute perpendicular vector (left direction)
     # Rotate 90 degrees counter-clockwise: (x, y) -> (-y, x)

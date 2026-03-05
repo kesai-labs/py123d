@@ -32,15 +32,6 @@ from py123d.parser.kitti360.utils.kitti360_labels import (
     kittiId2label,
 )
 
-# KITTI360_DATA_ROOT = Path(os.environ["KITTI360_DATA_ROOT"])
-# DIR_3D_RAW = "data_3d_raw"
-# DIR_3D_BBOX = "data_3d_bboxes"
-# DIR_POSES = "data_poses"
-
-# PATH_3D_RAW_ROOT = KITTI360_DATA_ROOT / DIR_3D_RAW
-# PATH_3D_BBOX_ROOT = KITTI360_DATA_ROOT / DIR_3D_BBOX
-# PATH_POSES_ROOT = KITTI360_DATA_ROOT / DIR_POSES
-
 
 def _bbox_xml_path(kitti360_dataset_root: Path, log_name: str) -> Path:
     if log_name == "2013_05_28_drive_0004_sync":

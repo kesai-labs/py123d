@@ -577,6 +577,7 @@ def _extract_ego_state_all(log_name: str, kitti360_folders: Dict[str, Path]) -> 
                 imu_se3=imu_pose_se3,
                 vehicle_parameters=vehicle_parameters,
                 dynamic_state_se3=dynamic_state_se3,
+                timestamp=Timestamp.from_us(valid_timestamp[idx] * 1_000_000),
             )
         )
     return ego_state_all, valid_timestamp
@@ -597,7 +598,7 @@ def _extract_kitti360_box_detections_all(
     detections_states: List[List[List[float]]] = [[] for _ in range(ts_len)]
     detections_velocity: List[List[List[float]]] = [[] for _ in range(ts_len)]
     detections_tokens: List[List[str]] = [[] for _ in range(ts_len)]
-    detections_labels: List[List[int]] = [[] for _ in range(ts_len)]
+    detections_labels: List[List[KITTI360BoxDetectionLabel]] = [[] for _ in range(ts_len)]
 
     if log_name == "2013_05_28_drive_0004_sync":
         bbox_3d_path = kitti360_folders[DIR_3D_BBOX] / "train_full" / f"{log_name}.xml"
@@ -703,8 +704,8 @@ def _extract_kitti360_box_detections_all(
                 label=detection_label,
                 track_token=token,
             )
-            bounding_box_se3 = BoundingBoxSE3.from_array(state)
-            velocity_vector = Vector3D.from_array(velocity)
+            bounding_box_se3 = BoundingBoxSE3.from_list(state)
+            velocity_vector = Vector3D.from_list(velocity)
             box_detection = BoxDetectionSE3(
                 metadata=detection_metadata,
                 bounding_box_se3=bounding_box_se3,
@@ -712,7 +713,10 @@ def _extract_kitti360_box_detections_all(
             )
             box_detections.append(box_detection)
         box_detection_wrapper_all.append(
-            BoxDetectionsSE3(box_detections=box_detections, timestamp=reference_timestamps[frame])
+            BoxDetectionsSE3(
+                box_detections=box_detections,
+                timestamp=reference_timestamps[frame],
+            )
         )
     return box_detection_wrapper_all
 
