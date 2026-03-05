@@ -1,3 +1,5 @@
+import pytest
+
 from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 
@@ -74,7 +76,7 @@ class TestMapMetadata:
             log_name=None,
             location="test_location",
             map_has_z=True,
-            map_is_per_log=True,
+            map_is_per_log=False,
         )
 
         assert metadata.split is None
@@ -113,3 +115,25 @@ class TestMapMetadata:
             map_is_per_log=False,
         )
         assert isinstance(metadata, AbstractMetadata)
+
+    def test_per_log_map_requires_split_and_log_name(self):
+        """Test that per-log maps raise AssertionError when split or log_name is missing."""
+        with pytest.raises(AssertionError, match="split must be provided"):
+            MapMetadata(
+                dataset="test_dataset",
+                location="test_location",
+                map_has_z=True,
+                map_is_per_log=True,
+                split=None,
+                log_name="log_001",
+            )
+
+        with pytest.raises(AssertionError, match="log_name must be provided"):
+            MapMetadata(
+                dataset="test_dataset",
+                location="test_location",
+                map_has_z=True,
+                map_is_per_log=True,
+                split="train",
+                log_name=None,
+            )
