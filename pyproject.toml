@@ -63,7 +63,7 @@ dev = [
     "pytest-cov",
 ]
 docs = [
-    "Sphinx",
+    "Sphinx<9",
     "sphinx-rtd-theme",
     "sphinx-autobuild",
     "sphinx-copybutton",
