@@ -347,7 +347,10 @@ def _iter_nuplan_stop_zones(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator
 
     for idx, stop_id in enumerate(all_ids):
         stop_zone_type = NUPLAN_STOP_ZONE_TYPE_CONVERSION.get(all_types[idx], StopZoneType.UNKNOWN)
-        lane_ids = [int(fid) for fid in all_lane_fids[idx].split(",")] if pd.notna(all_lane_fids[idx]) else None
+        if pd.notna(all_lane_fids[idx]) and all_lane_fids[idx]:
+            lane_ids = [int(fid) for fid in all_lane_fids[idx].split(",") if fid]
+        else:
+            lane_ids = None
 
         yield StopZone(
             object_id=int(stop_id),
