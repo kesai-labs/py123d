@@ -1,5 +1,5 @@
 import logging
-from copy import deepcopy
+from copy import copy
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -472,7 +472,11 @@ def _extend_lane_with_shoulder(
     new_outer_3d = np.column_stack([new_outer_xy, outer_z])
 
     # --- Step 7: Create new helper with updated polylines ---
-    new_helper = deepcopy(lane_helper)
+    # Use shallow copy - only the cached polyline properties need replacement,
+    # the underlying boundary/reference objects are shared (read-only).
+    new_helper = copy(lane_helper)
+    new_helper.predecessor_lane_ids = list(lane_helper.predecessor_lane_ids)
+    new_helper.successor_lane_ids = list(lane_helper.successor_lane_ids)
     new_helper.__dict__["center_polyline_se2"] = PolylineSE2.from_array(new_center_se2)
     new_helper.__dict__["inner_polyline_se2"] = PolylineSE2.from_array(new_inner_se2)
     new_helper.__dict__["outer_polyline_se2"] = PolylineSE2.from_array(new_outer_se2)
@@ -578,33 +582,25 @@ def _collect_lane_groups(
 ) -> Dict[str, OpenDriveLaneGroupHelper]:
     lane_group_helper_dict: Dict[str, OpenDriveLaneGroupHelper] = {}
 
-    def _collect_lane_helper_of_id(lane_group_id: str) -> List[OpenDriveLaneHelper]:
-        lane_helpers: List[OpenDriveLaneHelper] = []
-        for lane_id, lane_helper in lane_helper_dict.items():
-            if (lane_helper.type in ["driving"]) and (lane_group_id_from_lane_id(lane_id) == lane_group_id):
-                lane_helpers.append(lane_helper)
-        return lane_helpers
+    # Pre-build mapping: lane_group_id -> list of driving lane helpers (O(n) instead of O(n*m))
+    driving_lanes_by_group: Dict[str, List[OpenDriveLaneHelper]] = {}
+    road_to_group_ids: Dict[int, List[str]] = {}
+    for lane_id, lane_helper in lane_helper_dict.items():
+        group_id = lane_group_id_from_lane_id(lane_id)
+        if lane_helper.type == "driving":
+            driving_lanes_by_group.setdefault(group_id, []).append(lane_helper)
 
-    def _collect_lane_group_ids_of_road(road_id: int) -> List[str]:
-        lane_group_ids: List[str] = []
-        for lane_group_id in lane_group_helper_dict.keys():
-            if int(road_id_from_lane_group_id(lane_group_id)) == road_id:
-                lane_group_ids.append(lane_group_id)
-        return lane_group_ids
-
-    all_lane_group_ids = list(set([lane_group_id_from_lane_id(lane_id) for lane_id in lane_helper_dict.keys()]))
-
-    for lane_group_id in all_lane_group_ids:
-        lane_group_lane_helper = _collect_lane_helper_of_id(lane_group_id)
-        if len(lane_group_lane_helper) >= 1:
-            lane_group_helper_dict[lane_group_id] = OpenDriveLaneGroupHelper(lane_group_id, lane_group_lane_helper)
+    for lane_group_id, lane_helpers in driving_lanes_by_group.items():
+        if len(lane_helpers) >= 1:
+            lane_group_helper_dict[lane_group_id] = OpenDriveLaneGroupHelper(lane_group_id, lane_helpers)
+            road_id = int(road_id_from_lane_group_id(lane_group_id))
+            road_to_group_ids.setdefault(road_id, []).append(lane_group_id)
 
     for junction in junction_dict.values():
         for connection in junction.connections:
-            connecting_road = road_dict[connection.connecting_road]
-            connecting_lane_group_ids = _collect_lane_group_ids_of_road(connecting_road.id)
-            for connecting_lane_group_id in connecting_lane_group_ids:
-                if connecting_lane_group_id in lane_group_helper_dict.keys():
+            connecting_road_id = connection.connecting_road
+            for connecting_lane_group_id in road_to_group_ids.get(connecting_road_id, []):
+                if connecting_lane_group_id in lane_group_helper_dict:
                     lane_group_helper_dict[connecting_lane_group_id].junction_id = junction.id
 
     return lane_group_helper_dict

@@ -67,53 +67,37 @@ class OpenDriveLaneHelper:
 
     @cached_property
     def inner_polyline_se2(self) -> PolylineSE2:
-        inner_polyline = np.array(
-            [
-                self.inner_boundary.interpolate_se2(self.s_inner_offset + s - self.s_range[0], lane_section_end=end)
-                for s, end in zip(self._s_positions, self._lane_section_end_mask)
-            ],
-            dtype=np.float64,
-        )
+        s_arr = self.s_inner_offset + self._s_positions - self.s_range[0]
+        t_arr = np.zeros_like(s_arr)
+        inner_polyline = self.inner_boundary.interpolate_se2_batch(s_arr, t_arr, self._lane_section_end_mask)
         polyline_array = np.flip(inner_polyline, axis=0) if self.id > 0 else inner_polyline
         return PolylineSE2.from_array(polyline_array)
 
     @cached_property
     def inner_polyline_3d(self) -> Polyline3D:
-        inner_polyline = np.array(
-            [
-                self.inner_boundary.interpolate_3d(self.s_inner_offset + s - self.s_range[0], lane_section_end=end)
-                for s, end in zip(self._s_positions, self._lane_section_end_mask)
-            ],
-            dtype=np.float64,
-        )
+        s_arr = self.s_inner_offset + self._s_positions - self.s_range[0]
+        t_arr = np.zeros_like(s_arr)
+        inner_polyline = self.inner_boundary.interpolate_3d_batch(s_arr, t_arr, self._lane_section_end_mask)
         polyline_array = np.flip(inner_polyline, axis=0) if self.id > 0 else inner_polyline
         return Polyline3D.from_array(polyline_array)
 
     @cached_property
     def outer_polyline_se2(self) -> PolylineSE2:
-        outer_polyline = np.array(
-            [
-                self.outer_boundary.interpolate_se2(s - self.s_range[0], lane_section_end=end)
-                for s, end in zip(self._s_positions, self._lane_section_end_mask)
-            ],
-            dtype=np.float64,
-        )
+        s_arr = self._s_positions - self.s_range[0]
+        t_arr = np.zeros_like(s_arr)
+        outer_polyline = self.outer_boundary.interpolate_se2_batch(s_arr, t_arr, self._lane_section_end_mask)
         polyline_array = np.flip(outer_polyline, axis=0) if self.id > 0 else outer_polyline
         return PolylineSE2.from_array(polyline_array)
 
     @cached_property
     def outer_polyline_3d(self) -> Polyline3D:
-        outer_polyline = np.array(
-            [
-                self.outer_boundary.interpolate_3d(s - self.s_range[0], lane_section_end=end)
-                for s, end in zip(self._s_positions, self._lane_section_end_mask)
-            ],
-            dtype=np.float64,
-        )
+        s_arr = self._s_positions - self.s_range[0]
+        t_arr = np.zeros_like(s_arr)
+        outer_polyline = self.outer_boundary.interpolate_3d_batch(s_arr, t_arr, self._lane_section_end_mask)
         polyline_array = np.flip(outer_polyline, axis=0) if self.id > 0 else outer_polyline
         return Polyline3D.from_array(polyline_array)
 
-    @property
+    @cached_property
     def center_polyline_se2(self) -> PolylineSE2:
         return PolylineSE2.from_array(
             np.concatenate(
@@ -125,7 +109,7 @@ class OpenDriveLaneHelper:
             ).mean(axis=0)
         )
 
-    @property
+    @cached_property
     def center_polyline_3d(self) -> Polyline3D:
         return Polyline3D.from_array(
             np.concatenate(

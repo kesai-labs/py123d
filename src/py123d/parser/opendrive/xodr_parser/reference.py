@@ -68,6 +68,34 @@ class XODRPlanView:
 
         return self.geometries[geo_idx].interpolate_se2(s - self.geometry_lengths[geo_idx], t)
 
+    def interpolate_se2_batch(
+        self,
+        s_arr: npt.NDArray[np.float64],
+        t_arr: npt.NDArray[np.float64],
+        lane_section_end_arr: npt.NDArray[np.bool_],
+    ) -> npt.NDArray[np.float64]:
+        s_clamped = s_arr.copy()
+        over = s_clamped > self.length
+        if np.any(over):
+            close = np.isclose(s_clamped, self.length, atol=TOLERANCE)
+            if np.any(over & ~close):
+                bad = s_clamped[over & ~close][0]
+                raise ValueError(
+                    f"PlanView: s={bad} is beyond the end of the plan view (length={self.length}) with tolerance={TOLERANCE}."
+                )
+            s_clamped[over] = self.length
+
+        geo_indices = np.searchsorted(self.geometry_lengths, s_clamped, side="right") - 1
+        geo_indices = np.clip(geo_indices, 0, len(self.geometries) - 1)
+
+        result = np.empty((len(s_arr), len(PoseSE2Index)), dtype=np.float64)
+        for geo_idx in np.unique(geo_indices):
+            mask = geo_indices == geo_idx
+            local_s = s_clamped[mask] - self.geometry_lengths[geo_idx]
+            local_t = t_arr[mask]
+            result[mask] = self.geometries[geo_idx].interpolate_se2_batch(local_s, local_t)
+        return result
+
 
 @dataclass
 class XODRReferenceLine:
@@ -150,3 +178,76 @@ class XODRReferenceLine:
         point_3d[Point3DIndex.Z] = elevation_polynomial.get_value(s - elevation_polynomial.s)
 
         return point_3d
+
+    @staticmethod
+    def _eval_single_polynomial_batch(
+        s_arr: npt.NDArray[np.float64],
+        poly: XODRPolynomial,
+    ) -> npt.NDArray[np.float64]:
+        ds = s_arr - poly.s
+        return poly.a + poly.b * ds + poly.c * ds**2 + poly.d * ds**3
+
+    @staticmethod
+    def _find_polynomial_indices_batch(
+        s_arr: npt.NDArray[np.float64],
+        polynomials: List[XODRPolynomial],
+        lane_section_end_arr: npt.NDArray[np.bool_],
+    ) -> npt.NDArray[np.int64]:
+        if len(polynomials) == 1:
+            return np.zeros(len(s_arr), dtype=np.int64)
+        poly_s = np.array([p.s for p in polynomials], dtype=np.float64)
+        indices = np.searchsorted(poly_s, s_arr, side="right") - 1
+        # Fix last point (lane_section_end) if needed
+        if lane_section_end_arr[-1]:
+            indices[-1] = np.searchsorted(poly_s, s_arr[-1], side="left") - 1
+        return np.clip(indices, 0, len(polynomials) - 1)
+
+    @staticmethod
+    def _eval_polynomials_batch(
+        s_arr: npt.NDArray[np.float64],
+        polynomials: List[XODRPolynomial],
+        indices: npt.NDArray[np.int64],
+    ) -> npt.NDArray[np.float64]:
+        if len(polynomials) == 1:
+            poly = polynomials[0]
+            ds = s_arr - poly.s
+            return poly.a + poly.b * ds + poly.c * ds**2 + poly.d * ds**3
+        result = np.empty(len(s_arr), dtype=np.float64)
+        for poly_idx in np.unique(indices):
+            mask = indices == poly_idx
+            poly = polynomials[poly_idx]
+            ds = s_arr[mask] - poly.s
+            result[mask] = poly.a + poly.b * ds + poly.c * ds**2 + poly.d * ds**3
+        return result
+
+    def interpolate_se2_batch(
+        self,
+        s_arr: npt.NDArray[np.float64],
+        t_arr: npt.NDArray[np.float64],
+        lane_section_end_arr: npt.NDArray[np.bool_],
+    ) -> npt.NDArray[np.float64]:
+        # Fast path for single polynomial (most common case: constant width)
+        if len(self.width_polynomials) == 1:
+            t_offsets = self._eval_single_polynomial_batch(s_arr, self.width_polynomials[0])
+        else:
+            width_indices = self._find_polynomial_indices_batch(s_arr, self.width_polynomials, lane_section_end_arr)
+            t_offsets = self._eval_polynomials_batch(s_arr, self.width_polynomials, width_indices)
+        return self.reference_line.interpolate_se2_batch(self.s_offset + s_arr, t_offsets + t_arr, lane_section_end_arr)
+
+    def interpolate_3d_batch(
+        self,
+        s_arr: npt.NDArray[np.float64],
+        t_arr: npt.NDArray[np.float64],
+        lane_section_end_arr: npt.NDArray[np.bool_],
+    ) -> npt.NDArray[np.float64]:
+        se2_arr = self.interpolate_se2_batch(s_arr, t_arr, lane_section_end_arr)
+        # Fast path for single elevation (common case)
+        if len(self.elevations) == 1:
+            z_values = self._eval_single_polynomial_batch(s_arr, self.elevations[0])
+        else:
+            elev_indices = self._find_polynomial_indices_batch(s_arr, self.elevations, lane_section_end_arr)
+            z_values = self._eval_polynomials_batch(s_arr, self.elevations, elev_indices)
+        result = np.zeros((len(s_arr), len(Point3DIndex)), dtype=np.float64)
+        result[:, Point3DIndex.XY] = se2_arr[:, PoseSE2Index.XY]
+        result[:, Point3DIndex.Z] = z_values
+        return result

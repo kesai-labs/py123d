@@ -224,15 +224,14 @@ def _iter_intersections(
 ) -> Iterator[Intersection]:
     """Yields intersection objects from junctions."""
 
-    def _find_lane_group_helpers_with_junction_id(junction_id: int) -> List[OpenDriveLaneGroupHelper]:
-        return [
-            lane_group_helper
-            for lane_group_helper in lane_group_helper_dict.values()
-            if lane_group_helper.junction_id == junction_id
-        ]
+    # Pre-build junction_id -> lane_group_helpers mapping
+    junction_to_lane_groups: Dict[int, List[OpenDriveLaneGroupHelper]] = {}
+    for lane_group_helper in lane_group_helper_dict.values():
+        if lane_group_helper.junction_id is not None:
+            junction_to_lane_groups.setdefault(lane_group_helper.junction_id, []).append(lane_group_helper)
 
     for junction in junction_dict.values():
-        lane_group_helpers = _find_lane_group_helpers_with_junction_id(junction.id)
+        lane_group_helpers = junction_to_lane_groups.get(junction.id, [])
         lane_group_ids_ = [lane_group_helper.lane_group_id for lane_group_helper in lane_group_helpers]
         if len(lane_group_ids_) == 0:
             logger.debug(f"Skipping Junction {junction.id} without lane groups!")
@@ -268,6 +267,12 @@ def _iter_road_lines(
     """
     lane_group_on_intersection = {lg.object_id: lg.intersection_id is not None for lg in lane_groups}
     lane_group_dict = {lg.object_id: lg for lg in lane_groups}
+
+    # Pre-build lane_id -> (group_id, index) mapping for O(1) lookup
+    lane_id_to_group_index: Dict[str, int] = {}
+    for lg in lane_groups:
+        for idx, lid in enumerate(lg.lane_ids):
+            lane_id_to_group_index[lid] = idx
 
     running_id = 0
 
@@ -314,12 +319,7 @@ def _iter_road_lines(
         if lane_group is None:
             continue
 
-        # Find lane in lane_group to check adjacency
-        lane_idx_in_group = None
-        for idx, lid in enumerate(lane_group.lane_ids):
-            if lid == lane_id:
-                lane_idx_in_group = idx
-                break
+        lane_idx_in_group = lane_id_to_group_index.get(lane_id)
         if lane_idx_in_group is None:
             continue
 

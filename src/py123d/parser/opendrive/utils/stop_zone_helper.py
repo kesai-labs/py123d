@@ -25,8 +25,8 @@ def _signal_type_to_stop_zone_type(signal: OpenDriveSignalHelper) -> StopZoneTyp
     return SIGNAL_TYPE_MAP.get(signal.xodr_signal.type, StopZoneType.UNKNOWN)
 
 
-def _lane_rectangle_2d(helper: OpenDriveLaneHelper) -> Optional[Polygon]:
-    """Create a small 2D rectangle at the start of a lane (STOP_ZONE_DEPTH wide)."""
+def _get_stop_zone_s_range(helper: OpenDriveLaneHelper) -> tuple:
+    """Get the (start_s, end_s) range for a stop zone on a lane."""
     travels_in_s = helper.id < 0
     if travels_in_s:
         start_s = helper.s_range[0]
@@ -34,20 +34,27 @@ def _lane_rectangle_2d(helper: OpenDriveLaneHelper) -> Optional[Polygon]:
     else:
         end_s = helper.s_range[1]
         start_s = end_s - STOP_ZONE_DEPTH
-
     start_s = np.clip(start_s, helper.s_range[0], helper.s_range[1])
     end_s = np.clip(end_s, helper.s_range[0], helper.s_range[1])
+    return float(start_s), float(end_s)
 
-    inner_start = helper.inner_boundary.interpolate_3d(start_s - helper.s_range[0])
-    outer_start = helper.outer_boundary.interpolate_3d(start_s - helper.s_range[0])
-    inner_end = helper.inner_boundary.interpolate_3d(end_s - helper.s_range[0])
-    outer_end = helper.outer_boundary.interpolate_3d(end_s - helper.s_range[0])
+
+def _lane_rectangle_2d(helper: OpenDriveLaneHelper) -> Optional[Polygon]:
+    """Create a small 2D rectangle at the start of a lane (STOP_ZONE_DEPTH wide)."""
+    start_s, end_s = _get_stop_zone_s_range(helper)
+
+    # Batch all 4 interpolation calls: 2 s-values x 2 boundaries
+    s_arr = np.array([start_s, end_s], dtype=np.float64) - helper.s_range[0]
+    t_arr = np.zeros(2, dtype=np.float64)
+    end_mask = np.array([False, False])
+    inner_pts = helper.inner_boundary.interpolate_3d_batch(s_arr, t_arr, end_mask)
+    outer_pts = helper.outer_boundary.interpolate_3d_batch(s_arr, t_arr, end_mask)
 
     coords_2d = [
-        (inner_start[0], inner_start[1]),
-        (outer_start[0], outer_start[1]),
-        (outer_end[0], outer_end[1]),
-        (inner_end[0], inner_end[1]),
+        (inner_pts[0, 0], inner_pts[0, 1]),
+        (outer_pts[0, 0], outer_pts[0, 1]),
+        (outer_pts[1, 0], outer_pts[1, 1]),
+        (inner_pts[1, 0], inner_pts[1, 1]),
     ]
     poly = Polygon(coords_2d)
     if not poly.is_valid or poly.area < 1e-6:
@@ -76,21 +83,17 @@ def _create_stop_zone_outline(
     if not isinstance(merged, Polygon) or merged.is_empty:
         return None
 
-    # Collect Z from all lane corners for averaging
+    # Collect Z from all lane corners for averaging using batch calls
     all_z = []
     for h in helpers:
-        travels_in_s = h.id < 0
-        if travels_in_s:
-            s_start = h.s_range[0]
-            s_end = s_start + STOP_ZONE_DEPTH
-        else:
-            s_end = h.s_range[1]
-            s_start = s_end - STOP_ZONE_DEPTH
-        s_start = np.clip(s_start, h.s_range[0], h.s_range[1])
-        s_end = np.clip(s_end, h.s_range[0], h.s_range[1])
-        for s in [s_start, s_end]:
-            all_z.append(h.inner_boundary.interpolate_3d(s - h.s_range[0])[2])
-            all_z.append(h.outer_boundary.interpolate_3d(s - h.s_range[0])[2])
+        start_s, end_s = _get_stop_zone_s_range(h)
+        s_arr = np.array([start_s, end_s], dtype=np.float64) - h.s_range[0]
+        t_arr = np.zeros(2, dtype=np.float64)
+        end_mask = np.array([False, False])
+        inner_pts = h.inner_boundary.interpolate_3d_batch(s_arr, t_arr, end_mask)
+        outer_pts = h.outer_boundary.interpolate_3d_batch(s_arr, t_arr, end_mask)
+        all_z.extend(inner_pts[:, 2].tolist())
+        all_z.extend(outer_pts[:, 2].tolist())
     avg_z = float(np.mean(all_z))
 
     # Extract exterior coords from merged polygon, add Z
