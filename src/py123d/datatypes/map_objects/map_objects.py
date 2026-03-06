@@ -25,8 +25,6 @@ if TYPE_CHECKING:
 class Lane(BaseMapSurfaceObject):
     """Class representing a lane in a map."""
 
-    # TODO: @DanielDauner, should we accept 3D and 2D polylines instead?
-
     __slots__ = (
         "_lane_type",
         "_lane_group_id",
@@ -65,6 +63,7 @@ class Lane(BaseMapSurfaceObject):
         If the map_api is provided, neighboring lanes and lane group can be accessed through the properties.
         If the outline is not provided, it will be constructed from the left and right boundaries.
         If the shapely_polygon is not provided, it will be constructed from the outline.
+        All polylines (left_boundary, right_boundary, centerline) must be of the same type (all 2D or all 3D).
 
         :param object_id: The unique identifier for the lane.
         :param lane_type: The type of the lane, according to :class:`~py123d.datatypes.map_objects.map_layer_types.LaneType`.
@@ -80,8 +79,17 @@ class Lane(BaseMapSurfaceObject):
         :param outline: The outline of the lane, defaults to None.
         :param shapely_polygon: The Shapely polygon representation of the lane, defaults to None.
         :param map_api: The MapAPI instance for accessing map objects, defaults to None.
+        :raises TypeError: If polylines are not all the same type (all 2D or all 3D).
         """
+        polyline_types = {type(left_boundary), type(right_boundary), type(centerline)}
+        if len(polyline_types) > 1:
+            raise TypeError(
+                "All polylines (left_boundary, right_boundary, centerline) must be of the same type "
+                f"(all Polyline2D or all Polyline3D), got: {polyline_types}"
+            )
+
         if outline is None:
+            polyline_cls = type(left_boundary)
             outline_array = np.vstack(
                 (
                     left_boundary.array,
@@ -89,7 +97,7 @@ class Lane(BaseMapSurfaceObject):
                     left_boundary.array[0],
                 )
             )
-            outline = Polyline3D.from_array(outline_array)
+            outline = polyline_cls.from_array(outline_array)
         super().__init__(object_id, outline, shapely_polygon)
 
         self._lane_type = lane_type
@@ -130,19 +138,64 @@ class Lane(BaseMapSurfaceObject):
         return lane_group
 
     @property
-    def left_boundary(self) -> Polyline3D:
-        """The left boundary of the lane as a :class:`~py123d.geometry.Polyline3D`."""
+    def left_boundary(self) -> Union[Polyline2D, Polyline3D]:
+        """The left boundary of the lane, either :class:`~py123d.geometry.Polyline2D`
+        or :class:`~py123d.geometry.Polyline3D`."""
         return self._left_boundary
 
     @property
-    def right_boundary(self) -> Polyline3D:
-        """The right boundary of the lane as a :class:`~py123d.geometry.Polyline3D`."""
+    def left_boundary_2d(self) -> Polyline2D:
+        """The left boundary of the lane as :class:`~py123d.geometry.Polyline2D`."""
+        if isinstance(self._left_boundary, Polyline2D):
+            return self._left_boundary
+        return Polyline2D.from_linestring(self._left_boundary.linestring)
+
+    @property
+    def left_boundary_3d(self) -> Polyline3D:
+        """The left boundary of the lane as :class:`~py123d.geometry.Polyline3D` (zero-padded if necessary)."""
+        if isinstance(self._left_boundary, Polyline3D):
+            return self._left_boundary
+        return Polyline3D.from_linestring(self._left_boundary.linestring)
+
+    @property
+    def right_boundary(self) -> Union[Polyline2D, Polyline3D]:
+        """The right boundary of the lane, either :class:`~py123d.geometry.Polyline2D`
+        or :class:`~py123d.geometry.Polyline3D`."""
         return self._right_boundary
 
     @property
-    def centerline(self) -> Polyline3D:
-        """The centerline of the lane as a :class:`~py123d.geometry.Polyline3D`."""
+    def right_boundary_2d(self) -> Polyline2D:
+        """The right boundary of the lane as :class:`~py123d.geometry.Polyline2D`."""
+        if isinstance(self._right_boundary, Polyline2D):
+            return self._right_boundary
+        return Polyline2D.from_linestring(self._right_boundary.linestring)
+
+    @property
+    def right_boundary_3d(self) -> Polyline3D:
+        """The right boundary of the lane as :class:`~py123d.geometry.Polyline3D` (zero-padded if necessary)."""
+        if isinstance(self._right_boundary, Polyline3D):
+            return self._right_boundary
+        return Polyline3D.from_linestring(self._right_boundary.linestring)
+
+    @property
+    def centerline(self) -> Union[Polyline2D, Polyline3D]:
+        """The centerline of the lane, either :class:`~py123d.geometry.Polyline2D`
+        or :class:`~py123d.geometry.Polyline3D`."""
         return self._centerline
+
+    @property
+    def centerline_2d(self) -> Polyline2D:
+        """The centerline of the lane as :class:`~py123d.geometry.Polyline2D`."""
+        if isinstance(self._centerline, Polyline2D):
+            return self._centerline
+        return Polyline2D.from_linestring(self._centerline.linestring)
+
+    @property
+    def centerline_3d(self) -> Polyline3D:
+        """The centerline of the lane as :class:`~py123d.geometry.Polyline3D` (zero-padded if necessary)."""
+        if isinstance(self._centerline, Polyline3D):
+            return self._centerline
+        return Polyline3D.from_linestring(self._centerline.linestring)
 
     @property
     def left_lane_id(self) -> Optional[MapObjectIDType]:
@@ -214,7 +267,7 @@ class Lane(BaseMapSurfaceObject):
     @property
     def trimesh_mesh(self) -> Trimesh:
         """The trimesh mesh representation of the lane."""
-        return get_trimesh_from_boundaries(self.left_boundary, self.right_boundary)
+        return get_trimesh_from_boundaries(self.left_boundary_3d, self.right_boundary_3d)
 
 
 class LaneGroup(BaseMapSurfaceObject):
@@ -234,12 +287,12 @@ class LaneGroup(BaseMapSurfaceObject):
         self,
         object_id: MapObjectIDType,
         lane_ids: List[MapObjectIDType],
-        left_boundary: Polyline3D,
-        right_boundary: Polyline3D,
+        left_boundary: Union[Polyline2D, Polyline3D],
+        right_boundary: Union[Polyline2D, Polyline3D],
         intersection_id: Optional[MapObjectIDType] = None,
         predecessor_ids: List[MapObjectIDType] = [],
         successor_ids: List[MapObjectIDType] = [],
-        outline: Optional[Polyline3D] = None,
+        outline: Optional[Union[Polyline2D, Polyline3D]] = None,
         shapely_polygon: Optional[geom.Polygon] = None,
         map_api: Optional["MapAPI"] = None,
     ):
@@ -250,6 +303,7 @@ class LaneGroup(BaseMapSurfaceObject):
         If the map_api is provided, neighboring lane groups and intersection can be accessed through the properties.
         If the outline is not provided, it will be constructed from the left and right boundaries.
         If the shapely_polygon is not provided, it will be constructed from the outline.
+        All polylines (left_boundary, right_boundary) must be of the same type (all 2D or all 3D).
 
         :param object_id: The ID of the lane group.
         :param lane_ids: The IDs of the lanes in the group.
@@ -261,8 +315,17 @@ class LaneGroup(BaseMapSurfaceObject):
         :param outline: The outline of the lane group, defaults to None
         :param shapely_polygon: The shapely polygon representation of the lane group, defaults to None
         :param map_api: The map API instance, defaults to None
+        :raises TypeError: If polylines are not all the same type (all 2D or all 3D).
         """
+        polyline_types = {type(left_boundary), type(right_boundary)}
+        if len(polyline_types) > 1:
+            raise TypeError(
+                "All polylines (left_boundary, right_boundary) must be of the same type "
+                f"(all Polyline2D or all Polyline3D), got: {polyline_types}"
+            )
+
         if outline is None:
+            polyline_cls = type(left_boundary)
             outline_array = np.vstack(
                 (
                     left_boundary.array,
@@ -270,7 +333,7 @@ class LaneGroup(BaseMapSurfaceObject):
                     left_boundary.array[0],
                 )
             )
-            outline = Polyline3D.from_array(outline_array)
+            outline = polyline_cls.from_array(outline_array)
         super().__init__(object_id, outline, shapely_polygon)
 
         self._lane_ids = lane_ids
@@ -303,14 +366,44 @@ class LaneGroup(BaseMapSurfaceObject):
         return lanes
 
     @property
-    def left_boundary(self) -> Polyline3D:
-        """The left boundary of the lane group."""
+    def left_boundary(self) -> Union[Polyline2D, Polyline3D]:
+        """The left boundary of the lane group, either :class:`~py123d.geometry.Polyline2D`
+        or :class:`~py123d.geometry.Polyline3D`."""
         return self._left_boundary
 
     @property
-    def right_boundary(self) -> Polyline3D:
-        """The right boundary of the lane group."""
+    def left_boundary_2d(self) -> Polyline2D:
+        """The left boundary of the lane group as :class:`~py123d.geometry.Polyline2D`."""
+        if isinstance(self._left_boundary, Polyline2D):
+            return self._left_boundary
+        return Polyline2D.from_linestring(self._left_boundary.linestring)
+
+    @property
+    def left_boundary_3d(self) -> Polyline3D:
+        """The left boundary of the lane group as :class:`~py123d.geometry.Polyline3D` (zero-padded if necessary)."""
+        if isinstance(self._left_boundary, Polyline3D):
+            return self._left_boundary
+        return Polyline3D.from_linestring(self._left_boundary.linestring)
+
+    @property
+    def right_boundary(self) -> Union[Polyline2D, Polyline3D]:
+        """The right boundary of the lane group, either :class:`~py123d.geometry.Polyline2D`
+        or :class:`~py123d.geometry.Polyline3D`."""
         return self._right_boundary
+
+    @property
+    def right_boundary_2d(self) -> Polyline2D:
+        """The right boundary of the lane group as :class:`~py123d.geometry.Polyline2D`."""
+        if isinstance(self._right_boundary, Polyline2D):
+            return self._right_boundary
+        return Polyline2D.from_linestring(self._right_boundary.linestring)
+
+    @property
+    def right_boundary_3d(self) -> Polyline3D:
+        """The right boundary of the lane group as :class:`~py123d.geometry.Polyline3D` (zero-padded if necessary)."""
+        if isinstance(self._right_boundary, Polyline3D):
+            return self._right_boundary
+        return Polyline3D.from_linestring(self._right_boundary.linestring)
 
     @property
     def intersection_id(self) -> Optional[MapObjectIDType]:
@@ -360,7 +453,7 @@ class LaneGroup(BaseMapSurfaceObject):
     @property
     def trimesh_mesh(self) -> Trimesh:
         """The trimesh mesh representation of the lane group."""
-        return get_trimesh_from_boundaries(self.left_boundary, self.right_boundary)
+        return get_trimesh_from_boundaries(self.left_boundary_3d, self.right_boundary_3d)
 
 
 class Intersection(BaseMapSurfaceObject):

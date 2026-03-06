@@ -27,10 +27,7 @@ from py123d.geometry.polyline import Polyline3D
 from py123d.parser.abstract_dataset_parser import MapParser
 from py123d.parser.opendrive.utils.collection import collect_element_helpers
 from py123d.parser.opendrive.utils.id_system import lane_section_id_from_lane_group_id
-from py123d.parser.opendrive.utils.lane_helper import (
-    OpenDriveLaneGroupHelper,
-    OpenDriveLaneHelper,
-)
+from py123d.parser.opendrive.utils.lane_helper import OpenDriveLaneGroupHelper, OpenDriveLaneHelper
 from py123d.parser.opendrive.utils.objects_helper import OpenDriveObjectHelper
 from py123d.parser.opendrive.utils.stop_zone_helper import create_stop_zones_from_signals
 from py123d.parser.opendrive.xodr_parser.lane import XODRRoadMark

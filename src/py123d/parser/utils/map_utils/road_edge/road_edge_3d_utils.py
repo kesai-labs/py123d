@@ -56,8 +56,8 @@ def get_road_edges_3d_from_drivable_surfaces(
     for lane_group in lane_groups:
         lane_group_id = lane_group.object_id
         if lane_group_id not in conflicting_lane_groups.keys():
-            non_conflicting_boundaries.append(lane_group.left_boundary)
-            non_conflicting_boundaries.append(lane_group.right_boundary)
+            non_conflicting_boundaries.append(lane_group.left_boundary_3d)
+            non_conflicting_boundaries.append(lane_group.right_boundary_3d)
     for drivable_surface in generic_drivables:
         non_conflicting_boundaries.append(drivable_surface.outline)
 
@@ -86,7 +86,7 @@ def _get_conflicting_lane_groups(
 
     # Convert to regular dictionaries for simpler access
     lane_group_dict: Dict[MapObjectIDType, LaneGroup] = {lane_group.object_id: lane_group for lane_group in lane_groups}
-    lane_centerline_dict: Dict[MapObjectIDType, Polyline3D] = {lane.object_id: lane.centerline for lane in lanes}
+    lane_centerline_dict: Dict[MapObjectIDType, Polyline3D] = {lane.object_id: lane.centerline_3d for lane in lanes}
 
     # Pre-compute all centerlines
     centerlines_cache: Dict[MapObjectIDType, npt.NDArray[np.float64]] = {}
@@ -289,8 +289,8 @@ def _resolve_conflicting_lane_groups(
         #  Collect 3D boundaries only of non-conflicting lane groups
         set_boundaries_3d: List[Polyline3D] = []
         for lane_group_id in non_conflicting_set:
-            set_boundaries_3d.append(lane_group_dict[lane_group_id].left_boundary)
-            set_boundaries_3d.append(lane_group_dict[lane_group_id].right_boundary)
+            set_boundaries_3d.append(lane_group_dict[lane_group_id].left_boundary_3d)
+            set_boundaries_3d.append(lane_group_dict[lane_group_id].right_boundary_3d)
 
         # Lift road edges to 3D using the boundaries of non-conflicting lane groups
         lifted_road_edges_3d = lift_road_edges_to_3d(set_road_edges_2d, set_boundaries_3d)
