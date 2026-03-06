@@ -55,7 +55,7 @@ Available Modalities
      - The HD-Maps are in 2D vector format and defined per-location. For more information, see :class:`~py123d.api.MapAPI`.
    * - Bounding Boxes
      - ✓
-     - The bounding boxes are available with the :class:`~py123d.conversion.registry.NuScenesBoxDetectionLabel`. For more information, see :class:`~py123d.datatypes.detections.BoxDetectionWrapper`.
+     - The bounding boxes are available with the :class:`~py123d.parser.registry.NuScenesBoxDetectionLabel`. For more information, see :class:`~py123d.datatypes.detections.BoxDetectionsSE3`.
    * - Traffic Lights
      - X
      -
@@ -78,16 +78,10 @@ Available Modalities
      - nuScenes has one :class:`~py123d.datatypes.sensors.Lidar` of type :class:`~py123d.datatypes.sensors.LidarID.LIDAR_TOP`.
 .. dropdown:: Dataset Specific
 
-  .. autoclass:: py123d.conversion.registry.NuScenesBoxDetectionLabel
+  .. autoclass:: py123d.parser.registry.NuScenesBoxDetectionLabel
     :members:
     :no-index:
     :no-inherited-members:
-
-  .. autoclass:: py123d.conversion.registry.NuScenesLidarIndex
-    :members:
-    :no-index:
-    :no-inherited-members:
-
 
 Download
 ~~~~~~~~
@@ -202,7 +196,7 @@ You can convert the interpolated variant by running:
   # or
   py123d-conversion datasets=["nuscenes-interpolated-mini"]
 
-The interpolated conversion uses the :class:`~py123d.conversion.datasets.nuscenes.nuscenes_interpolated_converter.NuScenesInterpolatedConverter`.
+The interpolated conversion uses the :class:`~py123d.parser.datasets.nuscenes.nuscenes_interpolated_converter.NuScenesInterpolatedConverter`.
 
 .. dropdown:: Interpolation Details
 

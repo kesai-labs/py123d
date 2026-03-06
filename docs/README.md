@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 You can install relevant dependencies for editing the public documentation via:
 ```sh
 pip install -e .[docs]

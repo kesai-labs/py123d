@@ -1,17 +1,17 @@
-## Contributing
+# Contributing
 
 Contributions to 123D are highly encouraged! This guide will help you get started with the development process.
 
-### Getting Started
+## Getting Started
 
-#### 1. Clone the Repository
+### 1. Clone the Repository
 
 ```sh
 git clone git@github.com:autonomousvision/py123d.git
 cd py123d
 ```
 
-#### 2. Installation
+### 2. Installation
 
 ```sh
 conda create -n py123d_dev python=3.12  # Optional
@@ -29,7 +29,7 @@ ruff format .
 Type checking is not strictly enforced, but ideally added with [`pyright`](https://github.com/microsoft/pyright).
 
 
-#### 3. Managing dependencies
+### 3. Managing dependencies
 
 We try to keep dependencies minimal to ensure quick and easy installations.
 However, various datasets require dependencies in order to load or preprocess the dataset.
@@ -70,7 +70,7 @@ def load_camera_from_file(file_path: str, dataset: str) -> ...:
     ...
 ```
 
-#### 4. Other useful tools
+### 4. Other useful tools
 
 If you are using VSCode, it is recommended to install:
 - [autodocstring](https://marketplace.visualstudio.com/items?itemName=njpwerner.autodocstring) - Creating docstrings (please set `"autoDocstring.docstringFormat": "sphinx-notypes"`).
@@ -78,14 +78,14 @@ If you are using VSCode, it is recommended to install:
 
 Or other similar plugins depending on your preference/editor.
 
-### Documentation Requirements
+## Documentation Requirements
 
-#### Docstrings
+### Docstrings
 - **Development:** Docstrings are encouraged but not strictly required during active development
 - **Format:** Use [Sphinx-style docstrings](https://sphinx-rtd-tutorial.readthedocs.io/en/latest/docstrings.html)
 
 
-#### Sphinx documentation
+### Sphinx documentation
 
 All datasets should be included in the `/docs/datasets/` documentation. Please follow the documentation format of other datasets.
 
@@ -99,10 +99,10 @@ It is recommended to uses [sphinx-autobuild](https://github.com/sphinx-doc/sphin
 sphinx-autobuild docs docs/_build/html
 ```
 
-### Adding new datasets
+## Adding new datasets
 TODO
 
 
-### Questions?
+## Questions?
 
 If you have any questions about contributing, please open an issue or reach out to the maintainers.

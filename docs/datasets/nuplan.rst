@@ -54,7 +54,7 @@ Available Modalities
      - The HD-Maps are in 2D vector format and defined per-location. For more information, see :class:`~py123d.api.MapAPI`.
    * - Bounding Boxes
      - ✓
-     - The bounding boxes are available, see :class:`~py123d.datatypes.detections.BoxDetectionWrapper`.
+     - The bounding boxes are available, see :class:`~py123d.datatypes.detections.BoxDetectionsSE3`.
    * - Traffic Lights
      - ✓
      - Traffic lights include the status and the lane id they are associated with, see :class:`~py123d.datatypes.detections.TrafficLightDetections`.
@@ -87,16 +87,10 @@ Available Modalities
 
 .. dropdown:: Dataset Specific
 
-  .. autoclass:: py123d.conversion.registry.NuPlanBoxDetectionLabel
+  .. autoclass:: py123d.parser.registry.NuPlanBoxDetectionLabel
     :members:
     :no-index:
     :no-inherited-members:
-
-  .. autoclass:: py123d.conversion.registry.NuPlanLidarIndex
-    :members:
-    :no-index:
-    :no-inherited-members:
-
 
 
 Download

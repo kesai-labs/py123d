@@ -19,7 +19,7 @@ class BoxDetectionMetadata(AbstractMetadata):
 
     @property
     def box_detection_label_class(self) -> Type[BoxDetectionLabel]:
-        """The dataset-specific :class:`~py123d.conversion.registry.BoxDetectionLabel` enum class."""
+        """The dataset-specific :class:`~py123d.parser.registry.BoxDetectionLabel` enum class."""
         return self._box_detection_label_class
 
     @classmethod

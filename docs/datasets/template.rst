@@ -41,7 +41,7 @@ Available Modalities
      - ..., see :class:`~py123d.api.MapAPI`.
    * - Bounding Boxes
      - ✓ / (✓) / X
-     - ..., see :class:`~py123d.datatypes.detections.BoxDetectionWrapper`.
+     - ..., see :class:`~py123d.datatypes.detections.BoxDetectionsSE3`.
    * - Traffic Lights
      - ✓ / (✓) / X
      - ..., see :class:`~py123d.datatypes.detections.TrafficLightDetections`.
@@ -84,16 +84,9 @@ Dataset Specific
 
 .. dropdown:: Box Detection Labels
 
-  .. autoclass:: py123d.conversion.registry.DefaultBoxDetectionLabel
+  .. autoclass:: py123d.parser.registry.DefaultBoxDetectionLabel
     :members:
     :no-inherited-members:
-
-.. dropdown:: Lidar Index
-
-  .. autoclass:: py123d.conversion.registry.DefaultLidarIndex
-    :members:
-    :no-inherited-members:
-
 
 
 Dataset Issues

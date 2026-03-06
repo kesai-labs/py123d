@@ -17,3 +17,4 @@ Each dataset entry includes installation instructions, available data types, kno
    pandaset
    wod_motion
    wod_perception
+   template

@@ -73,14 +73,13 @@ autodoc_default_options = {
     "inherited-members": True,
     "undoc-members": True,
     "member-order": "bysource",
-    "exclude-members": "__post_init__, __new__, __weakref__, __iter__,  __hash__, annotations, _array",
+    "exclude-members": "__post_init__, __new__, __weakref__, __iter__,  __hash__, annotations, _array, name, value",
     "imported-members": True,
 }
 
 autosummary_generate = True
 
 autoclasstoc_sections = [
-    "public-attrs",
     "public-methods-without-dunders",
     "private-methods",
 ]

@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -23,4 +23,20 @@ jobs:
           uv pip install --system -e ".[dev]"
       - name: Test with pytest
         run: |
-          pytest
+          pytest tests/unit
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv pip install --system -e ".[dev,docs]"
+      - name: Test docs build
+        run: |
+          pytest tests/docs

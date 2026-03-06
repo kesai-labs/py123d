@@ -78,7 +78,7 @@ Available Modalities
      - n/a
    * - Bounding Boxes
      - ✓
-     - Bounding boxes are available with the :class:`~py123d.conversion.registry.PandasetBoxDetectionLabel`. For more information, see :class:`~py123d.datatypes.detections.BoxDetectionWrapper`.
+     - Bounding boxes are available with the :class:`~py123d.parser.registry.PandasetBoxDetectionLabel`. For more information, see :class:`~py123d.datatypes.detections.BoxDetectionsSE3`.
    * - Traffic Lights
      - X
      - n/a
@@ -108,12 +108,7 @@ Available Modalities
 
 .. dropdown:: Dataset Specific
 
-  .. autoclass:: py123d.conversion.registry.PandasetBoxDetectionLabel
-    :members:
-    :no-index:
-    :no-inherited-members:
-
-  .. autoclass:: py123d.conversion.registry.PandasetLidarIndex
+  .. autoclass:: py123d.parser.registry.PandasetBoxDetectionLabel
     :members:
     :no-index:
     :no-inherited-members:

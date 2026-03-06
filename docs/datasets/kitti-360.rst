@@ -45,7 +45,7 @@ Available Modalities
      - The maps are in 3D vector format and defined per log, see :class:`~py123d.api.MapAPI`. The map does not include lane-level information.
    * - Bounding Boxes
      - ✓
-     - The bounding boxes are available and labeled with :class:`~py123d.conversion.registry.KITTI360BoxDetectionLabel`. For further information, see :class:`~py123d.datatypes.detections.BoxDetectionWrapper`.
+     - The bounding boxes are available and labeled with :class:`~py123d.parser.registry.KITTI360BoxDetectionLabel`. For further information, see :class:`~py123d.datatypes.detections.BoxDetectionsSE3`.
    * - Traffic Lights
      - X
      - n/a
@@ -70,12 +70,7 @@ Available Modalities
 
 .. dropdown:: Dataset Specific
 
-  .. autoclass:: py123d.conversion.registry.KITTI360BoxDetectionLabel
-    :members:
-    :no-index:
-    :no-inherited-members:
-
-  .. autoclass:: py123d.conversion.registry.KITTI360LidarIndex
+  .. autoclass:: py123d.parser.registry.KITTI360BoxDetectionLabel
     :members:
     :no-index:
     :no-inherited-members:

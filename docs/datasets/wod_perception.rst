@@ -48,7 +48,7 @@ Available Modalities
      - The HD-Maps are in 3D, but may have artifacts due to polyline to polygon conversion (see below). For more information, see :class:`~py123d.api.MapAPI`.
    * - Bounding Boxes
      - ✓
-     - The bounding boxes are available with the :class:`~py123d.conversion.registry.WODBoxDetectionLabel`. For more information, :class:`~py123d.datatypes.detections.BoxDetectionWrapper`.
+     - The bounding boxes are available with the :class:`~py123d.parser.registry.WODBoxDetectionLabel`. For more information, :class:`~py123d.datatypes.detections.BoxDetectionsSE3`.
    * - Traffic Lights
      - X
      - n/a
@@ -80,11 +80,7 @@ Available Modalities
 .. dropdown:: Dataset Specific
 
 
-  .. autoclass:: py123d.conversion.registry.WODPerceptionBoxDetectionLabel
-    :members:
-    :no-inherited-members:
-
-  .. autoclass:: py123d.conversion.registry.WODPerceptionLidarIndex
+  .. autoclass:: py123d.parser.registry.WODPerceptionBoxDetectionLabel
     :members:
     :no-inherited-members:
 

@@ -1,12 +1,12 @@
 Box Detections
 ^^^^^^^^^^^^^^
 
-.. autoclass:: py123d.datatypes.detections.BoxDetectionWrapper
+.. autoclass:: py123d.datatypes.detections.BoxDetectionsSE2
    :members:
    :exclude-members: __init__
    :autoclasstoc:
 
-.. autoclass:: py123d.datatypes.detections.BoxDetectionAttributes
+.. autoclass:: py123d.datatypes.detections.BoxDetectionsSE3
    :members:
    :exclude-members: __init__
    :autoclasstoc:
@@ -17,6 +17,11 @@ Box Detections
    :autoclasstoc:
 
 .. autoclass:: py123d.datatypes.detections.BoxDetectionSE3
+   :members:
+   :exclude-members: __init__
+   :autoclasstoc:
+
+.. autoclass:: py123d.datatypes.detections.BoxDetectionAttributes
    :members:
    :exclude-members: __init__
    :autoclasstoc:

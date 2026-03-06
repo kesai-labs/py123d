@@ -151,8 +151,8 @@ class Lidar:
         """Initialize Lidar data structure.
 
         :param metadata: Lidar metadata.
-        :param point_cloud_3d: Lidar point cloud as an NxM numpy array, where N is the number of points
-            and M is the number of attributes per point as defined by the :class:`~py123d.conversion.registry.LidarIndex`.
+        :param point_cloud_3d: Lidar point cloud as an Nx3 numpy array, where N is the number of points, \
+            and the (x, y, z), indexed by :class:`~py123d.geometry.Point3DIndex`.
         :param point_cloud_features: Optional dictionary of point cloud features.
         """
         self._metadata = metadata
@@ -166,9 +166,8 @@ class Lidar:
 
     @property
     def point_cloud_3d(self) -> npt.NDArray[np.float32]:
-        """The raw point cloud as an NxM numpy array,
-        where N is the number of points and M is the number of attributes per point,
-        as defined by the :class:`~py123d.conversion.registry.LidarIndex`. Point cloud in vehicle frame.
+        """Lidar point cloud as an Nx3 numpy array, where N is the number of points, \
+            and the (x, y, z), indexed by :class:`~py123d.geometry.Point3DIndex`
         """
         return self._point_cloud_3d
 

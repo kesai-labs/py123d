@@ -48,7 +48,7 @@ class BoxDetectionAttributes:
 
     @property
     def default_label(self) -> DefaultBoxDetectionLabel:
-        """The unified :class:`~py123d.conversion.registry.DefaultBoxDetectionLabel`
+        """The unified :class:`~py123d.parser.registry.DefaultBoxDetectionLabel`
         corresponding to the detection's label.
         """
         return self.label.to_default()
