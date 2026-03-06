@@ -103,6 +103,7 @@ class ArrowMapWriter(AbstractMapWriter):
 
     def _write_lane(self, lane: Lane) -> None:
         self._write_surface_layer(MapLayer.LANE, lane)
+        self._map_data[MapLayer.LANE]["lane_type"].append(int(lane.lane_type))
         self._map_data[MapLayer.LANE]["lane_group_id"].append(lane.lane_group_id)
         self._map_data[MapLayer.LANE]["left_boundary"].append(lane.left_boundary.array)
         self._map_data[MapLayer.LANE]["right_boundary"].append(lane.right_boundary.array)
@@ -124,6 +125,7 @@ class ArrowMapWriter(AbstractMapWriter):
 
     def _write_intersection(self, intersection: Intersection) -> None:
         self._write_surface_layer(MapLayer.INTERSECTION, intersection)
+        self._map_data[MapLayer.INTERSECTION]["intersection_type"].append(int(intersection.intersection_type))
         self._map_data[MapLayer.INTERSECTION]["lane_group_ids"].append(intersection.lane_group_ids)
 
     def _write_crosswalk(self, crosswalk: Crosswalk) -> None:
@@ -184,6 +186,7 @@ class ArrowMapWriter(AbstractMapWriter):
                 all_map_layers.append(int(MapLayer.LANE))
                 all_types.append(type_idx)
                 lane_dict = {
+                    "lane_type": self._map_data[MapLayer.LANE]["lane_type"][idx],
                     "lane_group_id": self._map_data[MapLayer.LANE]["lane_group_id"][idx],
                     "left_boundary": self._map_data[MapLayer.LANE]["left_boundary"][idx],
                     "right_boundary": self._map_data[MapLayer.LANE]["right_boundary"][idx],
@@ -221,6 +224,7 @@ class ArrowMapWriter(AbstractMapWriter):
                 all_map_layers.append(int(MapLayer.INTERSECTION))
                 all_types.append(type_idx)
                 intersection_dict = {
+                    "intersection_type": self._map_data[MapLayer.INTERSECTION]["intersection_type"][idx],
                     "lane_group_ids": self._map_data[MapLayer.INTERSECTION]["lane_group_ids"][idx],
                     "outline": self._map_data[MapLayer.INTERSECTION]["outline"][idx],
                 }

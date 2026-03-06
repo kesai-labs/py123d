@@ -11,8 +11,10 @@ from py123d.datatypes import (
     Crosswalk,
     GenericDrivable,
     Intersection,
+    IntersectionType,
     Lane,
     LaneGroup,
+    LaneType,
     RoadEdge,
     RoadEdgeType,
     RoadLine,
@@ -153,6 +155,7 @@ def _extract_lanes(lane_group_helper_dict: Dict[str, OpenDriveLaneGroupHelper]) 
             lanes.append(
                 Lane(
                     object_id=lane_helper.lane_id,
+                    lane_type=LaneType.UNDEFINED,
                     lane_group_id=lane_group_id,
                     left_boundary=lane_helper.inner_polyline_3d,
                     right_boundary=lane_helper.outer_polyline_3d,
@@ -238,7 +241,12 @@ def _iter_intersections(
             continue
 
         outline = _extract_intersection_outline(lane_group_helpers, junction.id)
-        yield Intersection(object_id=junction.id, lane_group_ids=lane_group_ids_, outline=outline)
+        yield Intersection(
+            object_id=junction.id,
+            intersection_type=IntersectionType.DEFAULT,
+            lane_group_ids=lane_group_ids_,
+            outline=outline,
+        )
 
 
 def _iter_crosswalks(object_helper_dict: Dict[int, OpenDriveObjectHelper]) -> Iterator[Crosswalk]:

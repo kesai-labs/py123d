@@ -41,15 +41,67 @@ class MapLayer(SerialIntEnum):
 
 
 class LaneType(SerialIntEnum):
-    """Enum for different lane types."""
+    """Enum for different lane types.
 
-    # NOTE @DanielDauner: We currently do not include the lane types, but should add them in the future.
-    # Some maps (e.g. nuPlan, Waymo) have bike lanes, which need to be distinguished from regular lanes.
+    Notes
+    -----
+    The lane types follow the Waymo specification [1]_.
+
+    References
+    ----------
+    .. [1] https://github.com/waymo-research/waymo-open-dataset/blob/master/src/waymo_open_dataset/protos/map.proto#L147
+
+    """
 
     UNDEFINED = 0
+    """Undefined lane type."""
+
     FREEWAY = 1
+    """Freeway lane type."""
+
     SURFACE_STREET = 2
+    """Surface street lane type, i.e. regular lanes for vehicles."""
+
     BIKE_LANE = 3
+    """Bike lane type."""
+
+    BUS_LANE = 4
+    """Bus lane type."""
+
+
+class IntersectionType(SerialIntEnum):
+    """Enum for different intersection types.
+
+    Notes
+    -----
+    The intersection types follow the nuPlan specification [1]_.
+
+    References
+    ----------
+    .. [1] https://github.com/motional/nuplan-devkit/blob/master/nuplan/common/maps/maps_datatypes.py#L85
+
+    """
+
+    DEFAULT = 0
+    """Default intersection type with no specific features."""
+
+    TRAFFIC_LIGHT = 1
+    """Intersection controlled by a traffic light."""
+
+    STOP_SIGN = 2
+    """Intersection controlled by a stop sign."""
+
+    LANE_BRANCH = 3
+    """Intersection where lanes branch off."""
+
+    LANE_MERGE = 4
+    """Intersection where lanes merge."""
+
+    PASS_THROUGH = 5
+    """Intersection where lanes pass through without branching or merging."""
+
+    UNKNOWN = 6
+    """Unknown intersection type."""
 
 
 class StopZoneType(SerialIntEnum):

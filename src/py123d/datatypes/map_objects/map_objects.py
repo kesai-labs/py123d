@@ -7,7 +7,14 @@ import shapely.geometry as geom
 from trimesh import Trimesh
 
 from py123d.datatypes.map_objects.base_map_objects import BaseMapLineObject, BaseMapSurfaceObject, MapObjectIDType
-from py123d.datatypes.map_objects.map_layer_types import MapLayer, RoadEdgeType, RoadLineType, StopZoneType
+from py123d.datatypes.map_objects.map_layer_types import (
+    IntersectionType,
+    LaneType,
+    MapLayer,
+    RoadEdgeType,
+    RoadLineType,
+    StopZoneType,
+)
 from py123d.datatypes.map_objects.utils import get_trimesh_from_boundaries
 from py123d.geometry import Polyline2D, Polyline3D
 
@@ -21,6 +28,7 @@ class Lane(BaseMapSurfaceObject):
     # TODO: @DanielDauner, should we accept 3D and 2D polylines instead?
 
     __slots__ = (
+        "_lane_type",
         "_lane_group_id",
         "_left_boundary",
         "_right_boundary",
@@ -36,6 +44,7 @@ class Lane(BaseMapSurfaceObject):
     def __init__(
         self,
         object_id: MapObjectIDType,
+        lane_type: LaneType,
         lane_group_id: MapObjectIDType,
         left_boundary: Union[Polyline2D, Polyline3D],
         right_boundary: Union[Polyline2D, Polyline3D],
@@ -58,6 +67,7 @@ class Lane(BaseMapSurfaceObject):
         If the shapely_polygon is not provided, it will be constructed from the outline.
 
         :param object_id: The unique identifier for the lane.
+        :param lane_type: The type of the lane, according to :class:`~py123d.datatypes.map_objects.map_layer_types.LaneType`.
         :param lane_group_id: The unique identifier for the lane group this lane belongs to.
         :param left_boundary: Polyline of left boundary of the lane.
         :param right_boundary: Polyline of right boundary of the lane.
@@ -82,6 +92,7 @@ class Lane(BaseMapSurfaceObject):
             outline = Polyline3D.from_array(outline_array)
         super().__init__(object_id, outline, shapely_polygon)
 
+        self._lane_type = lane_type
         self._lane_group_id = lane_group_id
         self._left_boundary = left_boundary
         self._right_boundary = right_boundary
@@ -97,6 +108,11 @@ class Lane(BaseMapSurfaceObject):
     def layer(self) -> MapLayer:
         """The :class:`~py123d.datatypes.map_objects.map_layer_types.MapLayer` of the map object."""
         return MapLayer.LANE
+
+    @property
+    def lane_type(self) -> LaneType:
+        """The type of the lane, according to :class:`~py123d.datatypes.map_objects.map_layer_types.LaneType`."""
+        return self._lane_type
 
     @property
     def lane_group_id(self) -> MapObjectIDType:
@@ -350,11 +366,12 @@ class LaneGroup(BaseMapSurfaceObject):
 class Intersection(BaseMapSurfaceObject):
     """Class representing an intersection in a map, which consists of multiple lane groups."""
 
-    __slots__ = ("_lane_group_ids", "_map_api")
+    __slots__ = ("_intersection_type", "_lane_group_ids", "_map_api")
 
     def __init__(
         self,
         object_id: MapObjectIDType,
+        intersection_type: IntersectionType,
         lane_group_ids: List[MapObjectIDType],
         outline: Optional[Union[Polyline2D, Polyline3D]] = None,
         shapely_polygon: Optional[geom.Polygon] = None,
@@ -368,12 +385,14 @@ class Intersection(BaseMapSurfaceObject):
         Either outline or shapely_polygon must be provided.
 
         :param object_id: The ID of the intersection.
+        :param intersection_type: The type of the intersection.
         :param lane_group_ids: The IDs of the lane groups that belong to the intersection.
         :param outline: The outline of the intersection, defaults to None.
         :param shapely_polygon: The Shapely polygon representation of the intersection, defaults to None.
         :param map_api: The MapAPI instance, defaults to None.
         """
         super().__init__(object_id, outline, shapely_polygon)
+        self._intersection_type = intersection_type
         self._lane_group_ids = lane_group_ids
         self._map_api = map_api
 
@@ -381,6 +400,12 @@ class Intersection(BaseMapSurfaceObject):
     def layer(self) -> MapLayer:
         """The :class:`~py123d.datatypes.map_objects.map_layer_types.MapLayer` of the map object."""
         return MapLayer.INTERSECTION
+
+    @property
+    def intersection_type(self) -> IntersectionType:
+        """The type of the intersection, according to \
+            :class:`~py123d.datatypes.map_objects.map_layer_types.IntersectionType`."""
+        return self._intersection_type
 
     @property
     def lane_group_ids(self) -> List[MapObjectIDType]:

@@ -1,6 +1,6 @@
 from typing import Dict, Final, Set
 
-from py123d.datatypes import PinholeCameraID, RoadLineType
+from py123d.datatypes import LaneType, PinholeCameraID, RoadLineType
 
 AV2_SENSOR_SPLITS: Set[str] = {"av2-sensor_train", "av2-sensor_val", "av2-sensor_test"}
 
@@ -36,6 +36,13 @@ AV2_ROAD_LINE_TYPE_MAPPING: Dict[str, RoadLineType] = {
     "SOLID_BLUE": RoadLineType.SOLID_BLUE,
 }
 
+
+# Mapping from AV2 lane types to LaneType enums.
+AV2_LANE_TYPE_MAPPING: Dict[str, LaneType] = {
+    "VEHICLE": LaneType.SURFACE_STREET,
+    "BIKE": LaneType.BIKE_LANE,
+    "BUS": LaneType.BUS_LANE,
+}
 
 AV2_SENSOR_CAM_SHUTTER_INTERVAL_MS: Final[float] = 50.0
 AV2_SENSOR_LIDAR_SWEEP_INTERVAL_W_BUFFER_NS: Final[float] = 102000000.0

@@ -227,6 +227,7 @@ def _get_waymo_lanes(
         lanes.append(
             Lane(
                 object_id=lane_data.object_id,
+                lane_type=lane_data.lane_type,
                 lane_group_id=lane_data.object_id,
                 left_boundary=lane_data.left_boundary,
                 right_boundary=lane_data.right_boundary,

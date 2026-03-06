@@ -6,7 +6,13 @@ import shapely
 import trimesh
 
 from py123d.datatypes.map_objects import Intersection, Lane, LaneGroup, MapLayer
-from py123d.datatypes.map_objects.map_layer_types import RoadEdgeType, RoadLineType, StopZoneType
+from py123d.datatypes.map_objects.map_layer_types import (
+    IntersectionType,
+    LaneType,
+    RoadEdgeType,
+    RoadLineType,
+    StopZoneType,
+)
 from py123d.datatypes.map_objects.map_objects import (
     Carpark,
     Crosswalk,
@@ -36,6 +42,7 @@ def _get_linked_map_object_setup() -> Tuple[List[Lane], List[LaneGroup], List[In
     lanes.append(
         Lane(
             object_id=0,
+            lane_type=LaneType.SURFACE_STREET,
             lane_group_id=0,
             left_boundary=Polyline3D.from_array(middle_left_boundary),
             right_boundary=Polyline3D.from_array(middle_right_boundary),
@@ -55,6 +62,7 @@ def _get_linked_map_object_setup() -> Tuple[List[Lane], List[LaneGroup], List[In
     lanes.append(
         Lane(
             object_id=1,
+            lane_type=LaneType.SURFACE_STREET,
             lane_group_id=0,
             left_boundary=Polyline3D.from_array(left_left_boundary),
             right_boundary=Polyline3D.from_array(left_right_boundary),
@@ -74,6 +82,7 @@ def _get_linked_map_object_setup() -> Tuple[List[Lane], List[LaneGroup], List[In
     lanes.append(
         Lane(
             object_id=2,
+            lane_type=LaneType.SURFACE_STREET,
             lane_group_id=0,
             left_boundary=Polyline3D.from_array(right_left_boundary),
             right_boundary=Polyline3D.from_array(right_right_boundary),
@@ -93,6 +102,7 @@ def _get_linked_map_object_setup() -> Tuple[List[Lane], List[LaneGroup], List[In
     lanes.append(
         Lane(
             object_id=3,
+            lane_type=LaneType.SURFACE_STREET,
             lane_group_id=1,
             left_boundary=Polyline3D.from_array(predecessor_left_boundary),
             right_boundary=Polyline3D.from_array(predecessor_right_boundary),
@@ -112,6 +122,7 @@ def _get_linked_map_object_setup() -> Tuple[List[Lane], List[LaneGroup], List[In
     lanes.append(
         Lane(
             object_id=4,
+            lane_type=LaneType.SURFACE_STREET,
             lane_group_id=2,
             left_boundary=Polyline3D.from_array(successor_left_boundary),
             right_boundary=Polyline3D.from_array(successor_right_boundary),
@@ -169,6 +180,7 @@ def _get_linked_map_object_setup() -> Tuple[List[Lane], List[LaneGroup], List[In
     # Intersection 0, includes lane groups 1
     intersection_predecessor = Intersection(
         object_id=0,
+        intersection_type=IntersectionType.TRAFFIC_LIGHT,
         lane_group_ids=[1],
         outline=predecessor_lane_group.outline,
     )
@@ -176,6 +188,7 @@ def _get_linked_map_object_setup() -> Tuple[List[Lane], List[LaneGroup], List[In
 
     intersection_successor = Intersection(
         object_id=1,
+        intersection_type=IntersectionType.STOP_SIGN,
         lane_group_ids=[2],
         outline=successor_lane_group.outline,
     )

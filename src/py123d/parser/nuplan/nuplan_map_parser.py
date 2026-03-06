@@ -11,7 +11,7 @@ import pyogrio
 from shapely import LineString
 
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject
-from py123d.datatypes.map_objects.map_layer_types import RoadEdgeType
+from py123d.datatypes.map_objects.map_layer_types import IntersectionType, LaneType, RoadEdgeType, StopZoneType
 from py123d.datatypes.map_objects.map_objects import (
     Carpark,
     Crosswalk,
@@ -21,15 +21,19 @@ from py123d.datatypes.map_objects.map_objects import (
     LaneGroup,
     RoadEdge,
     RoadLine,
+    StopZone,
     Walkway,
 )
 from py123d.datatypes.metadata import MapMetadata
 from py123d.geometry import Polyline2D, Polyline3D
 from py123d.parser.abstract_dataset_parser import MapParser
 from py123d.parser.nuplan.utils.nuplan_constants import (
+    NUPLAN_INTERSECTION_TYPE_CONVERSION,
+    NUPLAN_LANE_TYPE_CONVERSION,
     NUPLAN_MAP_GPKG_LAYERS,
     NUPLAN_MAP_LOCATION_FILES,
     NUPLAN_ROAD_LINE_CONVERSION,
+    NUPLAN_STOP_ZONE_TYPE_CONVERSION,
 )
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
@@ -73,6 +77,7 @@ class NuplanMapParser(MapParser):
         yield from _iter_nuplan_walkways(nuplan_gdf)
         yield from _iter_nuplan_carparks(nuplan_gdf)
         yield from _iter_nuplan_generic_drivables(nuplan_gdf)
+        yield from _iter_nuplan_stop_zones(nuplan_gdf)
         yield from _iter_nuplan_road_edges(nuplan_gdf)
         yield from _iter_nuplan_road_lines(nuplan_gdf)
         del nuplan_gdf
@@ -87,6 +92,7 @@ def _iter_nuplan_lanes(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Lane
     all_ids = nuplan_gdf["lanes_polygons"].lane_fid.to_list()
     all_lane_group_ids = nuplan_gdf["lanes_polygons"].lane_group_fid.to_list()
     all_speed_limits_mps = nuplan_gdf["lanes_polygons"].speed_limit_mps.to_list()
+    all_lane_type_fids = nuplan_gdf["lanes_polygons"].lane_type_fid.to_list()
     all_geometries = nuplan_gdf["lanes_polygons"].geometry.to_list()
 
     for idx, lane_id in enumerate(all_ids):
@@ -129,8 +135,11 @@ def _iter_nuplan_lanes(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Lane
         left_boundary = align_boundary_direction(centerline, left_boundary)
         right_boundary = align_boundary_direction(centerline, right_boundary)
 
+        lane_type = NUPLAN_LANE_TYPE_CONVERSION.get(all_lane_type_fids[idx], LaneType.UNDEFINED)
+
         yield Lane(
             object_id=int(lane_id),
+            lane_type=lane_type,
             lane_group_id=all_lane_group_ids[idx],
             left_boundary=Polyline3D.from_linestring(left_boundary),
             right_boundary=Polyline3D.from_linestring(right_boundary),
@@ -177,6 +186,7 @@ def _iter_nuplan_lane_connectors(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Ite
 
         yield Lane(
             object_id=int(lane_id),
+            lane_type=LaneType.UNDEFINED,
             lane_group_id=all_lane_group_ids[idx],
             left_boundary=Polyline3D.from_linestring(left_boundary),
             right_boundary=Polyline3D.from_linestring(right_boundary),
@@ -282,14 +292,20 @@ def _iter_nuplan_lane_connector_groups(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) 
 def _iter_nuplan_intersections(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[Intersection]:
     """Yield Intersection objects from nuPlan intersection data."""
     all_ids = nuplan_gdf["intersections"].fid.to_list()
+    all_intersection_type_fids = nuplan_gdf["intersections"].intersection_type_fid.to_list()
     all_geometries = nuplan_gdf["intersections"].geometry.to_list()
     for idx, intersection_id in enumerate(all_ids):
         lane_group_connector_ids = get_all_rows_with_value(
             nuplan_gdf["lane_group_connectors"], "intersection_fid", str(intersection_id)
         )["fid"].tolist()  # type: ignore
 
+        intersection_type = NUPLAN_INTERSECTION_TYPE_CONVERSION.get(
+            all_intersection_type_fids[idx], IntersectionType.DEFAULT
+        )
+
         yield Intersection(
             object_id=int(intersection_id),
+            intersection_type=intersection_type,
             lane_group_ids=lane_group_connector_ids,
             shapely_polygon=all_geometries[idx],  # type: ignore
         )
@@ -319,6 +335,26 @@ def _iter_nuplan_generic_drivables(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> I
         nuplan_gdf["generic_drivable_areas"].fid.to_list(), nuplan_gdf["generic_drivable_areas"].geometry.to_list()
     ):
         yield GenericDrivable(object_id=int(id), shapely_polygon=geometry)  # type: ignore
+
+
+def _iter_nuplan_stop_zones(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[StopZone]:
+    """Yield StopZone objects from nuPlan stop zone data."""
+    stop_polygons = nuplan_gdf["stop_polygons"]
+    all_ids = stop_polygons.fid.to_list()
+    all_types = stop_polygons.stop_polygon_type_fid.to_list()
+    all_lane_fids = stop_polygons.lane_fids.to_list()
+    all_geometries = stop_polygons.geometry.to_list()
+
+    for idx, stop_id in enumerate(all_ids):
+        stop_zone_type = NUPLAN_STOP_ZONE_TYPE_CONVERSION.get(all_types[idx], StopZoneType.UNKNOWN)
+        lane_ids = [int(fid) for fid in all_lane_fids[idx].split(",")] if pd.notna(all_lane_fids[idx]) else None
+
+        yield StopZone(
+            object_id=int(stop_id),
+            stop_zone_type=stop_zone_type,
+            shapely_polygon=all_geometries[idx],  # type: ignore
+            lane_ids=lane_ids,
+        )
 
 
 def _iter_nuplan_road_edges(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[RoadEdge]:

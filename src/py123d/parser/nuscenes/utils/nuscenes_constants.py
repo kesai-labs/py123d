@@ -1,5 +1,6 @@
 from typing import Dict, Final, List, Set
 
+from py123d.datatypes.map_objects.map_layer_types import LaneType
 from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
 from py123d.parser.registry import NuScenesBoxDetectionLabel
 
@@ -72,6 +73,10 @@ NUSCENES_DATABASE_VERSION_MAPPING: Dict[str, str] = {
     "nuscenes-interpolated_test": "v1.0-test",
     "nuscenes-interpolated-mini_train": "v1.0-mini",
     "nuscenes-interpolated-mini_val": "v1.0-mini",
+}
+
+NUSCENES_LANE_TYPE_MAPPING: Dict[str, LaneType] = {
+    "CAR": LaneType.SURFACE_STREET,
 }
 
 NUSCENES_CAMERA_IDS = {

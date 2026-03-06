@@ -2,6 +2,7 @@ from typing import Dict, Final, List, Set
 
 from py123d.datatypes.detections import TrafficLightStatus
 from py123d.datatypes.map_objects import RoadLineType
+from py123d.datatypes.map_objects.map_layer_types import IntersectionType, LaneType, StopZoneType
 from py123d.datatypes.sensors import LidarID
 from py123d.datatypes.time import Timestamp
 from py123d.parser.registry import NuPlanBoxDetectionLabel
@@ -86,5 +87,30 @@ NUPLAN_ROAD_LINE_CONVERSION = {
     3: RoadLineType.UNKNOWN,
 }
 
+# Manually checked the four nuPlan maps. Unique ids are 0 and 1, for vehicle and bike lanes, respectively.
+NUPLAN_LANE_TYPE_CONVERSION = {
+    0: LaneType.SURFACE_STREET,
+    1: LaneType.BIKE_LANE,
+}
+
+# https://github.com/motional/nuplan-devkit/blob/master/nuplan/common/maps/maps_datatypes.py#L85
+NUPLAN_INTERSECTION_TYPE_CONVERSION: Final[Dict[int, IntersectionType]] = {
+    0: IntersectionType.DEFAULT,
+    1: IntersectionType.TRAFFIC_LIGHT,
+    2: IntersectionType.STOP_SIGN,
+    3: IntersectionType.LANE_BRANCH,
+    4: IntersectionType.LANE_MERGE,
+    5: IntersectionType.PASS_THROUGH,
+}
+
+# https://github.com/motional/nuplan-devkit/blob/master/nuplan/common/maps/maps_datatypes.py#L61
+NUPLAN_STOP_ZONE_TYPE_CONVERSION: Final[Dict[int, StopZoneType]] = {
+    0: StopZoneType.PEDESTRIAN_CROSSING,
+    1: StopZoneType.STOP_SIGN,
+    2: StopZoneType.TRAFFIC_LIGHT,
+    3: StopZoneType.TURN_STOP,
+    4: StopZoneType.YIELD_SIGN,
+    5: StopZoneType.UNKNOWN,
+}
 
 NUPLAN_ROLLING_SHUTTER_S: Final[Timestamp] = Timestamp.from_s(1 / 60)

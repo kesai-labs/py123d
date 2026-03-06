@@ -17,8 +17,10 @@ from py123d.datatypes import (
     Crosswalk,
     GenericDrivable,
     Intersection,
+    IntersectionType,
     Lane,
     LaneGroup,
+    LaneType,
     MapMetadata,
     RoadEdge,
     RoadEdgeType,
@@ -26,7 +28,7 @@ from py123d.datatypes import (
 )
 from py123d.geometry import OccupancyMap2D, Point3DIndex, Polyline2D, Polyline3D
 from py123d.parser.abstract_dataset_parser import MapParser
-from py123d.parser.av2.utils.av2_constants import AV2_ROAD_LINE_TYPE_MAPPING
+from py123d.parser.av2.utils.av2_constants import AV2_LANE_TYPE_MAPPING, AV2_ROAD_LINE_TYPE_MAPPING
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,
@@ -191,8 +193,11 @@ def _iter_av2_lanes(lanes: Dict[str, Any]) -> Iterator[Lane]:
         left_lane_id = lane_dict["left_neighbor_id"] if str(lane_dict["left_neighbor_id"]) in lanes else None
         right_lane_id = lane_dict["right_neighbor_id"] if str(lane_dict["right_neighbor_id"]) in lanes else None
 
+        lane_type = AV2_LANE_TYPE_MAPPING.get(lane_dict.get("lane_type", ""), LaneType.UNDEFINED)
+
         yield Lane(
             object_id=lane_id,
+            lane_type=lane_type,
             lane_group_id=lane_dict["lane_group_id"],
             left_boundary=lane_dict["left_lane_boundary"],
             right_boundary=lane_dict["right_lane_boundary"],
@@ -228,6 +233,7 @@ def _iter_av2_intersections(intersection_dict: Dict[int, Any]) -> Iterator[Inter
     for intersection_id, intersection_values in intersection_dict.items():
         yield Intersection(
             object_id=intersection_id,
+            intersection_type=IntersectionType.DEFAULT,
             lane_group_ids=intersection_values["lane_group_ids"],
             outline=intersection_values["outline_3d"],
         )

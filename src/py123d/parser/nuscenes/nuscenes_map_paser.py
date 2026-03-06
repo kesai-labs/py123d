@@ -12,8 +12,10 @@ from py123d.datatypes import (
     Crosswalk,
     GenericDrivable,
     Intersection,
+    IntersectionType,
     Lane,
     LaneGroup,
+    LaneType,
     MapMetadata,
     RoadEdge,
     RoadEdgeType,
@@ -26,7 +28,7 @@ from py123d.datatypes import (
 from py123d.geometry import OccupancyMap2D, Point2D, Polyline2D, Polyline3D
 from py123d.geometry.utils.polyline_utils import offset_points_perpendicular
 from py123d.parser.abstract_dataset_parser import MapParser
-from py123d.parser.nuscenes.utils.nuscenes_constants import NUSCENES_MAP_LOCATIONS
+from py123d.parser.nuscenes.utils.nuscenes_constants import NUSCENES_LANE_TYPE_MAPPING, NUSCENES_MAP_LOCATIONS
 from py123d.parser.nuscenes.utils.nuscenes_map_utils import (
     extract_lane_and_boundaries,
     extract_nuscenes_centerline,
@@ -144,9 +146,12 @@ def _extract_nuscenes_lanes(nuscenes_map: NuScenesMap) -> List[Lane]:
         incoming = nuscenes_map.get_incoming_lane_ids(token)
         outgoing = nuscenes_map.get_outgoing_lane_ids(token)
 
+        lane_type = NUSCENES_LANE_TYPE_MAPPING.get(lane_record.get("lane_type", ""), LaneType.UNDEFINED)
+
         lanes.append(
             Lane(
                 object_id=token,
+                lane_type=lane_type,
                 lane_group_id=lane_group_id,
                 left_boundary=left_boundary,
                 right_boundary=right_boundary,
@@ -193,6 +198,7 @@ def _extract_nuscenes_lane_connectors(nuscenes_map: NuScenesMap, road_edges: Lis
         lane_connectors.append(
             Lane(
                 object_id=lane_connector_token,
+                lane_type=LaneType.UNDEFINED,
                 lane_group_id=lane_group_id,
                 left_boundary=Polyline2D.from_array(left_pts),
                 right_boundary=Polyline2D.from_array(right_pts),
@@ -310,6 +316,7 @@ def _extract_intersections_and_assignment(
         intersections.append(
             Intersection(
                 object_id=idx,
+                intersection_type=IntersectionType.DEFAULT,
                 lane_group_ids=intersecting_lane_connector_ids,  # type: ignore
                 outline=None,
                 shapely_polygon=intersection_polygon,

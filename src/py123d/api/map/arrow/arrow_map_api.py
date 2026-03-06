@@ -15,7 +15,14 @@ from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_metadata_from_
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.common.utils.msgpack_utils import msgpack_decode_with_numpy
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject, MapObjectIDType
-from py123d.datatypes.map_objects.map_layer_types import MapLayer, RoadEdgeType, RoadLineType, StopZoneType
+from py123d.datatypes.map_objects.map_layer_types import (
+    IntersectionType,
+    LaneType,
+    MapLayer,
+    RoadEdgeType,
+    RoadLineType,
+    StopZoneType,
+)
 from py123d.datatypes.map_objects.map_objects import (
     Carpark,
     Crosswalk,
@@ -242,6 +249,7 @@ class ArrowMapAPI(MapAPI):
             assert isinstance(lane_polygon, geom.Polygon)
             lane = Lane(
                 object_id=object_id,
+                lane_type=LaneType(lane_features.get("lane_type", 0)),
                 lane_group_id=lane_features["lane_group_id"],
                 left_boundary=Polyline3D.from_array(lane_features["left_boundary"], copy=False),
                 right_boundary=Polyline3D.from_array(lane_features["right_boundary"], copy=False),
@@ -293,6 +301,7 @@ class ArrowMapAPI(MapAPI):
             assert isinstance(intersection_polygon, geom.Polygon)
             intersection = Intersection(
                 object_id=object_id,
+                intersection_type=IntersectionType(intersection_features.get("intersection_type", 0)),
                 lane_group_ids=intersection_features["lane_group_ids"],
                 outline=Polyline3D.from_array(intersection_features["outline"], copy=False),
                 shapely_polygon=intersection_polygon,
