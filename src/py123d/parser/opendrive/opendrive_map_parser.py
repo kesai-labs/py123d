@@ -420,7 +420,7 @@ def _extract_polyline_segment(
     s_start: float,
     s_end: float,
     step_size: float = 1.0,
-) -> Polyline3D | None:
+) -> Optional[Polyline3D]:
     """Extract segment of polyline between s_start and s_end (relative to lane section)."""
     total_length = polyline.length
     scale = total_length / lane_length if lane_length > 0 else 1.0
