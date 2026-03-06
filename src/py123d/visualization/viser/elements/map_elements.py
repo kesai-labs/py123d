@@ -81,6 +81,7 @@ def _get_map_trimesh_dict(
 
     # Load map objects within a certain radius around the scene center.
     map_layers = [
+        MapLayer.LANE,
         MapLayer.LANE_GROUP,
         MapLayer.INTERSECTION,
         MapLayer.WALKWAY,
@@ -96,6 +97,13 @@ def _get_map_trimesh_dict(
             radius=viser_config.map_radius,
             layers=map_layers,
         )
+
+        # NOTE: Lane groups are not strictly required. If they are not present, we just visualize lanes.
+        if len(map_objects_dict[MapLayer.LANE_GROUP]) == 0:
+            map_objects_dict.pop(MapLayer.LANE_GROUP)
+        else:
+            # If lane groups are present, we use them instead.
+            map_objects_dict.pop(MapLayer.LANE)
 
         # Create trimesh meshes for each map layer.
         for map_layer in map_objects_dict.keys():

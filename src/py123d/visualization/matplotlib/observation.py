@@ -78,6 +78,8 @@ def add_default_map_on_ax(
     patch = geom.box(x_min, y_min, x_max, y_max)
     map_objects_dict = map_api.query(geometry=patch, layers=layers)  # , predicate="intersects")
 
+    has_no_lane_groups = len(map_objects_dict[MapLayer.LANE_GROUP]) == 0
+
     for layer, map_objects in map_objects_dict.items():
         try:
             # if layer == MapLayer.CROSSWALK:
@@ -105,15 +107,24 @@ def add_default_map_on_ax(
 
             if layer in [MapLayer.LANE]:
                 lines = []
+                polygons = []
                 for map_object in map_objects:
                     map_object: Lane
                     lines.append(map_object.centerline.linestring)
+                    polygons.append(map_object.shapely_polygon)
                 if len(lines) > 0:
                     add_shapely_linestrings_to_ax(
                         ax,
                         lines,
                         CENTERLINE_CONFIG,
                         label=layer.serialize(),
+                    )
+                if has_no_lane_groups:
+                    add_shapely_polygons_to_ax(
+                        ax,
+                        polygons,
+                        MAP_SURFACE_CONFIG[MapLayer.LANE],
+                        label=MapLayer.LANE.serialize(),
                     )
 
             if layer in [MapLayer.STOP_ZONE]:
