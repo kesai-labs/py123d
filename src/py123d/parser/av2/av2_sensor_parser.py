@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import typing
 from pathlib import Path
 from typing import Dict, Iterator, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from typing_extensions import override
 
 from py123d.datatypes import (
     BoxDetectionAttributes,
@@ -128,7 +128,7 @@ class Av2SensorLogParser(LogParser):
             timestep_seconds=0.1,
         )
 
-    @typing.override
+    @override
     def get_ego_metadata(self) -> Optional[EgoMetadata]:
         """Inherited, see superclass."""
         # [1] https://en.wikipedia.org/wiki/Ford_Fusion_Hybrid#Second_generation
@@ -143,22 +143,22 @@ class Av2SensorLogParser(LogParser):
             rear_axle_to_imu_se3=PoseSE3.identity(),
         )
 
-    @typing.override
+    @override
     def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
         """Inherited, see superclass."""
         return BoxDetectionMetadata(box_detection_label_class=AV2SensorBoxDetectionLabel)
 
-    @typing.override
+    @override
     def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
         """Inherited, see superclass."""
         return _get_av2_pinhole_camera_metadatas(self._source_log_path)
 
-    @typing.override
+    @override
     def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
         """Inherited, see superclass."""
         return None  # NOTE: AV2 sensor dataset does not have fisheye MEI cameras
 
-    @typing.override
+    @override
     def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
         """Inherited, see superclass."""
         return _get_av2_lidar_metadata(self._source_log_path)

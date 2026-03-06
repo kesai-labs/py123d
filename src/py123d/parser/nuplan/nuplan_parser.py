@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 import pickle
-import typing
 from pathlib import Path
 from typing import Dict, Final, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 import yaml
+from typing_extensions import override
 
 import py123d.parser.nuplan.utils as nuplan_utils
 from py123d.common.utils.dependencies import check_dependencies
@@ -203,7 +203,7 @@ class NuplanLogParser(LogParser):
 
         return metadata
 
-    @typing.override
+    @override
     def get_ego_metadata(self) -> Optional[EgoMetadata]:
         """Inherited, see superclass."""
         # NOTE: These parameters are mostly available in nuPlan, except for the rear_axle_to_center_vertical.
@@ -219,7 +219,7 @@ class NuplanLogParser(LogParser):
             rear_axle_to_imu_se3=PoseSE3.identity(),
         )
 
-    @typing.override
+    @override
     def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
         """Inherited, see superclass."""
         return BoxDetectionMetadata(box_detection_label_class=NuPlanBoxDetectionLabel)
@@ -234,7 +234,7 @@ class NuplanLogParser(LogParser):
             return PinholeCameraMetadatas(camera_metadata)
         return None
 
-    @typing.override
+    @override
     def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
         """Inherited, see superclass."""
         return None

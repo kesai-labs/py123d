@@ -1,6 +1,7 @@
-import typing
 from pathlib import Path
 from typing import List, Optional, Union
+
+from typing_extensions import override
 
 from py123d.parser.abstract_dataset_parser import DatasetParser, LogParser, MapParser
 from py123d.parser.opendrive.opendrive_map_parser import OpenDriveMapParser
@@ -54,7 +55,7 @@ class OpenDriveParser(DatasetParser):
             for xodr_path in self._xodr_paths
         ]
 
-    @typing.override
+    @override
     def get_log_parsers(self) -> List[LogParser]:
         """No log conversion for OpenDRIVE maps."""
         return []

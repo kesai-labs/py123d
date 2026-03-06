@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import bisect
 import gc
-import typing
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 from pyquaternion import Quaternion
+from typing_extensions import override
 
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.datatypes import (
@@ -36,7 +36,7 @@ from py123d.parser.abstract_dataset_parser import (
     LidarData,
     LogParser,
 )
-from py123d.parser.nuscenes.nuscenes_map_paser import NuScenesMapParser
+from py123d.parser.nuscenes.nuscenes_map_parser import NuScenesMapParser
 from py123d.parser.nuscenes.utils.nuscenes_constants import (
     NUSCENES_CAMERA_IDS,
     NUSCENES_DATABASE_VERSION_MAPPING,
@@ -199,7 +199,7 @@ class NuScenesInterpolatedLogParser(LogParser):
             timestep_seconds=TARGET_DT,
         )
 
-    @typing.override
+    @override
     def get_ego_metadata(self) -> Optional[EgoMetadata]:
         """Inherited, see superclass."""
         # NOTE: The parameters in nuScenes are estimates, and partially taken from the Renault Zoe model [1].
@@ -214,12 +214,12 @@ class NuScenesInterpolatedLogParser(LogParser):
             rear_axle_to_imu_se3=PoseSE3.identity(),
         )
 
-    @typing.override
+    @override
     def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
         """Inherited, see superclass."""
         return BoxDetectionMetadata(box_detection_label_class=NuScenesBoxDetectionLabel)
 
-    @typing.override
+    @override
     def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
         """Inherited, see superclass."""
         nusc = self._load_nusc()
@@ -233,12 +233,12 @@ class NuScenesInterpolatedLogParser(LogParser):
             del nusc
             gc.collect()
 
-    @typing.override
+    @override
     def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
         """Inherited, see superclass."""
         return None  # nuScenes does not have fisheye MEI cameras
 
-    @typing.override
+    @override
     def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
         """Inherited, see superclass."""
         nusc = self._load_nusc()
