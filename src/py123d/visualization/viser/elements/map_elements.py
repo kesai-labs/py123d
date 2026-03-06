@@ -6,7 +6,8 @@ import viser
 
 from py123d.api import SceneAPI
 from py123d.datatypes.map_objects.base_map_objects import BaseMapSurfaceObject
-from py123d.datatypes.map_objects.map_layer_types import MapLayer
+from py123d.datatypes.map_objects.map_layer_types import MapLayer, StopZoneType
+from py123d.datatypes.map_objects.map_objects import StopZone
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry import Point3D, Point3DIndex
 from py123d.visualization.color.default import MAP_SURFACE_CONFIG
@@ -86,6 +87,7 @@ def _get_map_trimesh_dict(
         MapLayer.CROSSWALK,
         MapLayer.CARPARK,
         MapLayer.GENERIC_DRIVABLE,
+        MapLayer.STOP_ZONE,
     ]
     map_api = scene.get_map_api()
     if map_api is not None:
@@ -101,6 +103,9 @@ def _get_map_trimesh_dict(
             for map_surface in map_objects_dict[map_layer]:
                 map_surface: BaseMapSurfaceObject
 
+                if isinstance(map_surface, StopZone) and map_surface.stop_zone_type == StopZoneType.TURN_STOP:
+                    continue
+
                 trimesh_mesh = map_surface.trimesh_mesh
                 trimesh_mesh.vertices -= scene_center_array
 
@@ -109,6 +114,7 @@ def _get_map_trimesh_dict(
                     MapLayer.WALKWAY,
                     MapLayer.CROSSWALK,
                     MapLayer.CARPARK,
+                    MapLayer.STOP_ZONE,
                 ]:
                     trimesh_mesh.vertices[..., Point3DIndex.Z] += viser_config.map_non_road_z_offset
 

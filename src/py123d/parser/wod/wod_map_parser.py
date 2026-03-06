@@ -10,8 +10,8 @@ from py123d.common.utils.dependencies import check_dependencies
 check_dependencies(modules=["google.protobuf"], optional_name="waymo")
 
 from py123d.datatypes import BaseMapObject, MapMetadata
-from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType
-from py123d.datatypes.map_objects.map_objects import Carpark, Crosswalk, Lane, LaneGroup, RoadEdge, RoadLine
+from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType, StopZoneType
+from py123d.datatypes.map_objects.map_objects import Carpark, Crosswalk, Lane, LaneGroup, RoadEdge, RoadLine, StopZone
 from py123d.geometry import Polyline3D
 from py123d.geometry.utils.units import mph_to_mps
 from py123d.parser.abstract_dataset_parser import MapParser
@@ -24,10 +24,11 @@ from py123d.parser.wod.utils.wod_constants import (
 from py123d.parser.wod.waymo_open_dataset.protos import map_pb2
 
 # TODO:
-# - Implement stop signs
 # - Implement speed bumps
 # - Implement driveways with a different semantic type if needed
 # - Implement intersections and lane group logic
+
+STOP_ZONE_DEPTH = 0.5  # Depth of synthesized stop zone polygons in meters
 
 
 class WODMapParser(MapParser):
@@ -123,7 +124,7 @@ def iter_wod_map_objects(map_features: List[map_pb2.MapFeature]) -> Iterator[Bas
     """Yields all map objects from WOD map features.
 
     :param map_features: Protobuf map features from a WOD frame or scenario.
-    :yields: BaseMapObject instances (RoadLine, RoadEdge, Lane, LaneGroup, Carpark, Crosswalk).
+    :yields: BaseMapObject instances (RoadLine, RoadEdge, Lane, LaneGroup, Carpark, Crosswalk, StopZone).
     """
     # We first extract all road lines, road edges, and lanes.
     # NOTE: road lines and edges are needed to extract lane boundaries.
@@ -139,7 +140,8 @@ def iter_wod_map_objects(map_features: List[map_pb2.MapFeature]) -> Iterator[Bas
     yield from _get_waymo_lane_groups(lanes)
 
     # Yield miscellaneous surfaces (carparks, crosswalks, stop zones, etc.)
-    yield from _get_waymo_misc_surfaces(map_features)
+    lane_dict = {lane.object_id: lane for lane in lanes}
+    yield from _get_waymo_misc_surfaces(map_features, lane_dict)
 
 
 def _get_waymo_road_lines(map_features: List[map_pb2.MapFeature]) -> List[RoadLine]:
@@ -262,7 +264,7 @@ def _get_waymo_lane_groups(lanes: List[Lane]) -> List[LaneGroup]:
     return lane_groups
 
 
-def _get_waymo_misc_surfaces(map_features: List[map_pb2.MapFeature]) -> List[BaseMapObject]:
+def _get_waymo_misc_surfaces(map_features: List[map_pb2.MapFeature], lane_dict: Dict[int, Lane]) -> List[BaseMapObject]:
     surfaces: List[BaseMapObject] = []
     for map_feature in map_features:
         if map_feature.HasField("driveway"):
@@ -275,10 +277,89 @@ def _get_waymo_misc_surfaces(map_features: List[map_pb2.MapFeature]) -> List[Bas
             if outline is not None:
                 surfaces.append(Crosswalk(object_id=map_feature.id, outline=outline))
         elif map_feature.HasField("stop_sign"):
-            pass  # TODO: Implement stop signs
+            stop_zone = _create_stop_zone_from_stop_sign(map_feature, lane_dict)
+            if stop_zone is not None:
+                surfaces.append(stop_zone)
         elif map_feature.HasField("speed_bump"):
             pass  # TODO: Implement speed bumps
     return surfaces
+
+
+def _create_stop_zone_from_stop_sign(map_feature: map_pb2.MapFeature, lane_dict: Dict[int, Lane]) -> Optional[StopZone]:
+    """Synthesize a StopZone polygon from a Waymo stop sign and its controlled lanes.
+
+    For each controlled lane, a small rectangle (STOP_ZONE_DEPTH wide) is created at
+    the lane entry using the first points of the left/right boundaries. The per-lane
+    rectangles are merged into a single polygon via shapely union.
+
+    :param map_feature: Waymo MapFeature containing a stop_sign.
+    :param lane_dict: Dictionary mapping lane IDs to Lane objects.
+    :return: A StopZone if synthesis succeeds, None otherwise.
+    """
+    from shapely import MultiPolygon, Polygon, union_all
+
+    stop_sign = map_feature.stop_sign
+    controlled_lane_ids = [int(lid) for lid in stop_sign.lane]
+
+    # Find lanes that exist in the parsed lane dict
+    controlled_lanes = [lane_dict[lid] for lid in controlled_lane_ids if lid in lane_dict]
+    if not controlled_lanes:
+        return None
+
+    # Create a small rectangle at the entry of each controlled lane
+    polygons: List[Polygon] = []
+    all_z: List[float] = []
+    for lane in controlled_lanes:
+        left_arr = lane.left_boundary.array
+        right_arr = lane.right_boundary.array
+
+        # Entry = first points; create a rectangle STOP_ZONE_DEPTH deep along the lane
+        # Use the first two points of each boundary to determine lane direction
+        n_pts = min(len(left_arr), len(right_arr))
+        if n_pts < 2:
+            continue
+
+        # Find the index corresponding to STOP_ZONE_DEPTH along the centerline
+        centerline_arr = lane.centerline.array
+        cumulative_dist = np.cumsum(np.linalg.norm(np.diff(centerline_arr[:, :2], axis=0), axis=1))
+        depth_idx = np.searchsorted(cumulative_dist, STOP_ZONE_DEPTH) + 1
+        depth_idx = min(depth_idx, n_pts - 1)
+
+        # Rectangle corners: left[0], right[0], right[depth_idx], left[depth_idx]
+        coords_2d = [
+            (left_arr[0, 0], left_arr[0, 1]),
+            (right_arr[0, 0], right_arr[0, 1]),
+            (right_arr[depth_idx, 0], right_arr[depth_idx, 1]),
+            (left_arr[depth_idx, 0], left_arr[depth_idx, 1]),
+        ]
+        poly = Polygon(coords_2d)
+        if poly.is_valid and poly.area > 1e-6:
+            polygons.append(poly)
+            all_z.extend([left_arr[0, 2], right_arr[0, 2], left_arr[depth_idx, 2], right_arr[depth_idx, 2]])
+
+    if not polygons:
+        return None
+
+    # Merge per-lane rectangles
+    merged = union_all(polygons)
+    if isinstance(merged, MultiPolygon):
+        merged = max(merged.geoms, key=lambda g: g.area)
+    if not isinstance(merged, Polygon) or merged.is_empty:
+        return None
+
+    # Create 3D outline from merged polygon exterior
+    avg_z = float(np.mean(all_z))
+    xy = np.array(merged.exterior.coords)
+    z = np.full((xy.shape[0], 1), avg_z)
+    outline = Polyline3D.from_array(np.hstack([xy, z]))
+
+    lane_ids_str = [str(lid) for lid in controlled_lane_ids if lid in lane_dict]
+    return StopZone(
+        object_id=map_feature.id,
+        stop_zone_type=StopZoneType.STOP_SIGN,
+        outline=outline,
+        lane_ids=lane_ids_str,
+    )
 
 
 def _extract_polyline_waymo_proto(data) -> Optional[Polyline3D]:

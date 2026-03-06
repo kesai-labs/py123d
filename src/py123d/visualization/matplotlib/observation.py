@@ -10,7 +10,7 @@ from py123d.api import MapAPI, SceneAPI
 from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.detections.box_detections import BoxDetectionsSE3
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetections
-from py123d.datatypes.map_objects.map_layer_types import MapLayer
+from py123d.datatypes.map_objects.map_layer_types import MapLayer, StopZoneType
 from py123d.datatypes.map_objects.map_objects import Lane
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE2, EgoStateSE3
 from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, Point2D, PoseSE2Index, Vector2D
@@ -71,6 +71,7 @@ def add_default_map_on_ax(
         MapLayer.CROSSWALK,
         MapLayer.INTERSECTION,
         MapLayer.WALKWAY,
+        MapLayer.STOP_ZONE,
     ]
     x_min, x_max = point_2d.x - radius, point_2d.x + radius
     y_min, y_max = point_2d.y - radius, point_2d.y + radius
@@ -112,6 +113,19 @@ def add_default_map_on_ax(
                         ax,
                         lines,
                         CENTERLINE_CONFIG,
+                        label=layer.serialize(),
+                    )
+
+            if layer in [MapLayer.STOP_ZONE]:
+                polygons = []
+                for map_object in map_objects:
+                    if map_object.stop_zone_type != StopZoneType.TURN_STOP:
+                        polygons.append(map_object.shapely_polygon)
+                if len(polygons) > 0:
+                    add_shapely_polygons_to_ax(
+                        ax,
+                        polygons,
+                        MAP_SURFACE_CONFIG[layer],
                         label=layer.serialize(),
                     )
 

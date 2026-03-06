@@ -442,14 +442,13 @@ class ArrowLogWriter(AbstractLogWriter):
                 lane_ids.append(tl.lane_id)
                 statuses.append(int(tl.status))
 
-            if len(lane_ids) > 0:
-                writer.write_batch(
-                    {
-                        TRAFFIC_LIGHTS.col("lane_id"): [lane_ids],
-                        TRAFFIC_LIGHTS.col("status"): [statuses],
-                        TRAFFIC_LIGHTS.col("timestamp_us"): [traffic_lights.timestamp.time_us],
-                    }
-                )
+            writer.write_batch(
+                {
+                    TRAFFIC_LIGHTS.col("lane_id"): [lane_ids],
+                    TRAFFIC_LIGHTS.col("status"): [statuses],
+                    TRAFFIC_LIGHTS.col("timestamp_us"): [traffic_lights.timestamp.time_us],
+                }
+            )
 
     def write_pinhole_camera(self, camera_data: CameraData) -> None:
         """Write a single pinhole camera observation to ``pinhole_camera.arrow``."""
