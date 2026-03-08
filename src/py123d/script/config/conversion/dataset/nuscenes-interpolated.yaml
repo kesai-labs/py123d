@@ -35,6 +35,9 @@ dataset_converter_config:
   lidar_point_cloud_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
   lidar_point_feature_codec: null # None or "ipc_zstd", "ipc_lz4", "ipc"
 
+  # Async conversion (per-modality native-rate writing with deferred sync)
+  async_conversion: false
+
   # Not available:
   include_scenario_tags: false
   include_route: false

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gc
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 from typing_extensions import override
@@ -41,6 +41,7 @@ from py123d.parser.nuscenes.utils.nuscenes_constants import (
     NUSCENES_DATABASE_VERSION_MAPPING,
     NUSCENES_DETECTION_NAME_DICT,
     NUSCENES_DT,
+    NUSCENES_LIDAR_SWEEP_DURATION_US,
     NUSCENES_MAP_LOCATIONS,
 )
 from py123d.parser.registry import NuScenesBoxDetectionLabel
@@ -268,6 +269,103 @@ class NuScenesLogParser(LogParser):
             del nusc
             gc.collect()
 
+    # ------------------------------------------------------------------------------------------------------------------
+    # Per-modality iterators (async / native-rate)
+    # ------------------------------------------------------------------------------------------------------------------
+
+    @override
+    def iter_ego_states_se3(self) -> Iterator[EgoStateSE3]:
+        """Yields ego states at full lidar sweep rate (~20Hz).
+
+        Each lidar sample_data record has its own ego_pose_token, providing real
+        (non-interpolated) ego poses at the native lidar rate.
+        """
+        nusc = self._load_nusc()
+        ego_metadata = self.get_ego_metadata()
+        assert ego_metadata is not None
+
+        try:
+            can_bus = NuScenesCanBus(dataroot=str(self._nuscenes_data_root))
+            scene = nusc.get("scene", self._scene_token)
+            lidar_timeline = _collect_lidar_sweep_timeline(nusc, scene)
+
+            for sweep in lidar_timeline:
+                yield _extract_ego_state_from_sample_data(nusc, sweep, can_bus, self._scene_name, ego_metadata)
+        finally:
+            del nusc
+            gc.collect()
+
+    @override
+    def iter_pinhole_cameras(self) -> Iterator[CameraData]:
+        """Yields all pinhole camera observations at native rate (~12Hz per camera).
+
+        Camera records are yielded individually (one per camera per trigger), sorted
+        by timestamp across all channels.
+        """
+        nusc = self._load_nusc()
+
+        try:
+            scene = nusc.get("scene", self._scene_token)
+            camera_timelines = _collect_camera_timelines(nusc, scene)
+
+            all_records: List[Tuple[int, PinholeCameraID, str, Dict[str, Any]]] = []
+            for camera_type, camera_channel in NUSCENES_CAMERA_IDS.items():
+                timeline = camera_timelines.get(camera_channel, [])
+                for cam_sd in timeline:
+                    all_records.append((cam_sd["timestamp"], camera_type, camera_channel, cam_sd))
+
+            all_records.sort(key=lambda r: r[0])
+
+            for _, camera_type, camera_channel, cam_data in all_records:
+                calib = nusc.get("calibrated_sensor", cam_data["calibrated_sensor_token"])
+                translation_array = np.array(calib["translation"], dtype=np.float64)
+                rotation_array = np.array(calib["rotation"], dtype=np.float64)
+                extrinsic = PoseSE3.from_R_t(rotation=rotation_array, translation=translation_array)
+
+                cam_path = self._nuscenes_data_root / str(cam_data["filename"])
+                if cam_path.exists() and cam_path.is_file():
+                    yield CameraData(
+                        camera_name=camera_channel,
+                        camera_id=camera_type,
+                        extrinsic=extrinsic,
+                        relative_path=cam_path.relative_to(self._nuscenes_data_root),
+                        dataset_root=self._nuscenes_data_root,
+                        timestamp=Timestamp.from_us(cam_data["timestamp"]),
+                    )
+        finally:
+            del nusc
+            gc.collect()
+
+    @override
+    def iter_lidars(self) -> Iterator[LidarData]:
+        """Yields all lidar sweeps at native rate (~20Hz).
+
+        The nuScenes lidar timestamp marks the end of a sweep. For each sweep,
+        ``start_timestamp`` is set to ``end_timestamp - 50ms`` (one full rotation).
+        """
+        nusc = self._load_nusc()
+
+        try:
+            scene = nusc.get("scene", self._scene_token)
+            lidar_timeline = _collect_lidar_sweep_timeline(nusc, scene)
+
+            for sweep in lidar_timeline:
+                absolute_lidar_path = self._nuscenes_data_root / sweep["filename"]
+                if absolute_lidar_path.exists() and absolute_lidar_path.is_file():
+                    # The nuScenes lidar timestamp marks the end of the sweep (full rotation).
+                    # The sweep covers the 1/20s (50ms) period before that timestamp.
+                    yield LidarData(
+                        lidar_name="LIDAR_TOP",
+                        lidar_type=LidarID.LIDAR_TOP,
+                        start_timestamp=Timestamp.from_us(sweep["timestamp"] - NUSCENES_LIDAR_SWEEP_DURATION_US),
+                        end_timestamp=Timestamp.from_us(sweep["timestamp"]),
+                        relative_path=absolute_lidar_path.relative_to(self._nuscenes_data_root),
+                        dataset_root=self._nuscenes_data_root,
+                    )
+        finally:
+            del nusc
+            gc.collect()
+
 
 # ------------------------------------------------------------------------------------------------------------------
 # Metadata helpers
@@ -466,14 +564,161 @@ def _extract_nuscenes_lidar(
     lidar_data = nusc.get("sample_data", lidar_token)
     absolute_lidar_path = nuscenes_data_root / lidar_data["filename"]
     if absolute_lidar_path.exists() and absolute_lidar_path.is_file():
-        timestamp = Timestamp.from_us(sample["timestamp"])
+        # The nuScenes lidar timestamp marks the end of the sweep (full rotation).
+        # The sweep covers the 1/20s (50ms) period before that timestamp.
+        end_timestamp = Timestamp.from_us(sample["timestamp"])
+        start_timestamp = Timestamp.from_us(sample["timestamp"] - NUSCENES_LIDAR_SWEEP_DURATION_US)
         return LidarData(
             lidar_name="LIDAR_TOP",
             lidar_type=LidarID.LIDAR_TOP,
-            start_timestamp=timestamp,
-            end_timestamp=timestamp,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
             relative_path=absolute_lidar_path.relative_to(nuscenes_data_root),
             dataset_root=nuscenes_data_root,
             iteration=lidar_data.get("iteration"),
         )
     return None
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Lidar sweep timeline helpers (for native-rate async iteration)
+# ------------------------------------------------------------------------------------------------------------------
+
+
+def _collect_lidar_sweep_timeline(nusc: NuScenes, scene: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collects all LIDAR_TOP sample_data records for a scene (keyframes + sweeps).
+
+    Walks the sample_data linked list starting from the first keyframe's lidar token
+    forward through the entire scene.
+
+    :param nusc: The NuScenes database instance.
+    :param scene: The scene record.
+    :return: Chronologically ordered list of lidar sweep dicts with keys:
+        token, timestamp, ego_pose_token, filename, is_key_frame, sample_token.
+    """
+    first_sample = nusc.get("sample", scene["first_sample_token"])
+    last_sample = nusc.get("sample", scene["last_sample_token"])
+    last_kf_timestamp = last_sample["timestamp"]
+
+    lidar_sd_token = first_sample["data"]["LIDAR_TOP"]
+    timeline: List[Dict[str, Any]] = []
+
+    current = nusc.get("sample_data", lidar_sd_token)
+    while current:
+        if current["timestamp"] > last_kf_timestamp and not current["is_key_frame"]:
+            break
+
+        timeline.append(
+            {
+                "token": current["token"],
+                "timestamp": current["timestamp"],
+                "ego_pose_token": current["ego_pose_token"],
+                "filename": current["filename"],
+                "is_key_frame": current["is_key_frame"],
+                "sample_token": current.get("sample_token", ""),
+            }
+        )
+
+        if current["next"]:
+            current = nusc.get("sample_data", current["next"])
+        else:
+            break
+
+    return timeline
+
+
+def _collect_camera_timelines(
+    nusc: NuScenes,
+    scene: Dict[str, Any],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Collects all sample_data records for each camera channel in a scene.
+
+    :param nusc: The NuScenes database instance.
+    :param scene: The scene record.
+    :return: Dict mapping camera channel name to its chronological list of sample_data records.
+    """
+    first_sample = nusc.get("sample", scene["first_sample_token"])
+    last_sample = nusc.get("sample", scene["last_sample_token"])
+    last_kf_timestamp = last_sample["timestamp"]
+
+    timelines: Dict[str, List[Dict[str, Any]]] = {}
+
+    for _camera_type, camera_channel in NUSCENES_CAMERA_IDS.items():
+        timeline: List[Dict[str, Any]] = []
+        sd_token = first_sample["data"][camera_channel]
+        current = nusc.get("sample_data", sd_token)
+
+        while current:
+            if current["timestamp"] > last_kf_timestamp and not current["is_key_frame"]:
+                break
+            timeline.append(current)
+            if current["next"]:
+                current = nusc.get("sample_data", current["next"])
+            else:
+                break
+
+        timelines[camera_channel] = timeline
+
+    return timelines
+
+
+def _extract_ego_state_from_sample_data(
+    nusc: NuScenes,
+    sweep: Dict[str, Any],
+    can_bus: NuScenesCanBus,
+    scene_name: str,
+    ego_metadata: EgoMetadata,
+) -> EgoStateSE3:
+    """Extracts the ego state from a lidar sample_data record (keyframe or non-keyframe).
+
+    Uses the real ego pose from the sample_data's ego_pose_token and matches
+    CAN bus data for dynamic state (velocity, acceleration, angular velocity).
+
+    :param nusc: The NuScenes database instance.
+    :param sweep: A lidar sweep dict from the timeline.
+    :param can_bus: The NuScenes CAN bus API.
+    :param scene_name: The scene name for CAN bus lookup.
+    :param ego_metadata: Vehicle parameters for ego state construction.
+    :return: The ego state.
+    """
+    ego_pose = nusc.get("ego_pose", sweep["ego_pose_token"])
+
+    imu_pose = PoseSE3.from_R_t(
+        rotation=np.array(ego_pose["rotation"], dtype=np.float64),
+        translation=np.array(ego_pose["translation"], dtype=np.float64),
+    )
+
+    try:
+        pose_msgs = can_bus.get_messages(scene_name, "pose")
+    except Exception:
+        pose_msgs = []
+
+    if pose_msgs:
+        closest_msg = None
+        min_time_diff = float("inf")
+        for msg in pose_msgs:
+            time_diff = abs(msg["utime"] - sweep["timestamp"])
+            if time_diff < min_time_diff:
+                min_time_diff = time_diff
+                closest_msg = msg
+
+        if closest_msg and min_time_diff < 500_000:
+            velocity = [*closest_msg["vel"]]
+            acceleration = [*closest_msg["accel"]]
+            angular_velocity = [*closest_msg["rotation_rate"]]
+        else:
+            velocity = acceleration = angular_velocity = [0.0, 0.0, 0.0]
+    else:
+        velocity = acceleration = angular_velocity = [0.0, 0.0, 0.0]
+
+    dynamic_state = DynamicStateSE3(
+        velocity=Vector3D(*velocity),
+        acceleration=Vector3D(*acceleration),
+        angular_velocity=Vector3D(*angular_velocity),
+    )
+    return EgoStateSE3.from_imu(
+        imu_se3=imu_pose,
+        dynamic_state_se3=dynamic_state,
+        ego_metadata=ego_metadata,
+        timestamp=Timestamp.from_us(sweep["timestamp"]),
+    )

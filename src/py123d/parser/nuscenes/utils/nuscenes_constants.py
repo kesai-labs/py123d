@@ -29,6 +29,7 @@ NUSCENES_INTERPOLATED_DATA_SPLITS: Final[List[str]] = [
 
 TARGET_DT: Final[float] = 0.1
 NUSCENES_DT: Final[float] = 0.5
+NUSCENES_LIDAR_SWEEP_DURATION_US: Final[int] = 50_000  # 1/20s = 50ms, one full lidar rotation
 SORT_BY_TIMESTAMP: Final[bool] = True
 NUSCENES_DETECTION_NAME_DICT = {
     # Vehicles (4+ wheels)

@@ -37,6 +37,9 @@ class DatasetConverterConfig:
     lidar_point_cloud_codec: Optional[Literal["laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"]] = None
     lidar_point_feature_codec: Optional[Literal["ipc_zstd", "ipc_lz4", "ipc"]] = None  # None drops features.
 
+    # IPC write options
+    ipc_max_batch_size: Optional[int] = None
+
     # Scenario tag / Route
     # NOTE: These are only supported for nuPlan. Consider removing or expanding support.
     include_scenario_tags: bool = False

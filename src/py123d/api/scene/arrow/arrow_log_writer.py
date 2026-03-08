@@ -88,6 +88,7 @@ class _ModalityWriter:
         schema: pa.Schema,
         ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
         ipc_compression_level: Optional[int] = None,
+        max_batch_size: Optional[int] = None,
     ) -> None:
         def _get_compression() -> Optional[pa.Codec]:
             """Returns the IPC compression codec, or None if no compression is configured."""
@@ -98,22 +99,48 @@ class _ModalityWriter:
         self._file_path = file_path
         self._schema = schema
         self._row_count: int = 0
+        self._max_batch_size = max_batch_size
+        self._buffer: List[Dict[str, Any]] = []
         self._source = pa.OSFile(str(file_path), "wb")
         options = pa.ipc.IpcWriteOptions(compression=_get_compression())
         self._writer = pa.ipc.new_file(self._source, schema=schema, options=options)
 
     @property
     def row_count(self) -> int:
-        """Returns the number of record batches written so far."""
+        """Returns the total number of rows written (including buffered)."""
         return self._row_count
 
     def write_batch(self, data: Dict[str, Any]) -> None:
-        """Write a record batch from a dict of column name -> column values."""
-        batch = pa.record_batch(data, schema=self._schema)
-        self._writer.write_batch(batch)  # type: ignore
+        """Buffer a single row and flush when the batch size is reached."""
         self._row_count += 1
 
+        if self._max_batch_size is None:
+            batch = pa.record_batch(data, schema=self._schema)
+            self._writer.write_batch(batch)  # type: ignore
+            return
+
+        self._buffer.append(data)
+        if len(self._buffer) >= self._max_batch_size:
+            self._flush_buffer()
+
+    def _flush_buffer(self) -> None:
+        """Write buffered rows as a single record batch.
+
+        Each buffered row is a dict where every value is a single-element list (one row).
+        We concatenate these lists to form a multi-row batch.
+        """
+        if not self._buffer:
+            return
+        merged = {col: [] for col in self._schema.names}
+        for row in self._buffer:
+            for col in self._schema.names:
+                merged[col].append(row[col][0])
+        batch = pa.record_batch(merged, schema=self._schema)
+        self._writer.write_batch(batch)  # type: ignore
+        self._buffer.clear()
+
     def close(self) -> None:
+        self._flush_buffer()
         if self._writer is not None:
             self._writer.close()
             self._writer = None
@@ -188,7 +215,13 @@ class ArrowLogWriter(AbstractLogWriter):
         schema = pa.schema(list(schema_dict.items()))
         if metadata is not None:
             schema = add_metadata_to_arrow_schema(schema, metadata)
-        writer = _ModalityWriter(file_path, schema, self._ipc_compression, self._ipc_compression_level)
+        writer = _ModalityWriter(
+            file_path,
+            schema,
+            self._ipc_compression,
+            self._ipc_compression_level,
+            self._dataset_converter_config.ipc_max_batch_size,
+        )
         self._state.modality_writers[name] = writer
         return writer
 
@@ -530,7 +563,11 @@ class ArrowLogWriter(AbstractLogWriter):
             writer = self._modality_writers[LIDAR.prefix()]
             if self._state is not None and self._state.deferred_sync:
                 lidar_key = LidarID.LIDAR_MERGED.serialize()
-                self._state.timestamp_log[lidar_key].append((writer.row_count, lidar_data.start_timestamp.time_us))
+                # Use end_timestamp as the sync reference: this is the "reference timestamp" of
+                # the sweep and matches annotation/ego timestamps. For datasets where
+                # start == end (WOD, nuPlan, etc.) this is equivalent to using start_timestamp.
+                # For nuScenes, annotations are at end-of-sweep, so end_timestamp is correct.
+                self._state.timestamp_log[lidar_key].append((writer.row_count, lidar_data.end_timestamp.time_us))
             if self._dataset_converter_config.lidar_store_option == "path":
                 data_path: Optional[str] = str(lidar_data.relative_path) if lidar_data.has_file_path else None
                 writer.write_batch(
@@ -595,8 +632,10 @@ class ArrowLogWriter(AbstractLogWriter):
     def _build_deferred_sync_table(self) -> None:
         """Build the sync table from buffered timestamps using lidar sweep intervals.
 
-        Each sync row corresponds to one lidar sweep. The interval for sweep *i* is
-        ``[lidar_start_ts_i, lidar_start_ts_{i+1})``. For each modality addon, the row
+        Each sync row corresponds to one lidar sweep. The lidar reference timestamp is the
+        **end** of the sweep (matching the convention that annotations and ego poses are
+        timestamped at end-of-sweep). The interval for sweep *i* is
+        ``[lidar_end_ts_i, lidar_end_ts_{i+1})``. For each modality addon, the row
         contains the list of modality row indices whose timestamps fall within that interval.
         """
         assert self._state is not None

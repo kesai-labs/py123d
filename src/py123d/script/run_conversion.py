@@ -44,7 +44,8 @@ def main(cfg: DictConfig) -> None:
         name=f"Maps {parser_class_name}",
     )
 
-    convert_fn = _convert_logs_async if cfg.get("async_conversion", False) else _convert_logs
+    async_conversion = cfg.get("async_conversion", False) or cfg.dataset_converter_config.get("async_conversion", False)
+    convert_fn = _convert_logs_async if async_conversion else _convert_logs
     executor_map_chunked_list(
         executor,
         partial(convert_fn, cfg=cfg),
