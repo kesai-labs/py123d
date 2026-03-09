@@ -13,17 +13,16 @@ from py123d.datatypes import (
     BoxDetectionsSE3Metadata,
     EgoStateSE3,
     EgoStateSE3Metadata,
-    FisheyeMEICameraMetadatas,
     LidarID,
     LidarMetadata,
-    LidarMetadatas,
     LogMetadata,
     PinholeCameraID,
     PinholeCameraMetadata,
-    PinholeCameraMetadatas,
     PinholeIntrinsics,
     Timestamp,
 )
+from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, EulerAnglesIndex, PoseSE3
 from py123d.geometry.transform import abs_to_rel_se3_array
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
@@ -35,6 +34,7 @@ from py123d.parser.abstract_dataset_parser import (
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
+    ParsedModality,
 )
 from py123d.parser.pandaset.utils.pandaset_constants import (
     PANDASET_BOX_DETECTION_FROM_STR,
@@ -126,22 +126,14 @@ class PandasetLogParser(LogParser):
         self._source_log_path = source_log_path
         self._split = split
 
-    def get_log_metadata(self) -> LogMetadata:
-        """Inherited, see superclass."""
-        return LogMetadata(
-            dataset="pandaset",
-            split=self._split,
-            log_name=self._source_log_path.name,
-            location=None,  # TODO: Add location information.
-            timestep_seconds=0.1,
-        )
+        # Build lazily
+        self._log_metadata: Optional[LogMetadata] = None
 
-    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
-        """Inherited, see superclass."""
+    def _build_log_metadata(self) -> None:
         # NOTE: Some parameters are available in PandaSet [1], others are estimated based on the vehicle model [2].
         # [1] https://arxiv.org/pdf/2112.12610 (Figure 3 (a))
         # [2] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
-        return EgoStateSE3Metadata(
+        ego_state_se3_metadata = EgoStateSE3Metadata(
             vehicle_name="pandaset_chrysler_pacifica",
             width=2.297,
             length=5.176,
@@ -151,20 +143,9 @@ class PandasetLogParser(LogParser):
             rear_axle_to_imu_se3=PoseSE3.identity(),
         )
 
-    def get_box_detection_metadata(self) -> Optional[BoxDetectionsSE3Metadata]:
-        """Inherited, see superclass."""
-        return BoxDetectionsSE3Metadata(box_detection_label_class=PandasetBoxDetectionLabel)
+        box_detections_se3_metadata = BoxDetectionsSE3Metadata(box_detection_label_class=PandasetBoxDetectionLabel)
+        pinhole_cameras_metadata = _get_pandaset_camera_metadata(self._source_log_path)
 
-    def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
-        """Inherited, see superclass."""
-        return _get_pandaset_camera_metadata(self._source_log_path)
-
-    def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
-        """Inherited, see superclass."""
-        return None  # NOTE @DanielDauner: Pandaset does not have fisheye cameras.
-
-    def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
-        """Inherited, see superclass."""
         lidar_metadata: Dict[LidarID, LidarMetadata] = {}
         for lidar_name, lidar_type in PANDASET_LIDAR_MAPPING.items():
             lidar_metadata[lidar_type] = LidarMetadata(
@@ -173,14 +154,38 @@ class PandasetLogParser(LogParser):
                 lidar_to_imu_se3=extrinsic_to_imu(PANDASET_LIDAR_EXTRINSICS[lidar_name]),
             )
 
-        return LidarMetadatas(lidar_metadata)
+        self._log_metadata = LogMetadata(
+            dataset="pandaset",
+            split=self._split,
+            log_name=self._source_log_path.name,
+            location=None,  # TODO: Add location information.
+            timestep_seconds=0.1,
+            ego_state_se3_metadata=ego_state_se3_metadata,
+            box_detections_se3_metadata=box_detections_se3_metadata,
+            pinhole_cameras_metadata=pinhole_cameras_metadata,
+            lidar_merged_metadata=LidarMergedMetadata(lidar_metadata),
+        )
+
+    def get_log_metadata(self) -> LogMetadata:
+        """Returns the :class:`LogMetadata` for this log, building it if necessary."""
+        if self._log_metadata is None:
+            self._build_log_metadata()
+        assert self._log_metadata is not None
+        return self._log_metadata
+
+    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+        """Not implemented — use :meth:`iter_frames` for frame-based conversion."""
+        raise NotImplementedError("Pandaset parser only supports frame-based conversion via iter_frames().")
 
     def iter_frames(self) -> Iterator[ParsedFrame]:
         """Yields one FrameData per timestep in the log."""
+        if self._log_metadata is None:
+            self._build_log_metadata()
+        assert self._log_metadata is not None
+
         source_log_path = self._source_log_path
 
         # Read files from pandaset
-        # timesteps = read_json(source_log_path / "meta" / "timestamps.json")
         lidar_timestamps_s = read_json(source_log_path / "meta" / "timestamps.json")
 
         gps: List[Dict[str, float]] = read_json(source_log_path / "meta" / "gps.json")
@@ -193,7 +198,7 @@ class PandasetLogParser(LogParser):
             camera_name: read_json(source_log_path / "camera" / camera_name / "timestamps.json")
             for camera_name in PANDASET_CAMERA_MAPPING.keys()
         }
-        ego_metadata = self.get_ego_metadata()
+        ego_metadata = self._log_metadata._ego_state_se3_metadata
         assert ego_metadata is not None
 
         for iteration, timestep_s in enumerate(lidar_timestamps_s):
@@ -215,15 +220,17 @@ class PandasetLogParser(LogParser):
                     camera_poses,
                     camera_timestamps_s,
                 ),
-                lidars=_extract_pandaset_lidar(
-                    source_log_path,
-                    iteration,
-                    timestamp,
-                ),
+                lidars=[
+                    _extract_pandaset_lidar(
+                        source_log_path,
+                        iteration,
+                        timestamp,
+                    )
+                ],
             )
 
 
-def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[PinholeCameraMetadatas]:
+def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[Dict[PinholeCameraID, PinholeCameraMetadata]]:
     """Extracts the pinhole camera metadata from a Pandaset log folder."""
     all_cameras_folder = source_log_path / "camera"
     if not all_cameras_folder.exists():
@@ -254,7 +261,7 @@ def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[PinholeCame
             camera_to_imu_se3=extrinsic_to_imu(PANDASET_CAMERA_EXTRINSICS[camera_name]),
         )
 
-    return PinholeCameraMetadatas(camera_metadata) if camera_metadata else None
+    return camera_metadata if camera_metadata else None
 
 
 def _extract_pandaset_sensor_ego_state(
@@ -356,7 +363,7 @@ def _extract_pandaset_box_detections(source_log_path: Path, iteration: int, time
         ).array
 
         box_detection_se3 = BoxDetectionSE3(
-            metadata=BoxDetectionAttributes(
+            attributes=BoxDetectionAttributes(
                 label=pandaset_box_detection_label,
                 track_token=box_uuids[box_idx],
             ),
@@ -404,7 +411,7 @@ def _extract_pandaset_pinhole_cameras(
     return camera_data_list
 
 
-def _extract_pandaset_lidar(source_log_path: Path, iteration: int, timestamp: Timestamp) -> Optional[ParsedLidar]:
+def _extract_pandaset_lidar(source_log_path: Path, iteration: int, timestamp: Timestamp) -> ParsedLidar:
     """Extracts the Lidar data from a Pandaset scene at a given iteration."""
     iteration_str = f"{iteration:02d}"
     lidar_absolute_path = source_log_path / "lidar" / f"{iteration_str}.pkl.gz"
@@ -414,7 +421,9 @@ def _extract_pandaset_lidar(source_log_path: Path, iteration: int, timestamp: Ti
         lidar_name=LidarID.LIDAR_MERGED.serialize(),
         lidar_type=LidarID.LIDAR_MERGED,
         start_timestamp=timestamp,
-        end_timestamp=timestamp,
+        end_timestamp=Timestamp.from_us(
+            timestamp.time_us + 100_000
+        ),  # NOTE: Pandaset lidars have a frequency of 10Hz, i.e. 100ms between frames
         iteration=iteration,
         dataset_root=source_log_path.parent,
         relative_path=str(lidar_absolute_path.relative_to(source_log_path.parent)),

@@ -20,20 +20,19 @@ from py123d.datatypes import (
     EgoStateSE3Metadata,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
-    FisheyeMEICameraMetadatas,
     FisheyeMEIDistortion,
     FisheyeMEIProjection,
     LidarID,
     LidarMetadata,
-    LidarMetadatas,
     LogMetadata,
     PinholeCameraID,
     PinholeCameraMetadata,
-    PinholeCameraMetadatas,
     PinholeDistortion,
     PinholeIntrinsics,
     Timestamp,
 )
+from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Quaternion, Vector3D
 from py123d.parser.abstract_dataset_parser import (
     DatasetParser,
@@ -42,6 +41,7 @@ from py123d.parser.abstract_dataset_parser import (
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
+    ParsedModality,
 )
 from py123d.parser.kitti360.kitti360_map_parser import Kitti360MapParser
 from py123d.parser.kitti360.utils.kitti360_helper import (
@@ -250,16 +250,10 @@ class Kitti360LogParser(LogParser):
         self._detection_cache_root = detection_cache_root
         self._detection_radius = detection_radius
 
-    def get_log_metadata(self) -> LogMetadata:
-        return LogMetadata(
-            dataset="kitti360",
-            split=self._split,
-            log_name=self._log_name,
-            location=self._log_name,
-            timestep_seconds=KITTI360_DT,
-        )
+        # Build lazily
+        self._log_metadata: Optional[LogMetadata] = None
 
-    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
+    def _build_log_metadata(self) -> LogMetadata:
         # NOTE: The parameters in KITTI-360 are estimates based on the vehicle model used in the dataset
         # Uses a 2006 VW Passat Variant B6 [1]. Vertical distance is estimated based on the Lidar.
         # KITTI-360 is currently the only dataset where the IMU has a lateral offset to the rear axle [2].
@@ -273,7 +267,7 @@ class Kitti360LogParser(LogParser):
         rear_axle_in_imu_x = 0.05
         rear_axle_in_imu_y = -0.32
 
-        return EgoStateSE3Metadata(
+        ego_state_se3_metadata = EgoStateSE3Metadata(
             vehicle_name="kitti360_vw_passat",
             width=1.820,
             length=4.775,
@@ -289,32 +283,61 @@ class Kitti360LogParser(LogParser):
                 qz=0.0,
             ),
             rear_axle_to_imu_se3=PoseSE3(
-                x=rear_axle_in_imu_x,
-                y=rear_axle_in_imu_y,
-                z=0.0,
-                qw=1.0,
-                qx=0.0,
-                qy=0.0,
-                qz=0.0,
+                x=rear_axle_in_imu_x, y=rear_axle_in_imu_y, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0
             ),
         )
 
-    def get_box_detection_metadata(self) -> Optional[BoxDetectionsSE3Metadata]:
-        return BoxDetectionsSE3Metadata(box_detection_label_class=KITTI360BoxDetectionLabel)
+        box_detections_se3_metadata = BoxDetectionsSE3Metadata(box_detection_label_class=KITTI360BoxDetectionLabel)
+        pinhole_camera_metadatas = _get_kitti360_pinhole_camera_metadata(
+            self._kitti360_folders, self._camera_calibration
+        )
+        fisheye_mei_camera_metadatas = _get_kitti360_fisheye_mei_camera_metadata(
+            self._kitti360_folders,
+            self._camera_calibration,
+        )
 
-    def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
-        return _get_kitti360_pinhole_camera_metadata(self._kitti360_folders, self._camera_calibration)
+        lidars_metadata = _get_kitti360_lidar_metadata(self._kitti360_folders)
 
-    def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
-        return _get_kitti360_fisheye_mei_camera_metadata(self._kitti360_folders, self._camera_calibration)
+        self._log_metadata = LogMetadata(
+            dataset="kitti360",
+            split=self._split,
+            log_name=self._log_name,
+            location=self._log_name,
+            timestep_seconds=KITTI360_DT,
+            map_metadata=MapMetadata(
+                dataset="kitti360",
+                split=self._split,
+                log_name=self._log_name,
+                location=self._log_name,
+                map_has_z=True,
+                map_is_per_log=True,
+            ),
+            ego_state_se3_metadata=ego_state_se3_metadata,
+            box_detections_se3_metadata=box_detections_se3_metadata,
+            pinhole_cameras_metadata=pinhole_camera_metadatas,
+            fisheye_mei_cameras_metadata=fisheye_mei_camera_metadatas,
+            lidars_metadata=lidars_metadata,
+        )
 
-    def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
-        return _get_kitti360_lidar_metadata(self._kitti360_folders)
+    def get_log_metadata(self) -> LogMetadata:
+        """Returns the :class:`LogMetadata` for this log, building it if necessary."""
+        if self._log_metadata is None:
+            self._build_log_metadata()
+        assert self._log_metadata is not None
+        return self._log_metadata
+
+    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+        """Not implemented — use :meth:`iter_frames` for frame-based conversion."""
+        raise NotImplementedError("KITTI-360 parser only supports frame-based conversion via iter_frames().")
 
     def iter_frames(self) -> Iterator[ParsedFrame]:
         """Yields one FrameData per valid timestamp in the log."""
+        if self._log_metadata is None:
+            self._build_log_metadata()
+        assert self._log_metadata is not None
+
         timestamps_dict: Dict[str, List[Timestamp]] = _read_timestamps(self._log_name, self._kitti360_folders)
-        ego_metadata = self.get_ego_metadata()
+        ego_metadata = self._log_metadata._ego_state_se3_metadata
         assert ego_metadata is not None
 
         # NOTE: We use the Lidar timestamps as reference timestamps for the log
@@ -368,7 +391,7 @@ class Kitti360LogParser(LogParser):
                 box_detections_se3=box_detection_wrapper_all[valid_idx],
                 pinhole_cameras=pinhole_cameras,
                 fisheye_mei_cameras=fisheye_cameras,
-                lidars=lidar,
+                lidars=[lidar] if lidar is not None else None,
             )
 
 
@@ -380,7 +403,7 @@ class Kitti360LogParser(LogParser):
 def _get_kitti360_pinhole_camera_metadata(
     kitti360_folders: Dict[str, Path],
     camera_calibration: Dict[str, PoseSE3],
-) -> PinholeCameraMetadatas:
+) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
     """Gets the KITTI-360 pinhole camera metadata from calibration files."""
 
     pinhole_cam_metadatas: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
@@ -413,13 +436,13 @@ def _get_kitti360_pinhole_camera_metadata(
             is_undistorted=True,
         )
 
-    return PinholeCameraMetadatas(pinhole_cam_metadatas)
+    return pinhole_cam_metadatas
 
 
 def _get_kitti360_fisheye_mei_camera_metadata(
     kitti360_folders: Dict[str, Path],
     camera_calibration: Dict[str, PoseSE3],
-) -> FisheyeMEICameraMetadatas:
+) -> Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]:
     """Gets the KITTI-360 fisheye MEI camera metadata from calibration files."""
 
     fisheye_cam_metadatas: Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata] = {}
@@ -460,10 +483,10 @@ def _get_kitti360_fisheye_mei_camera_metadata(
             camera_to_imu_se3=camera_calibration[fcam_name],
         )
 
-    return FisheyeMEICameraMetadatas(fisheye_cam_metadatas)
+    return fisheye_cam_metadatas
 
 
-def _get_kitti360_lidar_metadata(kitti360_folders: Dict[str, Path]) -> LidarMetadatas:
+def _get_kitti360_lidar_metadata(kitti360_folders: Dict[str, Path]) -> Dict[LidarID, LidarMetadata]:
     """Gets the KITTI-360 Lidar metadata from calibration files."""
     extrinsic = get_kitti360_lidar_extrinsic(kitti360_folders[DIR_CALIB])
     extrinsic_pose_se3 = PoseSE3.from_transformation_matrix(extrinsic)
@@ -474,7 +497,7 @@ def _get_kitti360_lidar_metadata(kitti360_folders: Dict[str, Path]) -> LidarMeta
             lidar_to_imu_se3=extrinsic_pose_se3,
         ),
     }
-    return LidarMetadatas(metadata)
+    return metadata
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -719,14 +742,14 @@ def _extract_kitti360_box_detections_all(
         ):
             if state is None:
                 break
-            detection_metadata = BoxDetectionAttributes(
+            detection_attributes = BoxDetectionAttributes(
                 label=detection_label,
                 track_token=token,
             )
             bounding_box_se3 = BoundingBoxSE3.from_list(state)
             velocity_vector = Vector3D.from_list(velocity)
             box_detection = BoxDetectionSE3(
-                metadata=detection_metadata,
+                attributes=detection_attributes,
                 bounding_box_se3=bounding_box_se3,
                 velocity_3d=velocity_vector,
             )

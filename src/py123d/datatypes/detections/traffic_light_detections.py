@@ -1,4 +1,6 @@
-from typing import List, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
 
 from py123d.common.utils.enums import SerialIntEnum
 from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
@@ -59,6 +61,13 @@ class TrafficLightDetectionsMetadata(BaseModalityMetadata):
     def modality_name(self) -> str:
         """The modality name for this metadata, which is 'traffic_light_detections'."""
         return "traffic_light_detections"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {}
+
+    @classmethod
+    def from_dict(cls, data_dict: Dict[str, Any]) -> TrafficLightDetectionsMetadata:
+        return cls()
 
     def __repr__(self) -> str:
         return f"TrafficLightDetectionsMetadata(modality_name={self.modality_name})"

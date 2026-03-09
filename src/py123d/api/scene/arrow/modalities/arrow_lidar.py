@@ -241,3 +241,36 @@ def get_lidar_from_arrow_table(
             )
 
     return lidar
+
+
+def merged_lidars(lidars: List[Lidar]) -> Optional[Lidar]:
+    """Merges multiple Lidar objects into a single Lidar object with concatenated point clouds and features.
+
+    :param lidars: List of Lidar objects to merge.
+    :return: A single merged Lidar object.
+    """
+    if len(lidars) == 0:
+        return None
+
+    point_cloud_3d = np.concatenate([lidar.point_cloud_3d for lidar in lidars], axis=0)
+    point_cloud_features_list = {}
+    for lidar in lidars:
+        for feature_name, feature_values in lidar.point_cloud_features.items():
+            if feature_name not in point_cloud_features_list:
+                point_cloud_features_list[feature_name] = []
+            point_cloud_features_list[feature_name].append(feature_values)
+
+    point_cloud_features = {}
+    for feature_name, features_list in point_cloud_features_list.items():
+        point_cloud_features[feature_name] = np.concatenate(features_list, axis=0)
+
+    merged_lidar = Lidar(
+        metadata=LidarMetadata(
+            lidar_name=LidarID.LIDAR_MERGED.serialize(),
+            lidar_id=LidarID.LIDAR_MERGED,
+            lidar_to_imu_se3=PoseSE3.identity(),
+        ),
+        point_cloud_3d=point_cloud_3d,
+        point_cloud_features=point_cloud_features,
+    )
+    return merged_lidar

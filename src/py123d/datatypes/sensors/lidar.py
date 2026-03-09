@@ -161,6 +161,11 @@ class LidarMergedMetadata(BaseModalityMetadata, Mapping[LidarID, LidarMetadata])
     def modality_name(self) -> str:
         return f"lidar.{LidarID.LIDAR_MERGED.serialize()}"
 
+    @property
+    def lidars_metadata(self) -> Dict[LidarID, LidarMetadata]:
+        """Returns the dictionary of per-lidar metadata contained in this merged metadata."""
+        return self._data
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the metadata instance to a plain Python dictionary.
 

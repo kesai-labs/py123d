@@ -28,7 +28,7 @@ class DummyBoxDetectionLabel(BoxDetectionLabel):
 
 DUMMY_TIMESTAMP = Timestamp.from_s(0.0)
 
-sample_metadata_args = {
+sample_attributes_args = {
     "label": DummyBoxDetectionLabel.CAR,
     "track_token": "sample_token",
     "num_lidar_points": 10,
@@ -37,26 +37,26 @@ sample_metadata_args = {
 
 class TestBoxDetectionAttributes:
     def test_initialization(self):
-        metadata = BoxDetectionAttributes(**sample_metadata_args)
-        assert isinstance(metadata, BoxDetectionAttributes)
-        assert metadata.label == DummyBoxDetectionLabel.CAR
-        assert metadata.track_token == "sample_token"
-        assert metadata.num_lidar_points == 10
+        attributes = BoxDetectionAttributes(**sample_attributes_args)
+        assert isinstance(attributes, BoxDetectionAttributes)
+        assert attributes.label == DummyBoxDetectionLabel.CAR
+        assert attributes.track_token == "sample_token"
+        assert attributes.num_lidar_points == 10
 
     def test_default_label(self):
-        metadata = BoxDetectionAttributes(**sample_metadata_args)
-        label = metadata.label
-        default_label = metadata.default_label
+        attributes = BoxDetectionAttributes(**sample_attributes_args)
+        label = attributes.label
+        default_label = attributes.default_label
         assert label == DummyBoxDetectionLabel.CAR
         assert label.to_default() == DefaultBoxDetectionLabel.VEHICLE
         assert default_label == DefaultBoxDetectionLabel.VEHICLE
 
     def test_default_label_with_default_label(self):
-        sample_args = sample_metadata_args.copy()
+        sample_args = sample_attributes_args.copy()
         sample_args["label"] = DefaultBoxDetectionLabel.PERSON
-        metadata = BoxDetectionAttributes(**sample_args)
-        label = metadata.label
-        default_label = metadata.default_label
+        attributes = BoxDetectionAttributes(**sample_args)
+        label = attributes.label
+        default_label = attributes.default_label
         assert label == DefaultBoxDetectionLabel.PERSON
         assert default_label == DefaultBoxDetectionLabel.PERSON
 
@@ -65,11 +65,11 @@ class TestBoxDetectionAttributes:
             "label": DummyBoxDetectionLabel.BICYCLE,
             "track_token": "another_token",
         }
-        metadata = BoxDetectionAttributes(**sample_args)
-        assert isinstance(metadata, BoxDetectionAttributes)
-        assert metadata.label == DummyBoxDetectionLabel.BICYCLE
-        assert metadata.track_token == "another_token"
-        assert metadata.num_lidar_points is None
+        attributes = BoxDetectionAttributes(**sample_args)
+        assert isinstance(attributes, BoxDetectionAttributes)
+        assert attributes.label == DummyBoxDetectionLabel.BICYCLE
+        assert attributes.track_token == "another_token"
+        assert attributes.num_lidar_points is None
 
     def test_missing_args(self):
         sample_args = {
@@ -87,7 +87,7 @@ class TestBoxDetectionAttributes:
 
 class TestBoxDetectionSE2:
     def setup_method(self):
-        self.metadata = BoxDetectionAttributes(**sample_metadata_args)
+        self.attributes = BoxDetectionAttributes(**sample_attributes_args)
         self.bounding_box_se2 = BoundingBoxSE2(
             center_se2=PoseSE2(x=0.0, y=0.0, yaw=0.0),
             length=4.0,
@@ -97,18 +97,18 @@ class TestBoxDetectionSE2:
 
     def test_initialization(self):
         box_detection = BoxDetectionSE2(
-            attributes=self.metadata,
+            attributes=self.attributes,
             bounding_box_se2=self.bounding_box_se2,
             velocity_2d=self.velocity,
         )
         assert isinstance(box_detection, BoxDetectionSE2)
-        assert box_detection.attributes == self.metadata
+        assert box_detection.attributes == self.attributes
         assert box_detection.bounding_box_se2 == self.bounding_box_se2
         assert box_detection.velocity_2d is None
 
     def test_properties(self):
         box_detection = BoxDetectionSE2(
-            attributes=self.metadata,
+            attributes=self.attributes,
             bounding_box_se2=self.bounding_box_se2,
             velocity_2d=self.velocity,
         )
@@ -118,14 +118,14 @@ class TestBoxDetectionSE2:
 
     def test_optional_velocity(self):
         box_detection_no_velo = BoxDetectionSE2(
-            attributes=self.metadata,
+            attributes=self.attributes,
             bounding_box_se2=self.bounding_box_se2,
         )
         assert isinstance(box_detection_no_velo, BoxDetectionSE2)
         assert box_detection_no_velo.velocity_2d is None
 
         box_detection_velo = BoxDetectionSE2(
-            attributes=self.metadata,
+            attributes=self.attributes,
             bounding_box_se2=self.bounding_box_se2,
             velocity_2d=Vector2D(x=1.0, y=0.0),
         )
@@ -135,7 +135,7 @@ class TestBoxDetectionSE2:
 
 class TestBoxBoxDetectionSE3:
     def setup_method(self):
-        self.metadata = BoxDetectionAttributes(**sample_metadata_args)
+        self.attributes = BoxDetectionAttributes(**sample_attributes_args)
         self.bounding_box_se3 = BoundingBoxSE3(
             center_se3=PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
             length=4.0,
@@ -146,18 +146,18 @@ class TestBoxBoxDetectionSE3:
 
     def test_initialization(self):
         box_detection = BoxDetectionSE3(
-            metadata=self.metadata,
+            attributes=self.attributes,
             bounding_box_se3=self.bounding_box_se3,
             velocity_3d=self.velocity,
         )
         assert isinstance(box_detection, BoxDetectionSE3)
-        assert box_detection.metadata == self.metadata
+        assert box_detection.attributes == self.attributes
         assert box_detection.bounding_box_se3 == self.bounding_box_se3
         assert box_detection.velocity_3d == self.velocity
 
     def test_properties(self):
         box_detection = BoxDetectionSE3(
-            metadata=self.metadata,
+            attributes=self.attributes,
             bounding_box_se3=self.bounding_box_se3,
             velocity_3d=self.velocity,
         )
@@ -171,29 +171,29 @@ class TestBoxBoxDetectionSE3:
 
     def test_box_detection_se2_conversion(self):
         box_detection = BoxDetectionSE3(
-            metadata=self.metadata,
+            attributes=self.attributes,
             bounding_box_se3=self.bounding_box_se3,
             velocity_3d=Vector3D(x=1.0, y=0.0, z=0.0),
         )
         box_detection_se2 = box_detection.box_detection_se2
         assert isinstance(box_detection_se2, BoxDetectionSE2)
-        assert box_detection_se2.attributes == self.metadata
+        assert box_detection_se2.attributes == self.attributes
         assert box_detection_se2.bounding_box_se2 == self.bounding_box_se3.bounding_box_se2
         assert box_detection_se2.velocity_2d == Vector2D(x=1.0, y=0.0)
 
     def test_box_detection_se3_conversion(self):
         box_detection_se2 = BoxDetectionSE2(
-            attributes=self.metadata,
+            attributes=self.attributes,
             bounding_box_se2=self.bounding_box_se3.bounding_box_se2,
             velocity_2d=Vector2D(x=1.0, y=0.0),
         )
         box_detection_se3 = BoxDetectionSE3(
-            metadata=box_detection_se2.attributes,
+            attributes=box_detection_se2.attributes,
             bounding_box_se3=self.bounding_box_se3,
             velocity_3d=Vector3D(x=1.0, y=0.0, z=0.0),
         )
         assert isinstance(box_detection_se3, BoxDetectionSE3)
-        assert box_detection_se3.metadata == box_detection_se2.attributes
+        assert box_detection_se3.attributes == box_detection_se2.attributes
         assert box_detection_se3.bounding_box_se3 == self.bounding_box_se3
         assert box_detection_se3.velocity_2d == Vector2D(x=1.0, y=0.0)
 
@@ -205,14 +205,14 @@ class TestBoxBoxDetectionSE3:
 
     def test_optional_velocity(self):
         box_detection_no_velo = BoxDetectionSE3(
-            metadata=self.metadata,
+            attributes=self.attributes,
             bounding_box_se3=self.bounding_box_se3,
         )
         assert isinstance(box_detection_no_velo, BoxDetectionSE3)
         assert box_detection_no_velo.velocity_3d is None
 
         box_detection_velo = BoxDetectionSE3(
-            metadata=self.metadata,
+            attributes=self.attributes,
             bounding_box_se3=self.bounding_box_se3,
             velocity_3d=Vector3D(x=1.0, y=0.0, z=0.0),
         )
@@ -222,19 +222,19 @@ class TestBoxBoxDetectionSE3:
 
 class TestBoxDetectionsSE2:
     def setup_method(self):
-        self.metadata1 = BoxDetectionAttributes(
+        self.attributes1 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.CAR,
             track_token="token1",
             num_lidar_points=10,
         )
-        self.metadata2 = BoxDetectionAttributes(
+        self.attributes2 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.PEDESTRIAN,
             track_token="token2",
             num_lidar_points=5,
         )
 
         self.box_detection1 = BoxDetectionSE2(
-            attributes=self.metadata1,
+            attributes=self.attributes1,
             bounding_box_se2=BoundingBoxSE2(
                 center_se2=PoseSE2(x=0.0, y=0.0, yaw=0.0),
                 length=4.0,
@@ -243,7 +243,7 @@ class TestBoxDetectionsSE2:
             velocity_2d=Vector2D(x=1.0, y=0.0),
         )
         self.box_detection2 = BoxDetectionSE2(
-            attributes=self.metadata2,
+            attributes=self.attributes2,
             bounding_box_se2=BoundingBoxSE2(
                 center_se2=PoseSE2(x=5.0, y=5.0, yaw=0.0),
                 length=1.0,
@@ -338,24 +338,24 @@ class TestBoxDetectionsSE2:
 
 class TestBoxDetectionsSE3:
     def setup_method(self):
-        self.metadata1 = BoxDetectionAttributes(
+        self.attributes1 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.CAR,
             track_token="token1",
             num_lidar_points=10,
         )
-        self.metadata2 = BoxDetectionAttributes(
+        self.attributes2 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.PEDESTRIAN,
             track_token="token2",
             num_lidar_points=5,
         )
-        self.metadata3 = BoxDetectionAttributes(
+        self.attributes3 = BoxDetectionAttributes(
             label=DummyBoxDetectionLabel.BICYCLE,
             track_token="token3",
             num_lidar_points=8,
         )
 
         self.box_detection1 = BoxDetectionSE3(
-            metadata=self.metadata1,
+            attributes=self.attributes1,
             bounding_box_se3=BoundingBoxSE3(
                 center_se3=PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
                 length=4.0,
@@ -365,7 +365,7 @@ class TestBoxDetectionsSE3:
             velocity_3d=Vector3D(x=1.0, y=0.0, z=0.0),
         )
         self.box_detection2 = BoxDetectionSE3(
-            metadata=self.metadata2,
+            attributes=self.attributes2,
             bounding_box_se3=BoundingBoxSE3(
                 center_se3=PoseSE3(x=5.0, y=5.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
                 length=1.0,
@@ -375,7 +375,7 @@ class TestBoxDetectionsSE3:
             velocity_3d=Vector3D(x=0.5, y=0.5, z=0.0),
         )
         self.box_detection3 = BoxDetectionSE3(
-            metadata=self.metadata3,
+            attributes=self.attributes3,
             bounding_box_se3=BoundingBoxSE3(
                 center_se3=PoseSE3(x=10.0, y=10.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
                 length=2.0,
@@ -429,7 +429,7 @@ class TestBoxDetectionsSE3:
         detection = wrapper.get_detection_by_track_token("token2")
         assert detection is not None
         assert detection == self.box_detection2
-        assert detection.metadata.track_token == "token2"
+        assert detection.attributes.track_token == "token2"
 
     def test_get_detection_by_track_token_not_found(self):
         wrapper = BoxDetectionsSE3(box_detections=[self.box_detection1, self.box_detection2], timestamp=DUMMY_TIMESTAMP)

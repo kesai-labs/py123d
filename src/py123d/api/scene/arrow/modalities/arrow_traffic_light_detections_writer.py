@@ -43,8 +43,8 @@ class ArrowTrafficLightDetectionsWriter(BaseModalityWriter):
         )
 
     def write_modality(self, traffic_light_detections: TrafficLightDetections):
-        assert isinstance(traffic_light_detections, TrafficLightDetectionsMetadata), (
-            f"Expected TrafficLightDetectionsMetadata, got {type(traffic_light_detections)}"
+        assert isinstance(traffic_light_detections, TrafficLightDetections), (
+            f"Expected TrafficLightDetections, got {type(traffic_light_detections)}"
         )
         lane_id_list = []
         status_list = []

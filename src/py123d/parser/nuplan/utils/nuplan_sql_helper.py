@@ -57,7 +57,7 @@ def get_box_detections_for_lidarpc_token_from_db(log_file: str, token: str) -> L
             height=row["height"],
         )
         box_detection = BoxDetectionSE3(
-            metadata=BoxDetectionAttributes(
+            attributes=BoxDetectionAttributes(
                 label=NUPLAN_DETECTION_NAME_DICT[row["category_name"]],
                 track_token=row["track_token"].hex(),
             ),

@@ -23,3 +23,4 @@ terminate_on_exception: True
 
 force_map_conversion: True
 force_log_conversion: True
+async_conversion: False

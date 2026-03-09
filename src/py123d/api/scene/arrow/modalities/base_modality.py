@@ -59,7 +59,11 @@ class BaseModalityWriter:
         merged = {col: [] for col in self._schema.names}
         for row in self._buffer:
             for col in self._schema.names:
-                merged[col].append(row[col][0])
+                if col in row.keys():
+                    merged[col].append(row[col][0])
+                else:
+                    merged[col].append(None)
+
         batch = pa.record_batch(merged, schema=self._schema)
         self._writer.write_batch(batch)  # type: ignore
         self._buffer.clear()
