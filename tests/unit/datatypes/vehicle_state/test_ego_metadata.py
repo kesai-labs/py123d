@@ -1,12 +1,12 @@
 import pytest
 
-from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata
+from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
 from py123d.geometry import PoseSE3
 
 
-class TestEgoMetadata:
+class TestEgoStateSE3Metadata:
     def setup_method(self):
-        self.params = EgoMetadata(
+        self.params = EgoStateSE3Metadata(
             vehicle_name="test_vehicle",
             width=2.0,
             length=5.0,
@@ -17,7 +17,7 @@ class TestEgoMetadata:
         )
 
     def test_initialization(self):
-        """Test that EgoMetadata initializes correctly."""
+        """Test that EgoStateSE3Metadata initializes correctly."""
         assert self.params.vehicle_name == "test_vehicle"
         assert self.params.width == 2.0
         assert self.params.length == 5.0
@@ -33,7 +33,7 @@ class TestEgoMetadata:
 
     def test_derived_offsets_with_imu_offset(self):
         """Test derived offsets when rear_axle_to_imu_se3 is not identity (e.g. KITTI-360)."""
-        params = EgoMetadata(
+        params = EgoStateSE3Metadata(
             vehicle_name="test_vehicle",
             width=2.0,
             length=5.0,
@@ -82,7 +82,7 @@ class TestEgoMetadata:
             "center_to_imu_se3": [1.2, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0],
             "rear_axle_to_imu_se3": [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
         }
-        params = EgoMetadata.from_dict(data)
+        params = EgoStateSE3Metadata.from_dict(data)
         assert params.vehicle_name == "from_dict_vehicle"
         assert params.width == 1.5
         assert params.length == 4.0
@@ -94,6 +94,6 @@ class TestEgoMetadata:
     def test_from_dict_to_dict_round_trip(self):
         """Test that from_dict and to_dict are inverses."""
         original_dict = self.params.to_dict()
-        recreated_params = EgoMetadata.from_dict(original_dict)
+        recreated_params = EgoStateSE3Metadata.from_dict(original_dict)
         recreated_dict = recreated_params.to_dict()
         assert original_dict == recreated_dict

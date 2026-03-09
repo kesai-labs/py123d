@@ -11,8 +11,8 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICameraMetadatas,
     LidarID,
     LidarMetadata,
@@ -136,12 +136,12 @@ class PandasetLogParser(LogParser):
             timestep_seconds=0.1,
         )
 
-    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Inherited, see superclass."""
         # NOTE: Some parameters are available in PandaSet [1], others are estimated based on the vehicle model [2].
         # [1] https://arxiv.org/pdf/2112.12610 (Figure 3 (a))
         # [2] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
-        return EgoMetadata(
+        return EgoStateSE3Metadata(
             vehicle_name="pandaset_chrysler_pacifica",
             width=2.297,
             length=5.176,
@@ -258,7 +258,10 @@ def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[PinholeCame
 
 
 def _extract_pandaset_sensor_ego_state(
-    gps: Dict[str, float], lidar_pose: Dict[str, Dict[str, float]], ego_metadata: EgoMetadata, timestamp: Timestamp
+    gps: Dict[str, float],
+    lidar_pose: Dict[str, Dict[str, float]],
+    ego_metadata: EgoStateSE3Metadata,
+    timestamp: Timestamp,
 ) -> EgoStateSE3:
     """Extracts the ego state from Pandaset GPS and Lidar pose data."""
     imu_se3 = global_main_lidar_to_global_imu(pandaset_pose_dict_to_pose_se3(lidar_pose))

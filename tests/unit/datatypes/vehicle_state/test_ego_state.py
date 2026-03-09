@@ -4,9 +4,9 @@ import pytest
 from py123d.datatypes import (
     DynamicStateSE2,
     DynamicStateSE3,
-    EgoMetadata,
     EgoStateSE2,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     Timestamp,
 )
 from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
@@ -18,7 +18,7 @@ class TestEgoStateSE2:
     def setup_method(self):
         """Set up test fixtures for EgoStateSE2 tests."""
         self.rear_axle_pose = PoseSE2(x=0.0, y=0.0, yaw=0.0)
-        self.ego_metadata = EgoMetadata(
+        self.ego_metadata = EgoStateSE3Metadata(
             vehicle_name="test_vehicle",
             length=4.5,
             width=2.0,
@@ -144,7 +144,7 @@ class TestEgoStateSE3:
         """Set up test fixtures for EgoStateSE3 tests."""
 
         self.rear_axle_pose = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
-        self.ego_metadata = EgoMetadata(
+        self.ego_metadata = EgoStateSE3Metadata(
             vehicle_name="test_vehicle",
             length=4.5,
             width=2.0,
@@ -213,7 +213,7 @@ class TestEgoStateSE3:
 
     def test_from_imu_with_offset(self):
         """Test creating EgoStateSE3 from IMU pose with a lateral offset (e.g. KITTI-360)."""
-        ego_metadata_with_offset = EgoMetadata(
+        ego_metadata_with_offset = EgoStateSE3Metadata(
             vehicle_name="test_vehicle_offset",
             length=4.5,
             width=2.0,
@@ -240,7 +240,7 @@ class TestEgoStateSE3:
         # IMU rotated 90 degrees around Z axis
         imu_pose = PoseSE3(x=0.0, y=0.0, z=0.0, qw=np.cos(np.pi / 4), qx=0.0, qy=0.0, qz=np.sin(np.pi / 4))
 
-        ego_metadata_with_offset = EgoMetadata(
+        ego_metadata_with_offset = EgoStateSE3Metadata(
             vehicle_name="test_vehicle_offset",
             length=4.5,
             width=2.0,

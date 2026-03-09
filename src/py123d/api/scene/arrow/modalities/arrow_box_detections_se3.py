@@ -1,13 +1,17 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
-from py123d.datatypes.detections.box_detections import BoxDetectionsSE3
+from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema, get_optional_array_mixin
+from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
+from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE3, BoxDetectionsSE3
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
+from py123d.datatypes.time.timestamp import Timestamp
+from py123d.geometry.bounding_box import BoundingBoxSE3
 from py123d.geometry.geometry_index import BoundingBoxSE3Index, Vector3DIndex
+from py123d.geometry.vector import Vector3D
 
 
 class ArrowBoxDetectionsSE3Writer(BaseModalityWriter):
@@ -69,3 +73,45 @@ class ArrowBoxDetectionsSE3Writer(BaseModalityWriter):
                 f"{self._modality_name}.num_lidar_points": [num_lidar_points_list],
             }
         )
+
+
+def get_box_detections_se3_from_arrow_table(
+    modality_table: pa.Table,
+    index: int,
+    modality_metadata: BoxDetectionsSE3Metadata,
+) -> Optional[BoxDetectionsSE3]:
+    bd_columns = [
+        "box_detections_se3.timestamp_us",
+        "box_detections_se3.bounding_box_se3",
+        "box_detections_se3.track_token",
+        "box_detections_se3.label",
+        "box_detections_se3.velocity_3d",
+        "box_detections_se3.num_lidar_points",
+    ]
+
+    box_detections: Optional[BoxDetectionsSE3] = None
+    if all_columns_in_schema(modality_table, bd_columns):
+        timestamp = Timestamp.from_us(modality_table["box_detections_se3.timestamp_us"][index].as_py())
+        box_detections_list: List[BoxDetectionSE3] = []
+        box_detection_label_class = modality_metadata.box_detection_label_class
+        for _bounding_box_se3, _token, _label, _velocity, _num_lidar_points in zip(
+            modality_table["box_detections_se3.bounding_box_se3"][index].as_py(),
+            modality_table["box_detections_se3.track_token"][index].as_py(),
+            modality_table["box_detections_se3.label"][index].as_py(),
+            modality_table["box_detections_se3.velocity_3d"][index].as_py(),
+            modality_table["box_detections_se3.num_lidar_points"][index].as_py(),
+        ):
+            box_detections_list.append(
+                BoxDetectionSE3(
+                    attributes=BoxDetectionAttributes(
+                        label=box_detection_label_class(_label),
+                        track_token=_token,
+                        num_lidar_points=_num_lidar_points,
+                    ),
+                    bounding_box_se3=BoundingBoxSE3.from_list(_bounding_box_se3),
+                    velocity_3d=get_optional_array_mixin(_velocity, Vector3D),  # type: ignore
+                )
+            )
+        box_detections = BoxDetectionsSE3(box_detections=box_detections_list, timestamp=timestamp)
+
+    return box_detections

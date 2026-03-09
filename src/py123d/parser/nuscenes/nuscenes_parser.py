@@ -25,7 +25,7 @@ from py123d.datatypes import (
 )
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.metadata.sensor_metadata import FisheyeMEICameraMetadatas, LidarMetadatas, PinholeCameraMetadatas
-from py123d.datatypes.vehicle_state.ego_metadata import EgoMetadata
+from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
 from py123d.parser.abstract_dataset_parser import (
     DatasetParser,
@@ -179,11 +179,11 @@ class NuScenesLogParser(LogParser):
         )
 
     @override
-    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Inherited, see superclass."""
         # NOTE: The parameters in nuScenes are estimates, and partially taken from the Renault Zoe model [1].
         # [1] https://en.wikipedia.org/wiki/Renault_Zoe
-        return EgoMetadata(
+        return EgoStateSE3Metadata(
             vehicle_name="nuscenes_renault_zoe",
             width=1.730,
             length=4.084,
@@ -436,7 +436,7 @@ def _get_nuscenes_lidar_metadata(
 
 
 def _extract_nuscenes_ego_state(
-    nusc: NuScenes, sample: Dict[str, Any], can_bus: NuScenesCanBus, ego_metadata: EgoMetadata
+    nusc: NuScenes, sample: Dict[str, Any], can_bus: NuScenesCanBus, ego_metadata: EgoStateSE3Metadata
 ) -> EgoStateSE3:
     """Extracts the ego state from a nuScenes sample."""
     lidar_data = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
@@ -667,7 +667,7 @@ def _extract_ego_state_from_sample_data(
     sweep: Dict[str, Any],
     can_bus: NuScenesCanBus,
     scene_name: str,
-    ego_metadata: EgoMetadata,
+    ego_metadata: EgoStateSE3Metadata,
 ) -> EgoStateSE3:
     """Extracts the ego state from a lidar sample_data record (keyframe or non-keyframe).
 

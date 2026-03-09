@@ -11,8 +11,8 @@ import shapely
 import shapely.geometry as geom
 
 from py123d.api.map.map_api import MapAPI
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
+from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.common.utils.msgpack_utils import msgpack_decode_with_numpy
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject, MapObjectIDType
 from py123d.datatypes.map_objects.map_layer_types import (

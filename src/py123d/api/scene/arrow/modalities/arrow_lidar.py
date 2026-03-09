@@ -1,20 +1,33 @@
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
+import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
-from py123d.common.io.lidar.draco_lidar_io import encode_point_cloud_3d_as_draco_binary
+from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
+from py123d.common.io.lidar.draco_lidar_io import (
+    encode_point_cloud_3d_as_draco_binary,
+    is_draco_binary,
+    load_point_cloud_3d_from_draco_binary,
+)
 from py123d.common.io.lidar.ipc_lidar_io import (
     encode_point_cloud_3d_as_ipc_binary,
     encode_point_cloud_features_as_ipc_binary,
+    is_ipc_binary,
+    load_point_cloud_3d_from_ipc_binary,
+    load_point_cloud_features_from_ipc_binary,
 )
-from py123d.common.io.lidar.laz_lidar_io import encode_point_cloud_3d_as_laz_binary
+from py123d.common.io.lidar.laz_lidar_io import (
+    encode_point_cloud_3d_as_laz_binary,
+    is_laz_binary,
+    load_point_cloud_3d_from_laz_binary,
+)
 from py123d.common.io.lidar.path_lidar_io import load_point_cloud_data_from_path
 from py123d.datatypes.metadata.log_metadata import LogMetadata
-from py123d.datatypes.sensors.lidar import LidarMergedMetadata, LidarMetadata
+from py123d.datatypes.sensors.lidar import Lidar, LidarFeature, LidarID, LidarMergedMetadata, LidarMetadata
+from py123d.geometry.pose import PoseSE3
 from py123d.parser.abstract_dataset_parser import ParsedLidar
 
 
@@ -145,3 +158,86 @@ class ArrowLidarWriter(BaseModalityWriter):
                 raise NotImplementedError(f"Unsupported lidar point feature codec: {self._lidar_point_feature_codec}")
 
         return point_cloud_3d_output, point_cloud_feature_output
+
+
+def get_lidar_from_arrow_table(
+    arrow_table: pa.Table,
+    index: int,
+    lidar_type: LidarID,
+    lidar_instance: str,
+    lidar_metadatas: Dict[LidarID, LidarMetadata],
+    log_metadata: LogMetadata,
+) -> Optional[Lidar]:
+    """Builds a Lidar object from an Arrow table at a given index.
+
+    :param arrow_table: The Arrow table containing the Lidar data.
+    :param index: The index to extract the Lidar data from.
+    :param lidar_type: The type of Lidar to build.
+    :param lidar_instance: The lidar instance name for parametric column lookup.
+    :param lidar_metadatas: Per-sensor lidar metadata dict.
+    :param log_metadata: Metadata about the log (used for dataset path resolution).
+    :raises ValueError: If the Lidar data format is unsupported.
+    :raises NotImplementedError: If the Lidar data type is not supported.
+    :return: The constructed Lidar object, or None if not available.
+    """
+    point_cloud_3d: Optional[np.ndarray] = None
+    point_cloud_feature: Optional[Dict[str, np.ndarray]] = None
+
+    data_col = f"lidar.{lidar_instance}.data"
+    pc3d_col = f"lidar.{lidar_instance}.point_cloud_3d"
+    pcf_col = f"lidar.{lidar_instance}.point_cloud_features"
+
+    if data_col in arrow_table.schema.names:
+        # 1. Load lidar sweep from origin dataset using a relative file path.
+        lidar_data = arrow_table[data_col][index].as_py()
+        if lidar_data is not None:
+            assert isinstance(lidar_data, str), f"Lidar path data must be a string file path, got {type(lidar_data)}"
+            point_cloud_3d, point_cloud_feature = load_point_cloud_data_from_path(
+                relative_path=lidar_data,
+                log_metadata=log_metadata,
+                index=index,
+                lidar_metadatas=lidar_metadatas,
+            )
+
+    elif pc3d_col in arrow_table.schema.names:
+        # 2.1 Loading the lidar xyz point cloud from blob in the Arrow table.
+        lidar_data = arrow_table[pc3d_col][index].as_py()
+        if lidar_data is not None:
+            if is_draco_binary(lidar_data):
+                point_cloud_3d = load_point_cloud_3d_from_draco_binary(lidar_data)
+            elif is_laz_binary(lidar_data):
+                point_cloud_3d = load_point_cloud_3d_from_laz_binary(lidar_data)
+            elif is_ipc_binary(lidar_data):
+                point_cloud_3d = load_point_cloud_3d_from_ipc_binary(lidar_data)
+
+        # 2.2 Load lidar features from blob in the Arrow table, if available.
+        if pcf_col in arrow_table.schema.names:
+            lidar_point_cloud_feature_data = arrow_table[pcf_col][index].as_py()
+            if lidar_point_cloud_feature_data is not None:
+                if is_ipc_binary(lidar_point_cloud_feature_data):
+                    point_cloud_feature = load_point_cloud_features_from_ipc_binary(lidar_point_cloud_feature_data)
+
+    lidar: Optional[Lidar] = None
+    if point_cloud_3d is not None:
+        if lidar_type != LidarID.LIDAR_MERGED:
+            if point_cloud_feature is not None and LidarFeature.IDS.serialize() in point_cloud_feature.keys():
+                mask = point_cloud_feature[LidarFeature.IDS.serialize()] == int(lidar_type.value)
+                point_cloud_feature = {key: value[mask] for key, value in point_cloud_feature.items()}
+                point_cloud_3d = point_cloud_3d[mask]
+                lidar = Lidar(
+                    metadata=lidar_metadatas[lidar_type],
+                    point_cloud_3d=point_cloud_3d,
+                    point_cloud_features=point_cloud_feature,
+                )
+        else:
+            lidar = Lidar(
+                metadata=LidarMetadata(
+                    lidar_name=LidarID.LIDAR_MERGED.serialize(),
+                    lidar_id=LidarID.LIDAR_MERGED,
+                    lidar_to_imu_se3=PoseSE3.identity(),
+                ),
+                point_cloud_3d=point_cloud_3d,
+                point_cloud_features=point_cloud_feature,
+            )
+
+    return lidar

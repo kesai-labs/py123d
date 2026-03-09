@@ -1,10 +1,17 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
-from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetections, TrafficLightDetectionsMetadata
+from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema
+from py123d.datatypes import (
+    Timestamp,
+    TrafficLightDetection,
+    TrafficLightDetections,
+    TrafficLightDetectionsMetadata,
+    TrafficLightStatus,
+)
 
 
 class ArrowTrafficLightDetectionsWriter(BaseModalityWriter):
@@ -53,3 +60,36 @@ class ArrowTrafficLightDetectionsWriter(BaseModalityWriter):
                 f"{self._modality_name}.status": [status_list],
             }
         )
+
+
+def get_traffic_light_detections_from_arrow_table(
+    arrow_table: pa.Table,
+    index: int,
+) -> Optional[TrafficLightDetections]:
+    """Builds a :class:`~py123d.datatypes.detections.TrafficLightDetections` from an Arrow table at a given index.
+
+    :param arrow_table: The Arrow table containing the traffic light detections data.
+    :param index: The index to extract the traffic light detections from.
+    :return: The TrafficLightDetections at the given index, or None if not available.
+    """
+    tl_columns = [
+        "traffic_light_detections.timestamp_us",
+        "traffic_light_detections.lane_id",
+        "traffic_light_detections.status",
+    ]
+    traffic_lights: Optional[TrafficLightDetections] = None
+    if all_columns_in_schema(arrow_table, tl_columns):
+        timestamp = Timestamp.from_us(arrow_table["traffic_light_detections.timestamp_us"][index].as_py())
+        detections: List[TrafficLightDetection] = []
+        for lane_id, status in zip(
+            arrow_table["traffic_light_detections.lane_id"][index].as_py(),
+            arrow_table["traffic_light_detections.status"][index].as_py(),
+        ):
+            detections.append(
+                TrafficLightDetection(
+                    lane_id=lane_id,
+                    status=TrafficLightStatus(status),
+                )
+            )
+        traffic_lights = TrafficLightDetections(detections=detections, timestamp=timestamp)
+    return traffic_lights

@@ -16,8 +16,8 @@ from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
     DynamicStateSE3,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
     FisheyeMEICameraMetadatas,
@@ -259,7 +259,7 @@ class Kitti360LogParser(LogParser):
             timestep_seconds=KITTI360_DT,
         )
 
-    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
         # NOTE: The parameters in KITTI-360 are estimates based on the vehicle model used in the dataset
         # Uses a 2006 VW Passat Variant B6 [1]. Vertical distance is estimated based on the Lidar.
         # KITTI-360 is currently the only dataset where the IMU has a lateral offset to the rear axle [2].
@@ -273,7 +273,7 @@ class Kitti360LogParser(LogParser):
         rear_axle_in_imu_x = 0.05
         rear_axle_in_imu_y = -0.32
 
-        return EgoMetadata(
+        return EgoStateSE3Metadata(
             vehicle_name="kitti360_vw_passat",
             width=1.820,
             length=4.775,
@@ -545,7 +545,7 @@ def _read_timestamps(log_name: str, kitti360_folders: Dict[str, Path]) -> Dict[s
 def _extract_ego_state_all(
     log_name: str,
     kitti360_folders: Dict[str, Path],
-    ego_metadata: EgoMetadata,
+    ego_metadata: EgoStateSE3Metadata,
 ) -> Tuple[List[EgoStateSE3], List[int]]:
     """Extracts all ego states for the given sequence."""
 

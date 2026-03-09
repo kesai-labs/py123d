@@ -11,8 +11,8 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICameraMetadatas,
     LidarID,
     LidarMetadata,
@@ -202,12 +202,12 @@ class WODPerceptionLogParser(LogParser):
             timestep_seconds=0.1,
         )
 
-    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Inherited, see superclass."""
         # NOTE: These parameters are estimates based on the vehicle model used in the WOD Perception dataset.
         # The vehicle should be the same (or a similar) vehicle model to nuPlan and PandaSet [1].
         # [1] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
-        return EgoMetadata(
+        return EgoStateSE3Metadata(
             vehicle_name="wod-perception_chrysler_pacifica",
             width=2.297,
             length=5.176,
@@ -358,7 +358,7 @@ def _get_ego_pose_se3(frame: dataset_pb2.Frame, map_pose_offset: Vector3D) -> Po
 
 
 def _extract_wod_perception_ego_state(
-    frame: dataset_pb2.Frame, map_pose_offset: Vector3D, ego_metadata: EgoMetadata, timestamp: Timestamp
+    frame: dataset_pb2.Frame, map_pose_offset: Vector3D, ego_metadata: EgoStateSE3Metadata, timestamp: Timestamp
 ) -> EgoStateSE3:
     """Extracts the ego state from a WOD Perception frame."""
     imu_se3 = _get_ego_pose_se3(frame, map_pose_offset)

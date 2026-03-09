@@ -17,4 +17,5 @@ from py123d.datatypes.detections.traffic_light_detections import (
     TrafficLightDetection,
     TrafficLightDetections,
     TrafficLightStatus,
+    TrafficLightDetectionsMetadata,
 )

@@ -6,18 +6,18 @@ import pyarrow as pa
 
 from py123d.api.map.arrow.arrow_map_api import get_lru_cached_map_api
 from py123d.api.map.map_api import MapAPI
-from py123d.api.scene.arrow.utils.arrow_getters import (
-    get_box_detections_se3_from_arrow_table,
-    get_camera_from_arrow_table,
-    get_ego_state_se3_from_arrow_table,
-    get_lidar_from_arrow_table,
-    get_timestamp_from_arrow_table,
+from py123d.api.scene.arrow.modalities.arrow_box_detections_se3 import get_box_detections_se3_from_arrow_table
+from py123d.api.scene.arrow.modalities.arrow_camera import get_camera_from_arrow_table
+from py123d.api.scene.arrow.modalities.arrow_ego_state_se3 import get_ego_state_se3_from_arrow_table
+from py123d.api.scene.arrow.modalities.arrow_lidar import get_lidar_from_arrow_table
+from py123d.api.scene.arrow.modalities.arrow_sync import get_timestamp_from_arrow_table
+from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections_writer import (
     get_traffic_light_detections_from_arrow_table,
 )
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table, open_arrow_schema
+from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.common.dataset_paths import get_dataset_paths
 from py123d.common.utils.msgpack_utils import msgpack_decode_with_numpy
 from py123d.common.utils.uuid_utils import convert_to_str_uuid
@@ -25,8 +25,8 @@ from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
     CustomModality,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICamera,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
@@ -157,12 +157,12 @@ class ArrowSceneAPI(SceneAPI):
     # Per-modality metadata retrieval (read from the corresponding Arrow schema)
     # ------------------------------------------------------------------------------------------------------------------
 
-    def get_ego_state_se3_metadata(self) -> Optional[EgoMetadata]:
-        """Returns the :class:`~py123d.datatypes.vehicle_state.EgoMetadata` read from ``ego_state_se3.arrow``."""
-        ego_metadata: Optional[EgoMetadata] = None
+    def get_ego_state_se3_metadata(self) -> Optional[EgoStateSE3Metadata]:
+        """Returns the :class:`~py123d.datatypes.vehicle_state.EgoStateSE3Metadata` read from ``ego_state_se3.arrow``."""
+        ego_metadata: Optional[EgoStateSE3Metadata] = None
         ego_table = self._get_modality_table("ego_state_se3")
         if ego_table is not None:
-            ego_metadata = get_metadata_from_arrow_schema(ego_table.schema, EgoMetadata)
+            ego_metadata = get_metadata_from_arrow_schema(ego_table.schema, EgoStateSE3Metadata)
         return ego_metadata
 
     def get_box_detections_se3_metadata(self) -> Optional[BoxDetectionsSE3Metadata]:
@@ -267,7 +267,7 @@ class ArrowSceneAPI(SceneAPI):
             idx = self._get_table_index(iteration)
             row_idx = self._get_first_sync_index(sync_table, "ego_state_se3", idx)
             if row_idx is not None:
-                ego_metadata = get_metadata_from_arrow_schema(ego_table.schema, EgoMetadata)
+                ego_metadata = get_metadata_from_arrow_schema(ego_table.schema, EgoStateSE3Metadata)
                 ego_state = get_ego_state_se3_from_arrow_table(ego_table, row_idx, ego_metadata)
         return ego_state
 
@@ -282,10 +282,7 @@ class ArrowSceneAPI(SceneAPI):
             if row_idx is not None:
                 box_detection_metadata = get_metadata_from_arrow_schema(box_table.schema, BoxDetectionsSE3Metadata)
                 if box_detection_metadata is not None:
-                    timestamp = self.get_timestamp_at_iteration(iteration)
-                    box_detections = get_box_detections_se3_from_arrow_table(
-                        box_table, row_idx, box_detection_metadata, timestamp
-                    )
+                    box_detections = get_box_detections_se3_from_arrow_table(box_table, row_idx, box_detection_metadata)
         return box_detections
 
     def get_traffic_light_detections_at_iteration(self, iteration: int) -> Optional[TrafficLightDetections]:
@@ -365,7 +362,7 @@ class ArrowSceneAPI(SceneAPI):
         if ego_table is None:
             return []
 
-        ego_metadata = get_metadata_from_arrow_schema(ego_table.schema, EgoMetadata)
+        ego_metadata = get_metadata_from_arrow_schema(ego_table.schema, EgoStateSE3Metadata)
         ts_column = ego_table["ego_state_se3.timestamp_us"]
 
         result: List[EgoStateSE3] = []

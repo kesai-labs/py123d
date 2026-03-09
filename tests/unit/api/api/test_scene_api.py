@@ -7,8 +7,8 @@ from py123d.api import MapAPI, SceneAPI, SceneMetadata
 from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICamera,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
@@ -56,7 +56,7 @@ class ConcreteSceneAPI(SceneAPI):
         """Inherited, see super class."""
         return self._map_metadata
 
-    def get_ego_state_se3_metadata(self) -> Optional[EgoMetadata]:
+    def get_ego_state_se3_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Inherited, see super class."""
         return self._ego_metadata
 
@@ -125,7 +125,7 @@ def scene_api():
     api._log_metadata.log_name = "test_log"
     api._log_metadata.version = "1.0.0"
     api._map_metadata = Mock(spec=MapMetadata)
-    api._ego_metadata = Mock(spec=EgoMetadata)
+    api._ego_metadata = Mock(spec=EgoStateSE3Metadata)
 
     pcam_meta = Mock(spec=PinholeCameraMetadata)
     pcam_meta.camera_name = "pcam_b0"

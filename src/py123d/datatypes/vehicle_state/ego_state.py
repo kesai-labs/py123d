@@ -7,7 +7,7 @@ from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, B
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.datatypes.vehicle_state.dynamic_state import DynamicStateSE2, DynamicStateSE3
 from py123d.datatypes.vehicle_state.ego_metadata import (
-    EgoMetadata,
+    EgoStateSE3Metadata,
     center_se2_to_imu_se2,
     center_se3_to_imu_se3,
     imu_se2_to_center_se2,
@@ -38,7 +38,7 @@ class EgoStateSE3:
     )
 
     _imu_se3: PoseSE3
-    _ego_metadata: EgoMetadata
+    _ego_metadata: EgoStateSE3Metadata
     _timestamp: Timestamp
     _dynamic_state_se3: Optional[DynamicStateSE3]
     _tire_steering_angle: Optional[float]
@@ -47,7 +47,7 @@ class EgoStateSE3:
     def from_imu(
         cls,
         imu_se3: PoseSE3,
-        ego_metadata: EgoMetadata,
+        ego_metadata: EgoStateSE3Metadata,
         timestamp: Timestamp,
         dynamic_state_se3: Optional[DynamicStateSE3] = None,
         tire_steering_angle: float = 0.0,
@@ -75,7 +75,7 @@ class EgoStateSE3:
     def from_rear_axle(
         cls,
         rear_axle_se3: PoseSE3,
-        ego_metadata: EgoMetadata,
+        ego_metadata: EgoStateSE3Metadata,
         timestamp: Timestamp,
         dynamic_state_se3: Optional[DynamicStateSE3] = None,
         tire_steering_angle: float = 0.0,
@@ -108,7 +108,7 @@ class EgoStateSE3:
     def from_center(
         cls,
         center_se3: PoseSE3,
-        ego_metadata: EgoMetadata,
+        ego_metadata: EgoStateSE3Metadata,
         timestamp: Timestamp,
         dynamic_state_se3: Optional[DynamicStateSE3] = None,
         tire_steering_angle: float = 0.0,
@@ -158,8 +158,8 @@ class EgoStateSE3:
         return self.rear_axle_se3.pose_se2
 
     @property
-    def ego_metadata(self) -> EgoMetadata:
-        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the vehicle."""
+    def ego_metadata(self) -> EgoStateSE3Metadata:
+        """The :class:`~py123d.datatypes.vehicle_state.EgoStateSE3Metadata` of the vehicle."""
         return self._ego_metadata
 
     @property
@@ -206,7 +206,7 @@ class EgoStateSE3:
     def box_detection_se3(self) -> BoxDetectionSE3:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE3` projection of the ego vehicle."""
         return BoxDetectionSE3(
-            metadata=BoxDetectionAttributes(
+            attributes=BoxDetectionAttributes(
                 label=DefaultBoxDetectionLabel.EGO,
                 track_token=EGO_TRACK_TOKEN,
             ),
@@ -241,7 +241,7 @@ class EgoStateSE2:
     __slots__ = ("_imu_se2", "_ego_metadata", "_timestamp", "_dynamic_state_se2", "_tire_steering_angle")
 
     _imu_se2: PoseSE2
-    _ego_metadata: EgoMetadata
+    _ego_metadata: EgoStateSE3Metadata
     _timestamp: Timestamp
     _dynamic_state_se2: Optional[DynamicStateSE2]
     _tire_steering_angle: Optional[float]
@@ -250,7 +250,7 @@ class EgoStateSE2:
     def from_imu(
         cls,
         imu_se2: PoseSE2,
-        ego_metadata: EgoMetadata,
+        ego_metadata: EgoStateSE3Metadata,
         timestamp: Timestamp,
         dynamic_state_se2: Optional[DynamicStateSE2] = None,
         tire_steering_angle: float = 0.0,
@@ -278,7 +278,7 @@ class EgoStateSE2:
     def from_rear_axle(
         cls,
         rear_axle_se2: PoseSE2,
-        ego_metadata: EgoMetadata,
+        ego_metadata: EgoStateSE3Metadata,
         timestamp: Timestamp,
         dynamic_state_se2: Optional[DynamicStateSE2] = None,
         tire_steering_angle: float = 0.0,
@@ -311,7 +311,7 @@ class EgoStateSE2:
     def from_center(
         cls,
         center_se2: PoseSE2,
-        ego_metadata: EgoMetadata,
+        ego_metadata: EgoStateSE3Metadata,
         timestamp: Timestamp,
         dynamic_state_se2: Optional[DynamicStateSE2] = None,
         tire_steering_angle: float = 0.0,
@@ -351,8 +351,8 @@ class EgoStateSE2:
         return imu_se2_to_rear_axle_se2(imu_se2=self._imu_se2, ego_metadata=self._ego_metadata)
 
     @property
-    def ego_metadata(self) -> EgoMetadata:
-        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the vehicle."""
+    def ego_metadata(self) -> EgoStateSE3Metadata:
+        """The :class:`~py123d.datatypes.vehicle_state.EgoStateSE3Metadata` of the vehicle."""
         return self._ego_metadata
 
     @property

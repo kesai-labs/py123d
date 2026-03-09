@@ -70,10 +70,10 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
 
     @classmethod
     def from_dict(cls, data_dict: dict) -> EgoStateSE3Metadata:
-        """Creates a EgoMetadata instance from a dictionary.
+        """Creates a EgoStateSE3Metadata instance from a dictionary.
 
         :param data_dict: Dictionary containing ego metadata.
-        :return: EgoMetadata instance.
+        :return: EgoStateSE3Metadata instance.
         """
         data_dict = dict(data_dict)
         data_dict["center_to_imu_se3"] = PoseSE3.from_list(data_dict["center_to_imu_se3"])
@@ -111,7 +111,7 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
         return "ego_state_se3"
 
     def to_dict(self) -> dict:
-        """Converts the :class:`EgoMetadata` instance to a dictionary.
+        """Converts the :class:`EgoStateSE3Metadata` instance to a dictionary.
 
         :return: Dictionary representation of the ego metadata.
         """
@@ -124,10 +124,6 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
             "center_to_imu_se3": self.center_to_imu_se3.tolist(),
             "rear_axle_to_imu_se3": self.rear_axle_to_imu_se3.tolist(),
         }
-
-
-# Backward-compat alias
-EgoMetadata = EgoStateSE3Metadata
 
 
 def get_carla_lincoln_mkz_2020_ego_metadata() -> EgoStateSE3Metadata:

@@ -18,8 +18,8 @@ from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
     DynamicStateSE3,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICameraMetadatas,
     LidarID,
     LidarMetadata,
@@ -219,12 +219,12 @@ class NuplanLogParser(LogParser):
         return metadata
 
     @override
-    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Inherited, see superclass."""
         # NOTE: These parameters are mostly available in nuPlan, except for the rear_axle_to_center_vertical.
         # The value is estimated based the Lidar point cloud.
         # [1] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
-        return EgoMetadata(
+        return EgoStateSE3Metadata(
             vehicle_name="nuplan_chrysler_pacifica",
             width=2.297,
             length=5.176,
@@ -520,7 +520,7 @@ def _get_nuplan_lidar_metadata(
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def _extract_nuplan_ego_state(nuplan_lidar_pc: LidarPc, ego_metadata: EgoMetadata) -> EgoStateSE3:
+def _extract_nuplan_ego_state(nuplan_lidar_pc: LidarPc, ego_metadata: EgoStateSE3Metadata) -> EgoStateSE3:
     """Extracts the nuPlan ego state from a given LidarPc database object."""
     imu_pose = PoseSE3(
         x=nuplan_lidar_pc.ego_pose.x,

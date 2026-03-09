@@ -9,8 +9,8 @@ from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
     CustomModality,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICamera,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
@@ -59,8 +59,8 @@ class SceneAPI(abc.ABC):
         """
 
     @abc.abstractmethod
-    def get_ego_state_se3_metadata(self) -> Optional[EgoMetadata]:
-        """Returns the :class:`~py123d.datatypes.EgoMetadata` of the ego vehicle, if available.
+    def get_ego_state_se3_metadata(self) -> Optional[EgoStateSE3Metadata]:
+        """Returns the :class:`~py123d.datatypes.EgoStateSE3Metadata` of the ego vehicle, if available.
 
         :return: The ego metadata, or None if not available.
         """
@@ -230,8 +230,8 @@ class SceneAPI(abc.ABC):
         return self.get_map_metadata()
 
     @property
-    def ego_metadata(self) -> Optional[EgoMetadata]:
-        """The :class:`~py123d.datatypes.vehicle_state.EgoMetadata` of the ego vehicle, if available."""
+    def ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
+        """The :class:`~py123d.datatypes.vehicle_state.EgoStateSE3Metadata` of the ego vehicle, if available."""
         return self.get_ego_state_se3_metadata()
 
     @property

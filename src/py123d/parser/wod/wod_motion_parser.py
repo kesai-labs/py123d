@@ -9,8 +9,8 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
-    EgoMetadata,
     EgoStateSE3,
+    EgoStateSE3Metadata,
     FisheyeMEICameraMetadatas,
     LidarMetadatas,
     LogMetadata,
@@ -182,9 +182,9 @@ class WODMotionLogParser(LogParser):
             timestep_seconds=0.1,
         )
 
-    def get_ego_metadata(self) -> Optional[EgoMetadata]:
+    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Inherited, see superclass."""
-        return EgoMetadata(
+        return EgoStateSE3Metadata(
             vehicle_name="wod-motion_chrysler_pacifica",
             width=2.3320000171661377,
             length=5.285999774932861,
@@ -244,7 +244,7 @@ def _extract_all_timestamps(scenario: scenario_pb2.Scenario) -> List[Timestamp]:
 def _extract_all_ego_states(
     scenario: scenario_pb2.Scenario,
     all_timestamps: List[Timestamp],
-    ego_metadata: EgoMetadata,
+    ego_metadata: EgoStateSE3Metadata,
 ) -> List[EgoStateSE3]:
     all_ego_states: List[EgoStateSE3] = []
     for track_idx, track in enumerate(scenario.tracks):
