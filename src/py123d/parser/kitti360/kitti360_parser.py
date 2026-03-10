@@ -59,6 +59,7 @@ from py123d.parser.registry import KITTI360BoxDetectionLabel
 
 KITTI360_DT: Final[float] = 0.1
 KITTI360_LIDAR_NAME: Final[str] = "velodyne_points"
+KITTI360_LIDAR_SWEEP_DURATION_US: Final[int] = 100_000  # 1/10s = 100ms, one full Velodyne HDL-64E rotation
 KITTI360_PINHOLE_CAMERA_IDS = {
     PinholeCameraID.PCAM_STEREO_L: "image_00",
     PinholeCameraID.PCAM_STEREO_R: "image_01",
@@ -777,11 +778,13 @@ def _extract_kitti360_lidar(
 
     lidar_full_path = kitti360_folders[DIR_3D_RAW] / log_name / "velodyne_points" / "data" / f"{idx:010d}.bin"
     if lidar_full_path.exists():
+        # The KITTI-360 lidar timestamp marks the start of the sweep.
+        # The Velodyne HDL-64E rotates at 10Hz, so each sweep covers 100ms.
         return ParsedLidar(
             lidar_name=KITTI360_LIDAR_NAME,
             lidar_type=LidarID.LIDAR_TOP,
             start_timestamp=timestamp,
-            end_timestamp=timestamp,
+            end_timestamp=Timestamp.from_us(timestamp.time_us + KITTI360_LIDAR_SWEEP_DURATION_US),
             iteration=idx,
             dataset_root=kitti360_folders[DIR_ROOT],
             relative_path=lidar_full_path.relative_to(kitti360_folders[DIR_ROOT]),

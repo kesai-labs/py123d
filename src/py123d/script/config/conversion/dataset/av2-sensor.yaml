@@ -37,7 +37,7 @@ dataset_converter_config:
   include_route: false
   include_fisheye_mei_cameras: false
 
-  async_conversion: False
+  async_conversion: true
 
 log_writer:
   _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter

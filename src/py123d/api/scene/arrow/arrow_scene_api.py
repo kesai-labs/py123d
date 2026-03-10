@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Final, Optional, Union
+from typing import Dict, Final, List, Optional, Union
 
 import pyarrow as pa
 
@@ -130,6 +130,20 @@ class ArrowSceneAPI(SceneAPI):
             return None
         if isinstance(value, list):
             return value[0] if len(value) > 0 else None
+        return value
+
+    @staticmethod
+    def _get_last_sync_index(sync_table: pa.Table, column_name: str, idx: int) -> Optional[int]:
+        """Extracts the last row index from a sync table column.
+
+        Handles both scalar (pa.int64) and list-typed (pa.list_(pa.int64())) sync columns.
+        For list-typed columns, returns the last element of the list (latest observation in the interval).
+        """
+        value = sync_table[column_name][idx].as_py()
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return value[-1] if len(value) > 0 else None
         return value
 
     def _get_map_file(self) -> Optional[Path]:
@@ -372,3 +386,96 @@ class ArrowSceneAPI(SceneAPI):
             data = msgpack_decode_with_numpy(encoded_data)
             custom_modality = CustomModality(data=data, timestamp=Timestamp.from_us(timestamp_us))  # type: ignore
         return custom_modality
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Batch Timestamp Retrieval
+    # ------------------------------------------------------------------------------------------------------------------
+
+    def _get_all_modality_timestamps(self, modality_name: str, timestamp_column: str) -> List[Timestamp]:
+        """Helper to batch-read all timestamps for a modality within the current scene.
+
+        Finds the first and last referenced row indices in the sync table for the scene range,
+        then returns all timestamps from the modality table between those rows (inclusive).
+        This correctly handles async modalities (e.g. lidar) where multiple entries may exist
+        per sync frame.
+
+        :param modality_name: The sync table column name / modality table name.
+        :param timestamp_column: The column name in the modality table containing timestamps.
+        :return: All timestamps in the modality table within the scene range, ordered by time.
+        """
+        modality_table = self._get_modality_table(modality_name)
+        if modality_table is None:
+            return []
+
+        sync_table = self._get_sync_table()
+        scene_metadata = self.get_scene_metadata()
+        initial_idx = scene_metadata.initial_idx
+        end_idx = scene_metadata.end_idx  # exclusive
+
+        # Find first referenced row index (scan forward)
+        first_row: Optional[int] = None
+        for i in range(initial_idx, end_idx):
+            first_row = self._get_first_sync_index(sync_table, modality_name, i)
+            if first_row is not None:
+                break
+
+        if first_row is None:
+            return []
+
+        # Find last referenced row index (scan backward)
+        last_row: Optional[int] = None
+        for i in range(end_idx - 1, initial_idx - 1, -1):
+            last_row = self._get_last_sync_index(sync_table, modality_name, i)
+            if last_row is not None:
+                break
+
+        if last_row is None:
+            return []
+
+        # Read all timestamps between first and last rows (inclusive)
+        ts_column = modality_table[timestamp_column]
+        return [Timestamp.from_us(ts_column[i].as_py()) for i in range(first_row, last_row + 1)]
+
+    def get_all_sync_timestamps(self) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        sync_table = self._get_sync_table()
+        scene_metadata = self.get_scene_metadata()
+        initial_idx = scene_metadata.initial_idx
+        end_idx = scene_metadata.end_idx
+        ts_column = sync_table["sync.timestamp_us"]
+        return [Timestamp.from_us(ts_column[i].as_py()) for i in range(initial_idx, end_idx)]
+
+    def get_all_ego_state_se3_timestamps(self) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        return self._get_all_modality_timestamps("ego_state_se3", "ego_state_se3.timestamp_us")
+
+    def get_all_box_detections_se3_timestamps(self) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        return self._get_all_modality_timestamps("box_detections_se3", "box_detections_se3.timestamp_us")
+
+    def get_all_traffic_light_detections_timestamps(self) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        return self._get_all_modality_timestamps("traffic_light_detections", "traffic_light_detections.timestamp_us")
+
+    def get_all_pinhole_camera_timestamps(self, camera_id: PinholeCameraID) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        instance = camera_id.serialize()
+        modality_name = f"pinhole_camera.{instance}"
+        return self._get_all_modality_timestamps(modality_name, f"{modality_name}.timestamp_us")
+
+    def get_all_fisheye_mei_camera_timestamps(self, camera_id: FisheyeMEICameraID) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        instance = camera_id.serialize()
+        modality_name = f"fisheye_mei_camera.{instance}"
+        return self._get_all_modality_timestamps(modality_name, f"{modality_name}.timestamp_us")
+
+    def get_all_lidar_timestamps(self, lidar_id: LidarID) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        instance = lidar_id.serialize()
+        modality_name = f"lidar.{instance}"
+        return self._get_all_modality_timestamps(modality_name, f"{modality_name}.start_timestamp_us")
+
+    def get_all_custom_modality_timestamps(self, name: str) -> List[Timestamp]:
+        """Inherited, see superclass."""
+        modality_name = f"custom.{name}"
+        return self._get_all_modality_timestamps(modality_name, f"{modality_name}.timestamp_us")

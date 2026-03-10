@@ -12,6 +12,7 @@ dataset_converter_config:
 
   force_log_conversion: ${force_log_conversion}
   force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
 
   # Map
   include_map: true
@@ -35,8 +36,7 @@ dataset_converter_config:
   lidar_point_cloud_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
   lidar_point_feature_codec: null # None or "ipc_zstd", "ipc_lz4", "ipc"
 
-  # Async conversion (per-modality native-rate writing with deferred sync)
-  async_conversion: true
+
 
   # Not available:
   include_scenario_tags: false
@@ -51,6 +51,12 @@ log_writer:
   sensors_root: ${dataset_paths.py123d_sensors_root}
   ipc_compression: null
   ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: box_detections_se3.timestamp_us
+    direction: "backward" # "forward" or "backward"
 
 map_writer:
   _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter

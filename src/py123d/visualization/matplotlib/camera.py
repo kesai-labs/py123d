@@ -71,7 +71,7 @@ def add_box_detections_to_camera_ax(
 
     box_detection_array = np.zeros((len(box_detections.box_detections), len(BoundingBoxSE3Index)), dtype=np.float64)
     default_labels = np.array(
-        [detection.metadata.default_label for detection in box_detections.box_detections], dtype=object
+        [detection.attributes.default_label for detection in box_detections.box_detections], dtype=object
     )
     for idx, box_detection in enumerate(box_detections.box_detections):
         box_detection_array[idx] = box_detection.bounding_box_se3.array

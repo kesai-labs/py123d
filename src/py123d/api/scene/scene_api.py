@@ -185,6 +185,69 @@ class SceneAPI(abc.ABC):
         :return: The custom modality, or None if not available.
         """
 
+    # 1.3 Batch Timestamp Retrieval
+    # ------------------------------------------------------------------------------------------------------------------
+
+    @abc.abstractmethod
+    def get_all_sync_timestamps(self) -> List[Timestamp]:
+        """Returns all sync timestamps for the current scene.
+
+        :return: List of timestamps, one per iteration in the scene.
+        """
+
+    @abc.abstractmethod
+    def get_all_ego_state_se3_timestamps(self) -> List[Timestamp]:
+        """Returns all ego state timestamps within the current scene.
+
+        :return: All ego state timestamps in the scene, ordered by time.
+        """
+
+    @abc.abstractmethod
+    def get_all_box_detections_se3_timestamps(self) -> List[Timestamp]:
+        """Returns all box detection timestamps within the current scene.
+
+        :return: All box detection timestamps in the scene, ordered by time.
+        """
+
+    @abc.abstractmethod
+    def get_all_traffic_light_detections_timestamps(self) -> List[Timestamp]:
+        """Returns all traffic light detection timestamps within the current scene.
+
+        :return: All traffic light detection timestamps in the scene, ordered by time.
+        """
+
+    @abc.abstractmethod
+    def get_all_pinhole_camera_timestamps(self, camera_id: PinholeCameraID) -> List[Timestamp]:
+        """Returns all pinhole camera timestamps within the current scene.
+
+        :param camera_id: The :type:`~py123d.datatypes.sensors.PinholeCameraID` of the pinhole camera.
+        :return: All pinhole camera timestamps in the scene, ordered by time.
+        """
+
+    @abc.abstractmethod
+    def get_all_fisheye_mei_camera_timestamps(self, camera_id: FisheyeMEICameraID) -> List[Timestamp]:
+        """Returns all fisheye MEI camera timestamps within the current scene.
+
+        :param camera_id: The :type:`~py123d.datatypes.sensors.FisheyeMEICameraID` of the fisheye MEI camera.
+        :return: All fisheye MEI camera timestamps in the scene, ordered by time.
+        """
+
+    @abc.abstractmethod
+    def get_all_lidar_timestamps(self, lidar_id: LidarID) -> List[Timestamp]:
+        """Returns all lidar start timestamps within the current scene.
+
+        :param lidar_id: The :type:`~py123d.datatypes.sensors.LidarID` of the Lidar.
+        :return: All lidar start timestamps in the scene, ordered by time.
+        """
+
+    @abc.abstractmethod
+    def get_all_custom_modality_timestamps(self, name: str) -> List[Timestamp]:
+        """Returns all custom modality timestamps within the current scene.
+
+        :param name: The name of the custom modality.
+        :return: All custom modality timestamps in the scene, ordered by time.
+        """
+
     # ------------------------------------------------------------------------------------------------------------------
     # Deprecated Methods, to be removed in future versions
     # ------------------------------------------------------------------------------------------------------------------

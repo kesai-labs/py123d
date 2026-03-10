@@ -150,7 +150,7 @@ def add_default_map_on_ax(
 def add_box_detections_to_ax(ax: plt.Axes, box_detections: BoxDetectionsSE3) -> None:
     boxes_per_type: Dict[DefaultBoxDetectionLabel, List[BoundingBoxSE2]] = defaultdict(list)
     for box_detection in box_detections:
-        boxes_per_type[box_detection.metadata.default_label].append(box_detection.bounding_box_se2)
+        boxes_per_type[box_detection.attributes.default_label].append(box_detection.bounding_box_se2)
 
     for box_detection_type, bounding_boxes_se2 in boxes_per_type.items():
         plot_config = BOX_DETECTION_CONFIG[box_detection_type]

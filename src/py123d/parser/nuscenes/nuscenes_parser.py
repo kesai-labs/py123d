@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import gc
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 import numpy as np
-from typing_extensions import override
 
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.datatypes import (
@@ -24,7 +23,7 @@ from py123d.datatypes import (
     Timestamp,
 )
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
-from py123d.datatypes.metadata.sensor_metadata import FisheyeMEICameraMetadatas, LidarMetadatas, PinholeCameraMetadatas
+from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
 from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
 from py123d.parser.abstract_dataset_parser import (
@@ -33,6 +32,7 @@ from py123d.parser.abstract_dataset_parser import (
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
+    ParsedModality,
 )
 from py123d.parser.nuscenes.nuscenes_map_parser import NuScenesMapParser
 from py123d.parser.nuscenes.utils.nuscenes_constants import (
@@ -161,6 +161,9 @@ class NuScenesLogParser(LogParser):
         self._nuscenes_data_root = nuscenes_data_root
         self._database_version = database_version
 
+        # Built lazily for reuse in parser.
+        self._log_metadata: Optional[LogMetadata] = None
+
     def _load_nusc(self) -> NuScenes:
         return NuScenes(
             version=self._database_version,
@@ -168,22 +171,11 @@ class NuScenesLogParser(LogParser):
             verbose=False,
         )
 
-    def get_log_metadata(self) -> LogMetadata:
-        """Inherited, see superclass."""
-        return LogMetadata(
-            dataset="nuscenes",
-            split=self._split,
-            log_name=self._scene_name,
-            location=self._location,
-            timestep_seconds=NUSCENES_DT,
-        )
-
-    @override
-    def get_ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
-        """Inherited, see superclass."""
+    def _build_log_metadata(self) -> None:
+        """Builds and caches the full LogMetadata with all modality metadata."""
         # NOTE: The parameters in nuScenes are estimates, and partially taken from the Renault Zoe model [1].
         # [1] https://en.wikipedia.org/wiki/Renault_Zoe
-        return EgoStateSE3Metadata(
+        ego_state_se3_metadata = EgoStateSE3Metadata(
             vehicle_name="nuscenes_renault_zoe",
             width=1.730,
             length=4.084,
@@ -193,48 +185,44 @@ class NuScenesLogParser(LogParser):
             rear_axle_to_imu_se3=PoseSE3.identity(),
         )
 
-    @override
-    def get_box_detection_metadata(self) -> Optional[BoxDetectionsSE3Metadata]:
-        """Inherited, see superclass."""
-        return BoxDetectionsSE3Metadata(box_detection_label_class=NuScenesBoxDetectionLabel)
+        box_detections_se3_metadata = BoxDetectionsSE3Metadata(box_detection_label_class=NuScenesBoxDetectionLabel)
 
-    @override
-    def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
-        """Inherited, see superclass."""
         nusc = self._load_nusc()
         try:
             scene = nusc.get("scene", self._scene_token)
-            metadata = _get_nuscenes_pinhole_camera_metadata(nusc, scene)
-            if metadata:
-                return PinholeCameraMetadatas(metadata)
-            return None
+            pinhole_cameras_metadata = _get_nuscenes_pinhole_camera_metadata(nusc, scene) or None
+            lidars_metadata = _get_nuscenes_lidar_metadata(nusc, scene) or None
         finally:
             del nusc
             gc.collect()
 
-    @override
-    def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
-        """Inherited, see superclass."""
-        return None  # nuScenes does not have fisheye MEI cameras
+        self._log_metadata = LogMetadata(
+            dataset="nuscenes",
+            split=self._split,
+            log_name=self._scene_name,
+            location=self._location,
+            timestep_seconds=NUSCENES_DT,
+            ego_state_se3_metadata=ego_state_se3_metadata,
+            box_detections_se3_metadata=box_detections_se3_metadata,
+            pinhole_cameras_metadata=pinhole_cameras_metadata,
+            lidars_metadata=lidars_metadata,
+        )
 
-    @override
-    def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
+    def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
-        nusc = self._load_nusc()
-        try:
-            scene = nusc.get("scene", self._scene_token)
-            metadata = _get_nuscenes_lidar_metadata(nusc, scene)
-            if metadata:
-                return LidarMetadatas(metadata)
-            return None
-        finally:
-            del nusc
-            gc.collect()
+        if self._log_metadata is None:
+            self._build_log_metadata()
+        assert self._log_metadata is not None
+        return self._log_metadata
 
     def iter_frames(self) -> Iterator[ParsedFrame]:
         """Inherited, see superclass."""
+        if self._log_metadata is None:
+            self._build_log_metadata()
+        assert self._log_metadata is not None
+
         nusc = self._load_nusc()
-        ego_metadata = self.get_ego_metadata()
+        ego_metadata = self._log_metadata.ego_state_se3_metadata
         assert ego_metadata is not None
 
         try:
@@ -273,17 +261,42 @@ class NuScenesLogParser(LogParser):
     # Per-modality iterators (async / native-rate)
     # ------------------------------------------------------------------------------------------------------------------
 
-    @override
-    def iter_ego_states_se3(self) -> Iterator[EgoStateSE3]:
+    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+        """Dispatches to per-modality async iterators based on metadata type."""
+        if self._log_metadata is None:
+            self._build_log_metadata()
+        assert self._log_metadata is not None
+
+        if isinstance(modality_metadata, EgoStateSE3Metadata):
+            for ego_state in self._iter_ego_states_se3():
+                yield ego_state
+
+        elif isinstance(modality_metadata, BoxDetectionsSE3Metadata):
+            for box_detections in self._iter_box_detections_se3():
+                yield box_detections
+
+        elif isinstance(modality_metadata, PinholeCameraMetadata):
+            for cam_data in self._iter_pinhole_cameras(modality_metadata):
+                yield cam_data
+
+        elif isinstance(modality_metadata, LidarMetadata):
+            for lidar_data in self._iter_lidars():
+                yield lidar_data
+
+        else:
+            raise ValueError(f"Unsupported modality metadata type: {type(modality_metadata)}")
+
+    def _iter_ego_states_se3(self) -> Iterator[EgoStateSE3]:
         """Yields ego states at full lidar sweep rate (~20Hz).
 
         Each lidar sample_data record has its own ego_pose_token, providing real
         (non-interpolated) ego poses at the native lidar rate.
         """
-        nusc = self._load_nusc()
-        ego_metadata = self.get_ego_metadata()
+        assert self._log_metadata is not None
+        ego_metadata = self._log_metadata.ego_state_se3_metadata
         assert ego_metadata is not None
 
+        nusc = self._load_nusc()
         try:
             can_bus = NuScenesCanBus(dataroot=str(self._nuscenes_data_root))
             scene = nusc.get("scene", self._scene_token)
@@ -295,28 +308,39 @@ class NuScenesLogParser(LogParser):
             del nusc
             gc.collect()
 
-    @override
-    def iter_pinhole_cameras(self) -> Iterator[ParsedCamera]:
-        """Yields all pinhole camera observations at native rate (~12Hz per camera).
+    def _iter_box_detections_se3(self) -> Iterator[BoxDetectionsSE3]:
+        """Yields box detections at keyframe rate (~2Hz).
 
-        Camera records are yielded individually (one per camera per trigger), sorted
-        by timestamp across all channels.
+        nuScenes only provides annotations at keyframe samples, so this iterates
+        over all keyframe samples and extracts the box detections for each.
         """
         nusc = self._load_nusc()
+        try:
+            scene = nusc.get("scene", self._scene_token)
+            sample_token = scene["first_sample_token"]
+            while sample_token:
+                sample = nusc.get("sample", sample_token)
+                yield _extract_nuscenes_box_detections(nusc, sample)
+                sample_token = sample["next"]
+        finally:
+            del nusc
+            gc.collect()
 
+    def _iter_pinhole_cameras(self, modality_metadata: PinholeCameraMetadata) -> Iterator[ParsedCamera]:
+        """Yields pinhole camera observations for a specific camera at native rate (~12Hz).
+
+        :param modality_metadata: Metadata for the target camera to iterate.
+        """
+        target_camera_id = modality_metadata.camera_id
+        target_camera_channel = modality_metadata.camera_name
+
+        nusc = self._load_nusc()
         try:
             scene = nusc.get("scene", self._scene_token)
             camera_timelines = _collect_camera_timelines(nusc, scene)
+            timeline = camera_timelines.get(target_camera_channel, [])
 
-            all_records: List[Tuple[int, PinholeCameraID, str, Dict[str, Any]]] = []
-            for camera_type, camera_channel in NUSCENES_CAMERA_IDS.items():
-                timeline = camera_timelines.get(camera_channel, [])
-                for cam_sd in timeline:
-                    all_records.append((cam_sd["timestamp"], camera_type, camera_channel, cam_sd))
-
-            all_records.sort(key=lambda r: r[0])
-
-            for _, camera_type, camera_channel, cam_data in all_records:
+            for cam_data in timeline:
                 calib = nusc.get("calibrated_sensor", cam_data["calibrated_sensor_token"])
                 translation_array = np.array(calib["translation"], dtype=np.float64)
                 rotation_array = np.array(calib["rotation"], dtype=np.float64)
@@ -325,8 +349,8 @@ class NuScenesLogParser(LogParser):
                 cam_path = self._nuscenes_data_root / str(cam_data["filename"])
                 if cam_path.exists() and cam_path.is_file():
                     yield ParsedCamera(
-                        camera_name=camera_channel,
-                        camera_id=camera_type,
+                        camera_name=target_camera_channel,
+                        camera_id=target_camera_id,
                         extrinsic=extrinsic,
                         relative_path=cam_path.relative_to(self._nuscenes_data_root),
                         dataset_root=self._nuscenes_data_root,
@@ -336,15 +360,13 @@ class NuScenesLogParser(LogParser):
             del nusc
             gc.collect()
 
-    @override
-    def iter_lidars(self) -> Iterator[ParsedLidar]:
+    def _iter_lidars(self) -> Iterator[ParsedLidar]:
         """Yields all lidar sweeps at native rate (~20Hz).
 
         The nuScenes lidar timestamp marks the end of a sweep. For each sweep,
         ``start_timestamp`` is set to ``end_timestamp - 50ms`` (one full rotation).
         """
         nusc = self._load_nusc()
-
         try:
             scene = nusc.get("scene", self._scene_token)
             lidar_timeline = _collect_lidar_sweep_timeline(nusc, scene)
@@ -352,8 +374,6 @@ class NuScenesLogParser(LogParser):
             for sweep in lidar_timeline:
                 absolute_lidar_path = self._nuscenes_data_root / sweep["filename"]
                 if absolute_lidar_path.exists() and absolute_lidar_path.is_file():
-                    # The nuScenes lidar timestamp marks the end of the sweep (full rotation).
-                    # The sweep covers the 1/20s (50ms) period before that timestamp.
                     yield ParsedLidar(
                         lidar_name="LIDAR_TOP",
                         lidar_type=LidarID.LIDAR_TOP,
@@ -505,13 +525,13 @@ def _extract_nuscenes_box_detections(nusc: NuScenes, sample: Dict[str, Any]) -> 
         velocity = nusc.box_velocity(ann_token)
         velocity_3d = Vector3D(x=velocity[0], y=velocity[1], z=velocity[2] if len(velocity) > 2 else 0.0)
 
-        metadata = BoxDetectionAttributes(
+        attributes = BoxDetectionAttributes(
             label=label,
             track_token=ann["instance_token"],
             num_lidar_points=ann.get("num_lidar_pts", 0),
         )
         box_detection = BoxDetectionSE3(
-            metadata=metadata,
+            attributes=attributes,
             bounding_box_se3=bounding_box,
             velocity_3d=velocity_3d,
         )

@@ -56,6 +56,13 @@ log_writer:
   ipc_compression: null
   ipc_compression_level: null
 
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: lidar.lidar_merged.start_timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+
 map_writer:
   _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
   _convert_: 'all'

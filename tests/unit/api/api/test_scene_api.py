@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from unittest.mock import Mock
 
 import pytest
@@ -113,6 +113,38 @@ class ConcreteSceneAPI(SceneAPI):
             data={"example_key": "example_value"},
             timestamp=Mock(spec=Timestamp),
         )
+
+    def get_all_sync_timestamps(self) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_ego_state_se3_timestamps(self) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_box_detections_se3_timestamps(self) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_traffic_light_detections_timestamps(self) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_pinhole_camera_timestamps(self, camera_id: PinholeCameraID) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_fisheye_mei_camera_timestamps(self, camera_id: FisheyeMEICameraID) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_lidar_timestamps(self, lidar_id: LidarID) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_custom_modality_timestamps(self, name: str) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
 
 
 @pytest.fixture
