@@ -52,6 +52,7 @@ dependencies = [
 
 [project.scripts]
 py123d-viser = "py123d.script.run_viser:main"
+py123d-bokeh = "py123d.script.run_bokeh:main"
 py123d-conversion = "py123d.script.run_conversion:main"
 
 [project.optional-dependencies]
