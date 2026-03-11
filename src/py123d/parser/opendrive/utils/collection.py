@@ -276,15 +276,25 @@ def _post_process_connections(
 ) -> None:
     """
     Helper function to post-process the connections of the lane helpers, removing invalid connections based on centerline distances.
+
+    Connections between adjacent lane sections within the same road are always kept,
+    since they come directly from XODR lane links and may have intentional lateral
+    offsets (e.g. when a parking lane appears/disappears between sections).
+
     :param lane_helper_dict: Dictionary mapping lane ids to their helper objects.
     :param connection_distance_threshold: Threshold distance for valid connections.
     """
 
     for lane_id in lane_helper_dict.keys():  # noqa: PLC0206
         centerline = lane_helper_dict[lane_id].center_polyline_se2
+        road_id = lane_id.split("_")[0]
 
         valid_successor_lane_ids: List[str] = []
         for successor_lane_id in lane_helper_dict[lane_id].successor_lane_ids:
+            # Skip distance check for intra-road connections (adjacent lane sections)
+            if successor_lane_id.split("_")[0] == road_id:
+                valid_successor_lane_ids.append(successor_lane_id)
+                continue
             successor_centerline = lane_helper_dict[successor_lane_id].center_polyline_se2
             distance = np.linalg.norm(centerline[-1, :2] - successor_centerline[0, :2])
             if distance > connection_distance_threshold:
@@ -297,6 +307,10 @@ def _post_process_connections(
 
         valid_predecessor_lane_ids: List[str] = []
         for predecessor_lane_id in lane_helper_dict[lane_id].predecessor_lane_ids:
+            # Skip distance check for intra-road connections (adjacent lane sections)
+            if predecessor_lane_id.split("_")[0] == road_id:
+                valid_predecessor_lane_ids.append(predecessor_lane_id)
+                continue
             predecessor_centerline = lane_helper_dict[predecessor_lane_id].center_polyline_se2
             distance = np.linalg.norm(centerline[0, :2] - predecessor_centerline[-1, :2])
             if distance > connection_distance_threshold:

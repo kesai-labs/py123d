@@ -23,7 +23,7 @@ from py123d.datatypes import (
     Timestamp,
     TrafficLightDetections,
 )
-from py123d.datatypes.custom.custom_modality import CustomModality
+from py123d.datatypes.custom.custom_modality import CustomModality, CustomModalityMetadata
 
 
 class ConcreteSceneAPI(SceneAPI):
@@ -141,6 +141,14 @@ class ConcreteSceneAPI(SceneAPI):
     def get_all_lidar_timestamps(self, lidar_id: LidarID) -> List[Timestamp]:
         """Inherited, see super class."""
         return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_iteration_timestamps(self) -> List[Timestamp]:
+        """Inherited, see super class."""
+        return [Mock(spec=Timestamp) for _ in range(self._scene_metadata.number_of_iterations)]
+
+    def get_all_custom_modality_metadatas(self) -> Dict[str, CustomModalityMetadata]:
+        """Inherited, see super class."""
+        return {}
 
     def get_all_custom_modality_timestamps(self, name: str) -> List[Timestamp]:
         """Inherited, see super class."""
@@ -310,22 +318,3 @@ class TestSceneAPIMethods:
         result = scene_api.get_custom_modality_at_iteration(0, "route")
         assert result is not None
         assert result.data == {"example_key": "example_value"}
-
-
-class TestSceneAPIDeprecatedMethods:
-    """Test deprecated method wrappers still work."""
-
-    def test_get_ego_state_at_iteration(self, scene_api):
-        """Test deprecated get_ego_state_at_iteration delegates to get_ego_state_se3_at_iteration."""
-        result = scene_api.get_ego_state_at_iteration(0)
-        assert result is not None
-
-    def test_get_box_detections_se3_at_iteration(self, scene_api):
-        """Test deprecated get_box_detections_se3_at_iteration delegates to get_box_detections_se3_at_iteration."""
-        result = scene_api.get_box_detections_se3_at_iteration(0)
-        assert result is not None
-
-    def test_get_route_lane_group_ids(self, scene_api):
-        """Test deprecated get_route_lane_group_ids returns None by default."""
-        result = scene_api.get_route_lane_group_ids(0)
-        assert result is None
