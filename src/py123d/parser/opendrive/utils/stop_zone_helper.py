@@ -97,6 +97,7 @@ def _create_stop_zone_outline(
     avg_z = float(np.mean(all_z))
 
     # Extract exterior coords from merged polygon, add Z
+    merged = merged.buffer(0.01).simplify(0.01, preserve_topology=True).buffer(-0.01)
     xy = np.array(merged.exterior.coords)
     z = np.full((xy.shape[0], 1), avg_z)
     corners_3d = np.hstack([xy, z])
