@@ -32,6 +32,8 @@ from py123d.datatypes.detections.traffic_light_detections import TrafficLightDet
 class SceneAPI(abc.ABC):
     """Base class for all scene APIs. The scene API provides access to all data modalities at in a scene."""
 
+    __slots__ = ()
+
     # ------------------------------------------------------------------------------------------------------------------
     # 1. Abstract Methods, to be implemented by subclasses
     # ------------------------------------------------------------------------------------------------------------------

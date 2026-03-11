@@ -6,6 +6,12 @@ import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
+from py123d.api.scene.arrow.modalities.sync_utils import (
+    get_all_modality_timestamps,
+    get_first_sync_index,
+    get_modality_table,
+)
+from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.io.lidar.draco_lidar_io import (
     encode_point_cloud_3d_as_draco_binary,
@@ -27,8 +33,13 @@ from py123d.common.io.lidar.laz_lidar_io import (
 from py123d.common.io.lidar.path_lidar_io import load_point_cloud_data_from_path
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.sensors.lidar import Lidar, LidarFeature, LidarID, LidarMergedMetadata, LidarMetadata
+from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.pose import PoseSE3
 from py123d.parser.abstract_dataset_parser import ParsedLidar
+
+# ------------------------------------------------------------------------------------------------------------------
+# Writer
+# ------------------------------------------------------------------------------------------------------------------
 
 
 class ArrowLidarWriter(BaseModalityWriter):
@@ -160,7 +171,141 @@ class ArrowLidarWriter(BaseModalityWriter):
         return point_cloud_3d_output, point_cloud_feature_output
 
 
-def get_lidar_from_arrow_table(
+# ------------------------------------------------------------------------------------------------------------------
+# Reader
+# ------------------------------------------------------------------------------------------------------------------
+
+
+class ArrowLidarReader:
+    """Stateless reader for lidar data from Arrow tables.
+
+    Handles individual lidar sensors, pre-merged lidar tables, and on-the-fly merging
+    of multiple individual lidar tables.
+    """
+
+    @staticmethod
+    def read_at_iteration(
+        log_dir: Path,
+        sync_table: pa.Table,
+        table_index: int,
+        lidar_id: LidarID,
+        all_lidar_metadatas: Dict[LidarID, LidarMetadata],
+        merged_lidar_metadata: Optional[LidarMergedMetadata],
+        log_metadata: LogMetadata,
+    ) -> Optional[Lidar]:
+        """Read lidar data at a specific sync table index.
+
+        Handles three cases:
+        1. Merged lidar table exists and contains the requested sensor -> read from merged table.
+        2. Individual lidar table exists -> read from individual table.
+        3. LIDAR_MERGED requested but no merged table -> merge all individual lidars on the fly.
+
+        :param log_dir: Path to the log directory.
+        :param sync_table: The sync Arrow table.
+        :param table_index: The resolved sync table index.
+        :param lidar_id: The lidar sensor ID to read.
+        :param all_lidar_metadatas: Per-sensor lidar metadata dict.
+        :param merged_lidar_metadata: Merged lidar metadata, or None if not available.
+        :param log_metadata: Log metadata (for dataset path resolution).
+        :return: The lidar observation, or None if unavailable.
+        """
+        has_merged_lidar_table = merged_lidar_metadata is not None
+
+        # Case 1: Read from pre-merged lidar table.
+        if has_merged_lidar_table and (
+            lidar_id in merged_lidar_metadata.lidars_metadata or lidar_id == LidarID.LIDAR_MERGED  # type: ignore
+        ):
+            return _read_single_lidar(
+                log_dir,
+                sync_table,
+                table_index,
+                lidar_id,
+                LidarID.LIDAR_MERGED.serialize(),
+                merged_lidar_metadata.lidars_metadata,  # type: ignore
+                log_metadata,
+            )
+
+        # Case 2: Read from individual lidar table.
+        if lidar_id in all_lidar_metadatas:
+            return _read_single_lidar(
+                log_dir,
+                sync_table,
+                table_index,
+                lidar_id,
+                lidar_id.serialize(),
+                {lidar_id: all_lidar_metadatas[lidar_id]},
+                log_metadata,
+            )
+
+        # Case 3: LIDAR_MERGED requested but no merged table exists -> merge on the fly.
+        if lidar_id == LidarID.LIDAR_MERGED:
+            all_lidars = []
+            for individual_lidar_id, individual_metadata in all_lidar_metadatas.items():
+                individual_lidar = _read_single_lidar(
+                    log_dir,
+                    sync_table,
+                    table_index,
+                    individual_lidar_id,
+                    individual_lidar_id.serialize(),
+                    {individual_lidar_id: individual_metadata},
+                    log_metadata,
+                )
+                if individual_lidar is not None:
+                    all_lidars.append(individual_lidar)
+
+            if len(all_lidars) > 0:
+                return _merge_lidars(all_lidars)
+
+        return None
+
+    @staticmethod
+    def read_all_timestamps(
+        log_dir: Path,
+        sync_table: pa.Table,
+        scene_metadata: SceneMetadata,
+        lidar_id: LidarID,
+    ) -> List[Timestamp]:
+        """Read all lidar timestamps within the scene range.
+
+        :param log_dir: Path to the log directory.
+        :param sync_table: The sync Arrow table.
+        :param scene_metadata: Scene metadata defining the iteration range.
+        :param lidar_id: The lidar sensor ID.
+        :return: All lidar start timestamps in the scene, ordered by time.
+        """
+        instance = lidar_id.serialize()
+        modality_name = f"lidar.{instance}"
+        return get_all_modality_timestamps(
+            log_dir, sync_table, scene_metadata, modality_name, f"{modality_name}.start_timestamp_us"
+        )
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Reader Internals
+# ------------------------------------------------------------------------------------------------------------------
+
+
+def _read_single_lidar(
+    log_dir: Path,
+    sync_table: pa.Table,
+    table_index: int,
+    lidar_id: LidarID,
+    lidar_instance: str,
+    lidar_metadatas: Dict[LidarID, LidarMetadata],
+    log_metadata: LogMetadata,
+) -> Optional[Lidar]:
+    """Read a single lidar observation from its Arrow table."""
+    lidar_table_name = f"lidar.{lidar_instance}"
+    lidar_table = get_modality_table(log_dir, lidar_table_name)
+    if lidar_table is None:
+        return None
+    row_idx = get_first_sync_index(sync_table, lidar_table_name, table_index)
+    if row_idx is None:
+        return None
+    return _deserialize_lidar(lidar_table, row_idx, lidar_id, lidar_instance, lidar_metadatas, log_metadata)
+
+
+def _deserialize_lidar(
     arrow_table: pa.Table,
     index: int,
     lidar_type: LidarID,
@@ -168,18 +313,7 @@ def get_lidar_from_arrow_table(
     lidar_metadatas: Dict[LidarID, LidarMetadata],
     log_metadata: LogMetadata,
 ) -> Optional[Lidar]:
-    """Builds a Lidar object from an Arrow table at a given index.
-
-    :param arrow_table: The Arrow table containing the Lidar data.
-    :param index: The index to extract the Lidar data from.
-    :param lidar_type: The type of Lidar to build.
-    :param lidar_instance: The lidar instance name for parametric column lookup.
-    :param lidar_metadatas: Per-sensor lidar metadata dict.
-    :param log_metadata: Metadata about the log (used for dataset path resolution).
-    :raises ValueError: If the Lidar data format is unsupported.
-    :raises NotImplementedError: If the Lidar data type is not supported.
-    :return: The constructed Lidar object, or None if not available.
-    """
+    """Deserialize a lidar observation from Arrow table columns at the given row index."""
     point_cloud_3d: Optional[np.ndarray] = None
     point_cloud_feature: Optional[Dict[str, np.ndarray]] = None
 
@@ -217,54 +351,51 @@ def get_lidar_from_arrow_table(
                 if is_ipc_binary(lidar_point_cloud_feature_data):
                     point_cloud_feature = load_point_cloud_features_from_ipc_binary(lidar_point_cloud_feature_data)
 
-    lidar: Optional[Lidar] = None
-    if point_cloud_3d is not None:
-        if lidar_type != LidarID.LIDAR_MERGED:
-            if point_cloud_feature is not None and LidarFeature.IDS.serialize() in point_cloud_feature.keys():
-                mask = point_cloud_feature[LidarFeature.IDS.serialize()] == int(lidar_type.value)
-                point_cloud_feature = {key: value[mask] for key, value in point_cloud_feature.items()}
-                point_cloud_3d = point_cloud_3d[mask]
-                lidar = Lidar(
-                    metadata=lidar_metadatas[lidar_type],
-                    point_cloud_3d=point_cloud_3d,
-                    point_cloud_features=point_cloud_feature,
-                )
-        else:
-            lidar = Lidar(
-                metadata=LidarMetadata(
-                    lidar_name=LidarID.LIDAR_MERGED.serialize(),
-                    lidar_id=LidarID.LIDAR_MERGED,
-                    lidar_to_imu_se3=PoseSE3.identity(),
-                ),
+    if point_cloud_3d is None:
+        return None
+
+    if lidar_type != LidarID.LIDAR_MERGED:
+        if point_cloud_feature is not None and LidarFeature.IDS.serialize() in point_cloud_feature:
+            mask = point_cloud_feature[LidarFeature.IDS.serialize()] == int(lidar_type.value)
+            point_cloud_feature = {key: value[mask] for key, value in point_cloud_feature.items()}
+            point_cloud_3d = point_cloud_3d[mask]
+            return Lidar(
+                metadata=lidar_metadatas[lidar_type],
                 point_cloud_3d=point_cloud_3d,
                 point_cloud_features=point_cloud_feature,
             )
+        return None
 
-    return lidar
+    return Lidar(
+        metadata=LidarMetadata(
+            lidar_name=LidarID.LIDAR_MERGED.serialize(),
+            lidar_id=LidarID.LIDAR_MERGED,
+            lidar_to_imu_se3=PoseSE3.identity(),
+        ),
+        point_cloud_3d=point_cloud_3d,
+        point_cloud_features=point_cloud_feature,
+    )
 
 
-def merged_lidars(lidars: List[Lidar]) -> Optional[Lidar]:
-    """Merges multiple Lidar objects into a single Lidar object with concatenated point clouds and features.
-
-    :param lidars: List of Lidar objects to merge.
-    :return: A single merged Lidar object.
-    """
+def _merge_lidars(lidars: List[Lidar]) -> Optional[Lidar]:
+    """Merges multiple Lidar objects into a single Lidar object with concatenated point clouds and features."""
     if len(lidars) == 0:
         return None
 
     point_cloud_3d = np.concatenate([lidar.point_cloud_3d for lidar in lidars], axis=0)
-    point_cloud_features_list = {}
+    point_cloud_features_list: Dict[str, List[np.ndarray]] = {}
     for lidar in lidars:
         for feature_name, feature_values in lidar.point_cloud_features.items():
             if feature_name not in point_cloud_features_list:
                 point_cloud_features_list[feature_name] = []
             point_cloud_features_list[feature_name].append(feature_values)
 
-    point_cloud_features = {}
-    for feature_name, features_list in point_cloud_features_list.items():
-        point_cloud_features[feature_name] = np.concatenate(features_list, axis=0)
+    point_cloud_features = {
+        feature_name: np.concatenate(features_list, axis=0)
+        for feature_name, features_list in point_cloud_features_list.items()
+    }
 
-    merged_lidar = Lidar(
+    return Lidar(
         metadata=LidarMetadata(
             lidar_name=LidarID.LIDAR_MERGED.serialize(),
             lidar_id=LidarID.LIDAR_MERGED,
@@ -273,4 +404,3 @@ def merged_lidars(lidars: List[Lidar]) -> Optional[Lidar]:
         point_cloud_3d=point_cloud_3d,
         point_cloud_features=point_cloud_features,
     )
-    return merged_lidar

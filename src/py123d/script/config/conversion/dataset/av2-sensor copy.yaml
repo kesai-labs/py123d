@@ -23,13 +23,13 @@ dataset_converter_config:
 
   # Pinhole Cameras
   include_pinhole_cameras: true
-  pinhole_camera_store_option: "jpeg_binary" # "path", "jpeg_binary", "png_binary", "mp4"
+  pinhole_camera_store_option: "path" # "path", "jpeg_binary", "png_binary", "mp4"
 
   # Lidars
   include_lidars: true
-  lidar_store_option: "binary" #  "path", "binary"
-  lidar_point_cloud_codec: "ipc_zstd" # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
-  lidar_point_feature_codec: "ipc_zstd" # None or "ipc_zstd", "ipc_lz4", "ipc"
+  lidar_store_option: "path" #  "path", "binary"
+  lidar_point_cloud_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+  lidar_point_feature_codec: null # None or "ipc_zstd", "ipc_lz4", "ipc"
 
   # Not available:
   include_traffic_lights: false

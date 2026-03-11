@@ -11,7 +11,7 @@ from py123d.api.scene.arrow.modalities.arrow_camera import ArrowFisheyeMEICamera
 from py123d.api.scene.arrow.modalities.arrow_custom_modality import ArrowCustomModalityWriter
 from py123d.api.scene.arrow.modalities.arrow_ego_state_se3 import ArrowEgoStateSE3Writer
 from py123d.api.scene.arrow.modalities.arrow_lidar import ArrowLidarWriter
-from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections_writer import ArrowTrafficLightDetectionsWriter
+from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections import ArrowTrafficLightDetectionsWriter
 from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
