@@ -28,12 +28,3 @@ class BaseMetadata(ABC):
         :param data_dict: A dictionary containing the metadata fields.
         :return: A metadata instance.
         """
-
-
-class BaseModalityMetadata(BaseMetadata):
-    __slots__ = ()
-
-    @property
-    @abstractmethod
-    def modality_name(self) -> str:
-        """Returns the name of the modality that this metadata describes."""

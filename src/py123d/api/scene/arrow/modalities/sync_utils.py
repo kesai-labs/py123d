@@ -13,14 +13,14 @@ from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.datatypes.time.timestamp import Timestamp
 
 
-def get_modality_table(log_dir: Path, modality_name: str) -> Optional[pa.Table]:
+def get_modality_table(log_dir: Path, modality_key: str) -> Optional[pa.Table]:
     """Load the Arrow table for the given modality, or None if the file does not exist.
 
     :param log_dir: Path to the log directory.
-    :param modality_name: The modality file stem (e.g. ``"ego_state_se3"``).
+    :param modality_key: The modality file stem (e.g. ``"ego_state_se3"``).
     :return: The cached Arrow table, or None.
     """
-    file_path = log_dir / f"{modality_name}.arrow"
+    file_path = log_dir / f"{modality_key}.arrow"
     if file_path.exists():
         return get_lru_cached_arrow_table(file_path)
     return None
@@ -81,7 +81,7 @@ def get_all_modality_timestamps(
     log_dir: Path,
     sync_table: pa.Table,
     scene_metadata: SceneMetadata,
-    modality_name: str,
+    modality_key: str,
     timestamp_column: str,
 ) -> List[Timestamp]:
     """Batch-read all timestamps for a modality within the current scene.
@@ -94,11 +94,11 @@ def get_all_modality_timestamps(
     :param log_dir: Path to the log directory.
     :param sync_table: The sync Arrow table.
     :param scene_metadata: The scene metadata defining the iteration range.
-    :param modality_name: The sync table column name / modality table name.
+    :param modality_key: The sync table column name / modality table name.
     :param timestamp_column: The column name in the modality table containing timestamps.
     :return: All timestamps in the modality table within the scene range, ordered by time.
     """
-    modality_table = get_modality_table(log_dir, modality_name)
+    modality_table = get_modality_table(log_dir, modality_key)
     if modality_table is None:
         return []
 
@@ -108,7 +108,7 @@ def get_all_modality_timestamps(
     # Find first referenced row index (scan forward)
     first_row: Optional[int] = None
     for i in range(initial_idx, end_idx):
-        first_row = get_first_sync_index(sync_table, modality_name, i)
+        first_row = get_first_sync_index(sync_table, modality_key, i)
         if first_row is not None:
             break
 
@@ -118,7 +118,7 @@ def get_all_modality_timestamps(
     # Find last referenced row index (scan backward)
     last_row: Optional[int] = None
     for i in range(end_idx - 1, initial_idx - 1, -1):
-        last_row = get_last_sync_index(sync_table, modality_name, i)
+        last_row = get_last_sync_index(sync_table, modality_key, i)
         if last_row is not None:
             break
 

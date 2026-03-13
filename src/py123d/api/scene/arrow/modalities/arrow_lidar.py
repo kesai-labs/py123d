@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 
-from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
+from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
 from py123d.api.scene.arrow.modalities.sync_utils import (
     get_all_modality_timestamps,
     get_first_sync_index,
@@ -32,17 +32,14 @@ from py123d.common.io.lidar.laz_lidar_io import (
 )
 from py123d.common.io.lidar.path_lidar_io import load_point_cloud_data_from_path
 from py123d.datatypes.metadata.log_metadata import LogMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import Lidar, LidarFeature, LidarID, LidarMergedMetadata, LidarMetadata
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.pose import PoseSE3
-from py123d.parser.abstract_dataset_parser import ParsedLidar
-
-# ------------------------------------------------------------------------------------------------------------------
-# Writer
-# ------------------------------------------------------------------------------------------------------------------
+from py123d.parser.base_dataset_parser import ParsedLidar
 
 
-class ArrowLidarWriter(BaseModalityWriter):
+class ArrowLidarWriter(ArrowBaseModalityWriter):
     def __init__(
         self,
         log_dir: Path,
@@ -60,25 +57,25 @@ class ArrowLidarWriter(BaseModalityWriter):
         assert lidar_store_option in {"path", "binary"}, f"Unsupported lidar store option: {lidar_store_option}"
 
         self._modality_metadata = metadata
-        self._modality_name = metadata.modality_name
+        self._modality_key = metadata.modality_key
         self._log_metadata = log_metadata
 
         self._lidar_store_option = lidar_store_option
         self._lidar_point_cloud_codec = lidar_point_cloud_codec
         self._lidar_point_feature_codec = lidar_point_feature_codec
 
-        file_path = log_dir / f"{metadata.modality_name}.arrow"
+        file_path = log_dir / f"{metadata.modality_key}.arrow"
 
         schema_list = [
-            (f"{metadata.modality_name}.start_timestamp_us", pa.int64()),
-            (f"{metadata.modality_name}.end_timestamp_us", pa.int64()),
+            (f"{metadata.modality_key}.start_timestamp_us", pa.int64()),
+            (f"{metadata.modality_key}.end_timestamp_us", pa.int64()),
         ]
         if lidar_store_option == "binary":
-            schema_list.append((f"{metadata.modality_name}.point_cloud_3d", pa.binary()))
+            schema_list.append((f"{metadata.modality_key}.point_cloud_3d", pa.binary()))
             if lidar_point_feature_codec:
-                schema_list.append((f"{metadata.modality_name}.point_cloud_features", pa.binary()))
+                schema_list.append((f"{metadata.modality_key}.point_cloud_features", pa.binary()))
         elif lidar_store_option == "path":
-            schema_list.append((f"{metadata.modality_name}.data", pa.string()))
+            schema_list.append((f"{metadata.modality_key}.data", pa.string()))
         else:
             raise ValueError(f"Unsupported lidar store option: {lidar_store_option}")
 
@@ -91,49 +88,62 @@ class ArrowLidarWriter(BaseModalityWriter):
             max_batch_size=1000,
         )
 
-    def write_modality(self, lidar_data: ParsedLidar) -> None:
+    def write_modality(self, modality: BaseModality) -> None:
+        assert isinstance(modality, (ParsedLidar, Lidar)), f"Expected ParsedLidar or Lidar, got {type(modality)}"
+
+        if isinstance(modality, ParsedLidar):
+            start_timestamp_us = modality.timestamp.time_us
+            end_timestamp_us = modality.end_timestamp.time_us
+        else:
+            start_timestamp_us = modality.timestamp.time_us
+            end_timestamp_us = modality.timestamp_end.time_us
+
         batch: Dict[str, Union[List[int], List[Optional[str]], List[Optional[bytes]]]] = {
-            f"{self._modality_name}.start_timestamp_us": [lidar_data.start_timestamp.time_us],
-            f"{self._modality_name}.end_timestamp_us": [lidar_data.end_timestamp.time_us],
+            f"{self._modality_key}.start_timestamp_us": [start_timestamp_us],
+            f"{self._modality_key}.end_timestamp_us": [end_timestamp_us],
         }
 
         if self._lidar_store_option == "path":
-            data_path: Optional[str] = str(lidar_data.relative_path) if lidar_data.has_file_path else None
-            batch[f"{self._modality_name}.data"] = [data_path]
+            assert isinstance(modality, ParsedLidar), "Path store option requires ParsedLidar with file path."
+            data_path: Optional[str] = str(modality._relative_path) if modality._relative_path is not None else None
+            batch[f"{self._modality_key}.data"] = [data_path]
 
         elif self._lidar_store_option == "binary":
-            point_cloud_binary, features_binary = self._prepare_lidar_data(lidar_data)
-            batch[f"{self._modality_name}.point_cloud_3d"] = [point_cloud_binary]
+            point_cloud_binary, features_binary = self._prepare_lidar_data(modality)
+            batch[f"{self._modality_key}.point_cloud_3d"] = [point_cloud_binary]
             if self._lidar_point_feature_codec:
-                batch[f"{self._modality_name}.point_cloud_features"] = [features_binary]
+                batch[f"{self._modality_key}.point_cloud_features"] = [features_binary]
 
         self.write_batch(batch)
 
-    def _prepare_lidar_data(self, lidar_data: ParsedLidar) -> Tuple[Optional[bytes], Optional[bytes]]:
+    def _prepare_lidar_data(self, modality: Union[ParsedLidar, Lidar]) -> Tuple[Optional[bytes], Optional[bytes]]:
         """Load and/or encode the lidar data in binary for point cloud and features.
 
-        :param lidar_data: Helper class referencing the lidar observation.
+        :param modality: The lidar modality data (ParsedLidar or Lidar).
         :return: Tuple of (point_cloud_binary, point_cloud_features_binary)
         """
         # 1. Load point cloud and point features
         point_cloud_3d: Optional[npt.NDArray] = None
         point_cloud_features: Optional[Dict[str, npt.NDArray]] = None
-        if lidar_data.has_point_cloud_3d:
-            point_cloud_3d = lidar_data.point_cloud_3d
-            point_cloud_features = lidar_data.point_cloud_features
-        elif lidar_data.has_file_path:
+        if isinstance(modality, Lidar):
+            point_cloud_3d = modality.point_cloud_3d
+            point_cloud_features = modality.point_cloud_features
+        elif isinstance(modality, ParsedLidar):
+            assert modality._dataset_root is not None and modality._relative_path is not None, (
+                "ParsedLidar must have dataset_root and relative_path for binary codec."
+            )
             lidar_metadatas = (
                 dict(self._modality_metadata) if isinstance(self._modality_metadata, LidarMergedMetadata) else None
             )
             point_cloud_3d, point_cloud_features = load_point_cloud_data_from_path(
-                lidar_data.relative_path,  # type: ignore
+                modality._relative_path,
                 self._log_metadata,
-                lidar_data.iteration,
-                lidar_data.dataset_root,
+                modality._iteration,
+                modality._dataset_root,
                 lidar_metadatas=lidar_metadatas,
             )
         else:
-            raise ValueError("Lidar data must provide either point cloud data or a file path.")
+            raise ValueError(f"Unsupported lidar modality type: {type(modality)}")
 
         # 2. Compress point clouds with target codec
         point_cloud_3d_output: Optional[bytes] = None
@@ -274,9 +284,9 @@ class ArrowLidarReader:
         :return: All lidar start timestamps in the scene, ordered by time.
         """
         instance = lidar_id.serialize()
-        modality_name = f"lidar.{instance}"
+        modality_key = f"lidar.{instance}"
         return get_all_modality_timestamps(
-            log_dir, sync_table, scene_metadata, modality_name, f"{modality_name}.start_timestamp_us"
+            log_dir, sync_table, scene_metadata, modality_key, f"{modality_key}.start_timestamp_us"
         )
 
 
@@ -317,9 +327,19 @@ def _deserialize_lidar(
     point_cloud_3d: Optional[np.ndarray] = None
     point_cloud_feature: Optional[Dict[str, np.ndarray]] = None
 
+    start_ts_col = f"lidar.{lidar_instance}.start_timestamp_us"
+    end_ts_col = f"lidar.{lidar_instance}.end_timestamp_us"
     data_col = f"lidar.{lidar_instance}.data"
     pc3d_col = f"lidar.{lidar_instance}.point_cloud_3d"
     pcf_col = f"lidar.{lidar_instance}.point_cloud_features"
+
+    # Read timestamps
+    start_timestamp_us = arrow_table[start_ts_col][index].as_py() if start_ts_col in arrow_table.schema.names else None
+    end_timestamp_us = arrow_table[end_ts_col][index].as_py() if end_ts_col in arrow_table.schema.names else None
+    if start_timestamp_us is None or end_timestamp_us is None:
+        return None
+    timestamp = Timestamp.from_us(start_timestamp_us)
+    timestamp_end = Timestamp.from_us(end_timestamp_us)
 
     if data_col in arrow_table.schema.names:
         # 1. Load lidar sweep from origin dataset using a relative file path.
@@ -360,6 +380,8 @@ def _deserialize_lidar(
             point_cloud_feature = {key: value[mask] for key, value in point_cloud_feature.items()}
             point_cloud_3d = point_cloud_3d[mask]
             return Lidar(
+                timestamp=timestamp,
+                timestamp_end=timestamp_end,
                 metadata=lidar_metadatas[lidar_type],
                 point_cloud_3d=point_cloud_3d,
                 point_cloud_features=point_cloud_feature,
@@ -367,6 +389,8 @@ def _deserialize_lidar(
         return None
 
     return Lidar(
+        timestamp=timestamp,
+        timestamp_end=timestamp_end,
         metadata=LidarMetadata(
             lidar_name=LidarID.LIDAR_MERGED.serialize(),
             lidar_id=LidarID.LIDAR_MERGED,
@@ -382,13 +406,18 @@ def _merge_lidars(lidars: List[Lidar]) -> Optional[Lidar]:
     if len(lidars) == 0:
         return None
 
+    # Use earliest start timestamp and latest end timestamp from the individual lidars
+    timestamp = min(lidars, key=lambda l: l.timestamp.time_us).timestamp
+    timestamp_end = max(lidars, key=lambda l: l.timestamp_end.time_us).timestamp_end
+
     point_cloud_3d = np.concatenate([lidar.point_cloud_3d for lidar in lidars], axis=0)
     point_cloud_features_list: Dict[str, List[np.ndarray]] = {}
     for lidar in lidars:
-        for feature_name, feature_values in lidar.point_cloud_features.items():
-            if feature_name not in point_cloud_features_list:
-                point_cloud_features_list[feature_name] = []
-            point_cloud_features_list[feature_name].append(feature_values)
+        if lidar.point_cloud_features is not None:
+            for feature_name, feature_values in lidar.point_cloud_features.items():
+                if feature_name not in point_cloud_features_list:
+                    point_cloud_features_list[feature_name] = []
+                point_cloud_features_list[feature_name].append(feature_values)
 
     point_cloud_features = {
         feature_name: np.concatenate(features_list, axis=0)
@@ -396,6 +425,8 @@ def _merge_lidars(lidars: List[Lidar]) -> Optional[Lidar]:
     }
 
     return Lidar(
+        timestamp=timestamp,
+        timestamp_end=timestamp_end,
         metadata=LidarMetadata(
             lidar_name=LidarID.LIDAR_MERGED.serialize(),
             lidar_id=LidarID.LIDAR_MERGED,

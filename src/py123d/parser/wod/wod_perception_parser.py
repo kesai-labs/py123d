@@ -23,7 +23,7 @@ from py123d.datatypes import (
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
-from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import (
     BoundingBoxSE3,
     BoundingBoxSE3Index,
@@ -40,10 +40,10 @@ from py123d.geometry.utils.rotation_utils import (
     get_euler_array_from_quaternion_array,
     get_quaternion_array_from_euler_array,
 )
-from py123d.parser.abstract_dataset_parser import (
-    DatasetParser,
-    LogParser,
-    MapParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
+    BaseMapParser,
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
@@ -95,7 +95,7 @@ def _lazy_import_tf_and_pb2():
     return tf, dataset_pb2
 
 
-class WODPerceptionParser(DatasetParser):
+class WODPerceptionParser(BaseDatasetParser):
     """Dataset parser for the Waymo Open Dataset - Perception."""
 
     def __init__(
@@ -149,9 +149,9 @@ class WODPerceptionParser(DatasetParser):
 
         return split_tf_record_pairs
 
-    def get_map_parsers(self) -> List[MapParser]:
+    def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
-        map_parsers: List[MapParser] = []
+        map_parsers: List[BaseMapParser] = []
         for split, source_tf_record_path in self._split_tf_record_pairs:
             initial_frame = _get_initial_frame_from_tfrecord(source_tf_record_path)
             map_parsers.append(
@@ -165,7 +165,7 @@ class WODPerceptionParser(DatasetParser):
             )
         return map_parsers
 
-    def get_log_parsers(self) -> List[LogParser]:
+    def get_log_parsers(self) -> List[BaseLogParser]:
         """Inherited, see superclass."""
         return [
             WODPerceptionLogParser(
@@ -180,7 +180,7 @@ class WODPerceptionParser(DatasetParser):
         ]
 
 
-class WODPerceptionLogParser(LogParser):
+class WODPerceptionLogParser(BaseLogParser):
     """Lightweight, picklable handle to one WOD Perception log."""
 
     def __init__(
@@ -291,7 +291,7 @@ class WODPerceptionLogParser(LogParser):
                 lidars=[lidar],
             )
 
-    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+    def iter_modalities_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
         """Inherited, see superclass."""
         raise NotImplementedError("Async per-modality iteration is not yet implemented for WOD Perception.")
 
@@ -554,7 +554,7 @@ def _extract_wod_perception_lidar(
     end_timestamp = Timestamp.from_us(frame.timestamp_micros + WOD_PERCEPTION_LIDAR_SWEEP_DURATION_US)
     return ParsedLidar(
         lidar_name=LidarID.LIDAR_MERGED.serialize(),
-        lidar_type=LidarID.LIDAR_MERGED,
+        lidar_id=LidarID.LIDAR_MERGED,
         start_timestamp=start_timestamp,
         end_timestamp=end_timestamp,
         iteration=frame_idx,

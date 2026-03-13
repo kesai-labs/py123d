@@ -3,14 +3,14 @@ from typing import List, Optional, Union
 
 from typing_extensions import override
 
-from py123d.parser.abstract_dataset_parser import DatasetParser, LogParser, MapParser
+from py123d.parser.base_dataset_parser import BaseDatasetParser, BaseLogParser, BaseMapParser
 from py123d.parser.opendrive.opendrive_map_parser import OpenDriveMapParser
 
 _CARLA_MAPS_DIR = Path(__file__).parent / "carla_maps"
 _VALID_SUFFIXES = {".xodr", ".gz"}
 
 
-class OpenDriveParser(DatasetParser):
+class OpenDriveParser(BaseDatasetParser):
     """Dataset parser for OpenDRIVE (.xodr) map files.
 
     This parser only converts maps — no log conversion is needed.
@@ -42,7 +42,7 @@ class OpenDriveParser(DatasetParser):
         self._connection_distance_threshold = connection_distance_threshold
         self._internal_only = internal_only
 
-    def get_map_parsers(self) -> List[MapParser]:
+    def get_map_parsers(self) -> List[BaseMapParser]:
         """Returns one map parser per XODR file."""
         return [
             OpenDriveMapParser(
@@ -56,6 +56,6 @@ class OpenDriveParser(DatasetParser):
         ]
 
     @override
-    def get_log_parsers(self) -> List[LogParser]:
+    def get_log_parsers(self) -> List[BaseLogParser]:
         """No log conversion for OpenDRIVE maps."""
         return []

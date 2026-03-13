@@ -37,9 +37,9 @@ from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 from py123d.geometry import BoundingBoxSE3, EulerAngles, PoseSE3, Vector3D
 from py123d.geometry.transform import reframe_se3_array
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
-from py123d.parser.abstract_dataset_parser import (
-    DatasetParser,
-    LogParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
@@ -97,7 +97,7 @@ def _create_splits_logs() -> Dict[str, List[str]]:
     return splits["log_splits"]
 
 
-class NuplanParser(DatasetParser):
+class NuplanParser(BaseDatasetParser):
     """Dataset parser for the nuPlan dataset."""
 
     def __init__(
@@ -184,7 +184,7 @@ class NuplanParser(DatasetParser):
         ]
 
 
-class NuplanLogParser(LogParser):
+class NuplanLogParser(BaseLogParser):
     """Lightweight, picklable handle to one nuPlan log."""
 
     def __init__(
@@ -317,7 +317,7 @@ class NuplanLogParser(LogParser):
     # Per-modality iterators for async conversion (native-rate, bypasses NuPlanDB ORM)
     # ------------------------------------------------------------------------------------------------------------------
 
-    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+    def iter_modalities_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
         """Dispatches to per-modality async iterators based on metadata type."""
         if self._log_metadata is None:
             self._build_log_metadata()
@@ -476,7 +476,7 @@ class NuplanLogParser(LogParser):
             if lidar_full_path.exists() and lidar_full_path.is_file():
                 yield ParsedLidar(
                     lidar_name=LidarID.LIDAR_MERGED.serialize(),
-                    lidar_type=LidarID.LIDAR_MERGED,
+                    lidar_id=LidarID.LIDAR_MERGED,
                     start_timestamp=Timestamp.from_us(row["timestamp"]),
                     end_timestamp=Timestamp.from_us(row["timestamp"]),
                     dataset_root=self._nuplan_sensor_root,
@@ -671,7 +671,7 @@ def _extract_nuplan_lidar_data(
     if lidar_full_path.exists() and lidar_full_path.is_file():
         return ParsedLidar(
             lidar_name=LidarID.LIDAR_MERGED.serialize(),
-            lidar_type=LidarID.LIDAR_MERGED,
+            lidar_id=LidarID.LIDAR_MERGED,
             start_timestamp=Timestamp.from_us(nuplan_lidar_pc.timestamp),
             end_timestamp=Timestamp.from_us(nuplan_lidar_pc.timestamp),
             dataset_root=nuplan_sensor_root,

@@ -24,11 +24,11 @@ from py123d.datatypes import (
 )
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
-from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
-from py123d.parser.abstract_dataset_parser import (
-    DatasetParser,
-    LogParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
@@ -52,7 +52,7 @@ from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.utils.splits import create_splits_scenes
 
 
-class NuScenesParser(DatasetParser):
+class NuScenesParser(BaseDatasetParser):
     """Dataset parser for the nuScenes dataset."""
 
     def __init__(
@@ -142,7 +142,7 @@ class NuScenesParser(DatasetParser):
         ]
 
 
-class NuScenesLogParser(LogParser):
+class NuScenesLogParser(BaseLogParser):
     """Lightweight, picklable handle to one nuScenes scene/log."""
 
     def __init__(
@@ -261,7 +261,7 @@ class NuScenesLogParser(LogParser):
     # Per-modality iterators (async / native-rate)
     # ------------------------------------------------------------------------------------------------------------------
 
-    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+    def iter_modalities_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
         """Dispatches to per-modality async iterators based on metadata type."""
         if self._log_metadata is None:
             self._build_log_metadata()
@@ -376,7 +376,7 @@ class NuScenesLogParser(LogParser):
                 if absolute_lidar_path.exists() and absolute_lidar_path.is_file():
                     yield ParsedLidar(
                         lidar_name="LIDAR_TOP",
-                        lidar_type=LidarID.LIDAR_TOP,
+                        lidar_id=LidarID.LIDAR_TOP,
                         start_timestamp=Timestamp.from_us(sweep["timestamp"] - NUSCENES_LIDAR_SWEEP_DURATION_US),
                         end_timestamp=Timestamp.from_us(sweep["timestamp"]),
                         relative_path=absolute_lidar_path.relative_to(self._nuscenes_data_root),
@@ -590,7 +590,7 @@ def _extract_nuscenes_lidar(
         start_timestamp = Timestamp.from_us(sample["timestamp"] - NUSCENES_LIDAR_SWEEP_DURATION_US)
         return ParsedLidar(
             lidar_name="LIDAR_TOP",
-            lidar_type=LidarID.LIDAR_TOP,
+            lidar_id=LidarID.LIDAR_TOP,
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
             relative_path=absolute_lidar_path.relative_to(nuscenes_data_root),

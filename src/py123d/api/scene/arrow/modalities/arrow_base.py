@@ -3,8 +3,10 @@ from typing import Any, Dict, List, Literal, Optional
 
 import pyarrow as pa
 
+from py123d.datatypes.modalities.base_modality import BaseModality
 
-class BaseModalityWriter:
+
+class ArrowBaseModalityWriter:
     """Manages a single Arrow IPC file for one modality."""
 
     def __init__(
@@ -47,6 +49,10 @@ class BaseModalityWriter:
         self._buffer.append(data)
         if len(self._buffer) >= self._max_batch_size:
             self._flush_buffer()
+
+    def write_modality(self, modality: BaseModality) -> None:
+        """Writes modality data to the Arrow file. To be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement write_modality()")
 
     def _flush_buffer(self) -> None:
         """Write buffered rows as a single record batch.

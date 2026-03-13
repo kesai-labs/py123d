@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 
-from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
+from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
 from py123d.api.scene.arrow.modalities.sync_utils import (
     get_all_modality_timestamps,
     get_first_sync_index,
@@ -30,44 +30,58 @@ from py123d.common.io.camera.png_camera_io import (
     load_png_binary_from_png_file,
 )
 from py123d.datatypes.metadata.log_metadata import LogMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICamera, FisheyeMEICameraID, FisheyeMEICameraMetadata
 from py123d.datatypes.sensors.pinhole_camera import PinholeCamera, PinholeCameraID, PinholeCameraMetadata
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.geometry_index import PoseSE3Index
 from py123d.geometry.pose import PoseSE3
-from py123d.parser.abstract_dataset_parser import ParsedCamera
+from py123d.parser.base_dataset_parser import ParsedCamera
 from py123d.script.utils.dataset_path_utils import get_dataset_paths
 
 # ------------------------------------------------------------------------------------------------------------------
 # Writers
 # ------------------------------------------------------------------------------------------------------------------
 
+CAMERA_CODEC_PA_DTYPES = {
+    "path": pa.string(),
+    "jpeg_binary": pa.binary(),
+    "png_binary": pa.binary(),
+}
 
-class ArrowPinholeCameraWriter(BaseModalityWriter):
+CAMERA_CODEC_MAX_BATCH_SIZES = {
+    "path": 1000,
+    "jpeg_binary": 10,
+    "png_binary": 10,
+}
+
+
+class ArrowCameraWriter(ArrowBaseModalityWriter):
     def __init__(
         self,
         log_dir: Path,
-        metadata: PinholeCameraMetadata,
-        data_codec: Literal["path", "jpeg_binary", "png_binary"] = "path",
+        metadata: BaseModalityMetadata,
+        camera_codec: Literal["path", "jpeg_binary", "png_binary"] = "path",
         ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
         ipc_compression_level: Optional[int] = None,
     ) -> None:
-        assert isinstance(metadata, PinholeCameraMetadata), f"Expected PinholeCameraMetadata, got {type(metadata)}"
-        assert data_codec in {"path", "jpeg_binary", "png_binary"}, f"Unsupported data codec: {data_codec}"
+        assert isinstance(metadata, (PinholeCameraMetadata, FisheyeMEICameraMetadata)), (
+            f"Expected PinholeCameraMetadata or FisheyeMEICameraMetadata, got {type(metadata)}"
+        )
+        assert camera_codec in {"path", "jpeg_binary", "png_binary"}, f"Unsupported camera codec: {camera_codec}"
 
-        self._modality_metadata = metadata
-        self._modality_name = metadata.modality_name
-        self._data_codec = data_codec
+        self._metadata = metadata
+        self._camera_codec = camera_codec
 
-        data_type = pa.binary() if data_codec in {"jpeg_binary", "png_binary"} else pa.string()
-        max_batch_size = 10 if data_codec in {"jpeg_binary", "png_binary"} else 1000
+        data_type = CAMERA_CODEC_PA_DTYPES[camera_codec]
+        max_batch_size = CAMERA_CODEC_MAX_BATCH_SIZES[camera_codec]
 
-        file_path = log_dir / f"{metadata.modality_name}.arrow"
+        file_path = log_dir / f"{metadata.modality_key}.arrow"
         schema = pa.schema(
             [
-                (f"{metadata.modality_name}.timestamp_us", pa.int64()),
-                (f"{metadata.modality_name}.data", data_type),
-                (f"{metadata.modality_name}.state_se3", pa.list_(pa.float64(), len(PoseSE3Index))),
+                (f"{metadata.modality_key}.timestamp_us", pa.int64()),
+                (f"{metadata.modality_key}.data", data_type),
+                (f"{metadata.modality_key}.pose_se3", pa.list_(pa.float64(), len(PoseSE3Index))),
             ]
         )
         schema = add_metadata_to_arrow_schema(schema, metadata)
@@ -79,74 +93,28 @@ class ArrowPinholeCameraWriter(BaseModalityWriter):
             max_batch_size=max_batch_size,
         )
 
-    def write_modality(self, camera_data: ParsedCamera):
-        assert isinstance(camera_data, ParsedCamera), f"Expected CameraData, got {type(camera_data)}"
-        if self._data_codec == "jpeg_binary":
-            data = _get_jpeg_binary_from_camera_data(camera_data)
-        elif self._data_codec == "png_binary":
-            data = _get_png_binary_from_camera_data(camera_data)
+    def write_modality(self, modality: BaseModality) -> None:
+        assert isinstance(modality, (ParsedCamera, PinholeCamera, FisheyeMEICamera)), (
+            f"Expected ParsedCamera, PinholeCamera, or FisheyeMEICamera, got {type(modality)}"
+        )
+        if self._camera_codec == "jpeg_binary":
+            data = _get_jpeg_binary_from_camera_modality(modality)
+        elif self._camera_codec == "png_binary":
+            data = _get_png_binary_from_camera_modality(modality)
+        elif self._camera_codec == "path":
+            assert isinstance(modality, ParsedCamera), (
+                f"Path codec requires ParsedCamera with file path, got {type(modality)}"
+            )
+            assert modality.has_file_path, "ParsedCamera must have a file path for path codec."
+            data = str(modality.relative_path)
         else:
-            data = str(camera_data.relative_path)
+            raise NotImplementedError(f"Unsupported camera codec: {self._camera_codec}")
+
         self.write_batch(
             {
-                f"{self._modality_name}.timestamp_us": [camera_data.timestamp.time_us],
-                f"{self._modality_name}.data": [data],
-                f"{self._modality_name}.state_se3": [camera_data.extrinsic],
-            }
-        )
-
-
-class ArrowFisheyeMEICameraWriter(BaseModalityWriter):
-    def __init__(
-        self,
-        log_dir: Path,
-        metadata: FisheyeMEICameraMetadata,
-        data_codec: Literal["path", "jpeg_binary", "png_binary"] = "path",
-        ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
-        ipc_compression_level: Optional[int] = None,
-    ) -> None:
-        assert isinstance(metadata, FisheyeMEICameraMetadata), (
-            f"Expected FisheyeMEICameraMetadata, got {type(metadata)}"
-        )
-        assert data_codec in {"path", "jpeg_binary", "png_binary"}, f"Unsupported data codec: {data_codec}"
-
-        self._modality_metadata = metadata
-        self._modality_name = metadata.modality_name
-        self._data_codec = data_codec
-
-        data_type = pa.binary() if data_codec in {"jpeg_binary", "png_binary"} else pa.string()
-        max_batch_size = 10 if data_codec in {"jpeg_binary", "png_binary"} else 1000
-
-        file_path = log_dir / f"{metadata.modality_name}.arrow"
-        schema = pa.schema(
-            [
-                (f"{metadata.modality_name}.timestamp_us", pa.int64()),
-                (f"{metadata.modality_name}.data", data_type),
-                (f"{metadata.modality_name}.state_se3", pa.list_(pa.float64(), len(PoseSE3Index))),
-            ]
-        )
-        schema = add_metadata_to_arrow_schema(schema, metadata)
-        super().__init__(
-            file_path=file_path,
-            schema=schema,
-            ipc_compression=ipc_compression,
-            ipc_compression_level=ipc_compression_level,
-            max_batch_size=max_batch_size,
-        )
-
-    def write_modality(self, camera_data: ParsedCamera):
-        assert isinstance(camera_data, ParsedCamera), f"Expected CameraData, got {type(camera_data)}"
-        if self._data_codec == "jpeg_binary":
-            data = _get_jpeg_binary_from_camera_data(camera_data)
-        elif self._data_codec == "png_binary":
-            data = _get_png_binary_from_camera_data(camera_data)
-        else:
-            data = str(camera_data.relative_path)
-        self.write_batch(
-            {
-                f"{self._modality_name}.timestamp_us": [camera_data.timestamp.time_us],
-                f"{self._modality_name}.data": [data],
-                f"{self._modality_name}.state_se3": [camera_data.extrinsic],
+                f"{self._metadata.modality_key}.timestamp_us": [modality.timestamp.time_us],
+                f"{self._metadata.modality_key}.data": [data],
+                f"{self._metadata.modality_key}.pose_se3": [modality.extrinsic],
             }
         )
 
@@ -156,37 +124,56 @@ class ArrowFisheyeMEICameraWriter(BaseModalityWriter):
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def _get_jpeg_binary_from_camera_data(camera_data: ParsedCamera) -> bytes:
-    if camera_data.has_jpeg_binary:
-        return camera_data.jpeg_binary  # type: ignore
-    elif camera_data.has_jpeg_file_path:
-        absolute_path = Path(camera_data.dataset_root) / camera_data.relative_path  # type: ignore
-        return load_jpeg_binary_from_jpeg_file(absolute_path)
-    elif camera_data.has_png_file_path:
-        absolute_path = Path(camera_data.dataset_root) / camera_data.relative_path  # type: ignore
-        numpy_image = load_image_from_png_file(absolute_path)
-        return encode_image_as_jpeg_binary(numpy_image)
-    elif camera_data.has_numpy_image:
-        return encode_image_as_jpeg_binary(camera_data.numpy_image)  # type: ignore[arg-type]
+def _get_jpeg_binary_from_camera_modality(camera_data: Union[ParsedCamera, PinholeCamera, FisheyeMEICamera]) -> bytes:
+    if isinstance(camera_data, ParsedCamera):
+        if camera_data.has_byte_string:
+            byte_string = camera_data._byte_string
+            assert byte_string is not None
+            if is_jpeg_binary(byte_string):
+                return byte_string
+            elif is_png_binary(byte_string):
+                return encode_image_as_jpeg_binary(decode_image_from_png_binary(byte_string))
+            else:
+                raise ValueError("ParsedCamera byte_string is neither JPEG nor PNG.")
+        elif camera_data.has_jpeg_file_path:
+            absolute_path = Path(camera_data._dataset_root) / camera_data.relative_path  # type: ignore
+            return load_jpeg_binary_from_jpeg_file(absolute_path)
+        elif camera_data.has_png_file_path:
+            absolute_path = Path(camera_data._dataset_root) / camera_data.relative_path  # type: ignore
+            numpy_image = load_image_from_png_file(absolute_path)
+            return encode_image_as_jpeg_binary(numpy_image)
+        else:
+            raise NotImplementedError("ParsedCamera must provide byte_string or file path for jpeg_binary codec.")
+    elif isinstance(camera_data, (PinholeCamera, FisheyeMEICamera)):
+        return encode_image_as_jpeg_binary(camera_data.image)
     else:
-        raise NotImplementedError("Camera data must provide jpeg_binary, numpy_image, or file path for binary storage.")
+        raise NotImplementedError(f"Unsupported camera type for jpeg_binary codec: {type(camera_data)}")
 
 
-def _get_png_binary_from_camera_data(camera_data: ParsedCamera) -> bytes:
-    if camera_data.has_png_file_path:
-        absolute_path = Path(camera_data.dataset_root) / camera_data.relative_path  # type: ignore
-        return load_png_binary_from_png_file(absolute_path)
-    elif camera_data.has_numpy_image:
-        return encode_image_as_png_binary(camera_data.numpy_image)  # type: ignore[arg-type]
-    elif camera_data.has_jpeg_file_path:
-        absolute_path = Path(camera_data.dataset_root) / camera_data.relative_path  # type: ignore
-        numpy_image = load_image_from_jpeg_file(absolute_path)
-        return encode_image_as_png_binary(numpy_image)
-    elif camera_data.has_jpeg_binary:
-        numpy_image = decode_image_from_jpeg_binary(camera_data.jpeg_binary)  # type: ignore[arg-type]
-        return encode_image_as_png_binary(numpy_image)
+def _get_png_binary_from_camera_modality(camera_data: Union[ParsedCamera, PinholeCamera, FisheyeMEICamera]) -> bytes:
+    if isinstance(camera_data, ParsedCamera):
+        if camera_data.has_byte_string:
+            byte_string = camera_data._byte_string
+            assert byte_string is not None
+            if is_png_binary(byte_string):
+                return byte_string
+            elif is_jpeg_binary(byte_string):
+                return encode_image_as_png_binary(decode_image_from_jpeg_binary(byte_string))
+            else:
+                raise ValueError("ParsedCamera byte_string is neither JPEG nor PNG.")
+        elif camera_data.has_png_file_path:
+            absolute_path = Path(camera_data._dataset_root) / camera_data.relative_path  # type: ignore
+            return load_png_binary_from_png_file(absolute_path)
+        elif camera_data.has_jpeg_file_path:
+            absolute_path = Path(camera_data._dataset_root) / camera_data.relative_path  # type: ignore
+            numpy_image = load_image_from_jpeg_file(absolute_path)
+            return encode_image_as_png_binary(numpy_image)
+        else:
+            raise NotImplementedError("ParsedCamera must provide byte_string or file path for png_binary codec.")
+    elif isinstance(camera_data, (PinholeCamera, FisheyeMEICamera)):
+        return encode_image_as_png_binary(camera_data.image)
     else:
-        raise NotImplementedError("Camera data must provide png_binary, numpy_image, or file path for binary storage.")
+        raise NotImplementedError(f"Unsupported camera type for png_binary codec: {type(camera_data)}")
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -248,9 +235,9 @@ class ArrowCameraReader:
     ) -> List[Timestamp]:
         """Read all timestamps for a pinhole camera within the scene range."""
         instance = camera_id.serialize()
-        modality_name = f"pinhole_camera.{instance}"
+        modality_key = f"pinhole_camera.{instance}"
         return get_all_modality_timestamps(
-            log_dir, sync_table, scene_metadata, modality_name, f"{modality_name}.timestamp_us"
+            log_dir, sync_table, scene_metadata, modality_key, f"{modality_key}.timestamp_us"
         )
 
     @staticmethod
@@ -262,9 +249,9 @@ class ArrowCameraReader:
     ) -> List[Timestamp]:
         """Read all timestamps for a fisheye MEI camera within the scene range."""
         instance = camera_id.serialize()
-        modality_name = f"fisheye_mei_camera.{instance}"
+        modality_key = f"fisheye_mei_camera.{instance}"
         return get_all_modality_timestamps(
-            log_dir, sync_table, scene_metadata, modality_name, f"{modality_name}.timestamp_us"
+            log_dir, sync_table, scene_metadata, modality_key, f"{modality_key}.timestamp_us"
         )
 
 
@@ -288,13 +275,13 @@ def _read_camera_at_iteration(
     camera_instance = camera_id.serialize()
     is_pinhole = isinstance(camera_id, PinholeCameraID)
     modality_prefix = "pinhole_camera" if is_pinhole else "fisheye_mei_camera"
-    modality_name = f"{modality_prefix}.{camera_instance}"
+    modality_key = f"{modality_prefix}.{camera_instance}"
 
-    cam_table = get_modality_table(log_dir, modality_name)
+    cam_table = get_modality_table(log_dir, modality_key)
     if cam_table is None:
         return None
 
-    row_idx = get_first_sync_index(sync_table, modality_name, table_index)
+    row_idx = get_first_sync_index(sync_table, modality_key, table_index)
     if row_idx is None:
         return None
 
@@ -314,7 +301,7 @@ def _deserialize_camera(
     instance = camera_id.serialize()
 
     camera_data_column = f"{modality_prefix}.{instance}.data"
-    camera_extrinsic_column = f"{modality_prefix}.{instance}.state_se3"
+    camera_extrinsic_column = f"{modality_prefix}.{instance}.pose_se3"
     camera_timestamp_column = f"{modality_prefix}.{instance}.timestamp_us"
 
     if not all_columns_in_schema(arrow_table, [camera_data_column, camera_extrinsic_column, camera_timestamp_column]):

@@ -4,7 +4,7 @@ import importlib
 from typing import Any, Dict, Type
 
 from py123d.datatypes.detections.box_detection_label import BOX_DETECTION_LABEL_REGISTRY, BoxDetectionLabel
-from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.datatypes.modalities.base_modality import BaseModalityMetadata, ModalityType
 
 
 class BoxDetectionsSE3Metadata(BaseModalityMetadata):
@@ -19,9 +19,9 @@ class BoxDetectionsSE3Metadata(BaseModalityMetadata):
         return self._box_detection_label_class
 
     @property
-    def modality_name(self) -> str:
+    def modality_type(self) -> ModalityType:
         """The modality name for this metadata, which is 'box_detections'."""
-        return "box_detections_se3"
+        return ModalityType.BOX_DETECTIONS_SE3
 
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]) -> BoxDetectionsSE3Metadata:

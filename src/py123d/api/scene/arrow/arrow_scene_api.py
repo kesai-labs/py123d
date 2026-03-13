@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from py123d.api.map.arrow.arrow_map_api import get_lru_cached_map_api
 from py123d.api.map.map_api import MapAPI
@@ -18,6 +18,7 @@ from py123d.api.scene.arrow.utils.arrow_scene_caches import (
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.common.dataset_paths import get_dataset_paths
+from py123d.common.utils.enums import SerialIntEnum
 from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
@@ -39,6 +40,8 @@ from py123d.datatypes import (
     TrafficLightDetections,
 )
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
+from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
+from py123d.datatypes.modalities.base_modality import BaseModalityMetadata
 
 
 class ArrowSceneAPI(SceneAPI):
@@ -103,16 +106,16 @@ class ArrowSceneAPI(SceneAPI):
     # 2. Map
     # ------------------------------------------------------------------------------------------------------------------
 
+    def get_map_metadata(self) -> Optional[MapMetadata]:
+        """Inherited, see superclass."""
+        return self.get_log_metadata().map_metadata
+
     def get_map_api(self) -> Optional[MapAPI]:
         """Inherited, see superclass."""
         map_file = self._resolve_map_file()
         if map_file is not None:
             return get_lru_cached_map_api(map_file)
         return None
-
-    def get_map_metadata(self) -> Optional[MapMetadata]:
-        """Inherited, see superclass."""
-        return self.get_log_metadata().map_metadata
 
     def _resolve_map_file(self) -> Optional[Path]:
         """Find the map file: first check per-log, then global maps directory."""
@@ -132,12 +135,50 @@ class ArrowSceneAPI(SceneAPI):
         return None
 
     # ------------------------------------------------------------------------------------------------------------------
+    # 4. General modality access
+    # ------------------------------------------------------------------------------------------------------------------
+
+    def get_all_modality_metadatas(self) -> Optional[BaseModalityMetadata]:
+        pass
+
+    def get_modality_metadata(
+        self,
+        modality_type: str,
+        modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
+    ) -> Optional[BaseModalityMetadata]:
+        pass
+
+    def get_modality_timestamps(
+        self,
+        modality_type: str,
+        modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
+    ) -> Optional[List[Timestamp]]:
+        pass
+
+    def get_modality_at_iteration(
+        self,
+        iteration: int,
+        modality_type: str,
+        modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
+    ) -> Optional[CustomModality]:
+        pass
+
+    def get_modality_at_timestamp(
+        self,
+        timestamp: Timestamp,
+        modality_type: str,
+        modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
+        criteria: Literal["exact", "forward", "backward"] = "exact",
+    ) -> Optional[CustomModality]:
+        pass
+
+    # ------------------------------------------------------------------------------------------------------------------
     # 3. EgoStateSE3
     # ------------------------------------------------------------------------------------------------------------------
 
     def get_ego_state_se3_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Inherited, see superclass."""
-        return self.get_log_metadata().ego_state_se3_metadata
+        return self.get_modality_metadata("ego_state_se3")
 
     def get_all_ego_state_se3_timestamps(self) -> List[Timestamp]:
         """Inherited, see superclass."""
@@ -152,6 +193,12 @@ class ArrowSceneAPI(SceneAPI):
             get_sync_table(self._log_dir),
             self._get_table_index(iteration),
             self.get_ego_state_se3_metadata(),
+        )
+
+    def get_ego_state_se3_at_timestamp(self, timestamp: Timestamp) -> Optional[EgoStateSE3]:
+        """Get the ego state at a specific timestamp."""
+        return ArrowEgoStateSE3Reader.read_at_timestamp(
+            self._log_dir, get_sync_table(self._log_dir), timestamp, self.get_ego_state_se3_metadata()
         )
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -194,6 +241,9 @@ class ArrowSceneAPI(SceneAPI):
         return ArrowTrafficLightDetectionsReader.read_all_timestamps(
             self._log_dir, get_sync_table(self._log_dir), self.get_scene_metadata()
         )
+
+    def get_traffic_light_detections_metadata(self) -> Optional[TrafficLightDetectionsMetadata]:
+        return None
 
     # ------------------------------------------------------------------------------------------------------------------
     # 6. Pinhole Camera

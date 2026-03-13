@@ -25,10 +25,10 @@ from py123d.geometry import (
     PoseSE3,
     Vector3D,
 )
-from py123d.parser.abstract_dataset_parser import (
-    DatasetParser,
-    LogParser,
-    MapParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
+    BaseMapParser,
     ParsedFrame,
 )
 from py123d.parser.registry import WODMotionBoxDetectionLabel
@@ -93,7 +93,7 @@ def _get_scenario_from_tfrecord(tf_record_path: Path, scenario_id: str) -> Optio
     return None
 
 
-class WODMotionParser(DatasetParser):
+class WODMotionParser(BaseDatasetParser):
     """Dataset parser for the Waymo Open Dataset - Motion (WODM)."""
 
     def __init__(
@@ -133,7 +133,7 @@ class WODMotionParser(DatasetParser):
 
         return split_tf_record_pairs
 
-    def get_map_parsers(self) -> List[MapParser]:
+    def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
         return [
             WODMapParser(
@@ -147,7 +147,7 @@ class WODMotionParser(DatasetParser):
             for split, source_tf_record_path, scenario_id in self._split_tf_record_pairs
         ]
 
-    def get_log_parsers(self) -> List[LogParser]:
+    def get_log_parsers(self) -> List[BaseLogParser]:
         """Inherited, see superclass."""
         return [
             WODMotionLogParser(
@@ -159,7 +159,7 @@ class WODMotionParser(DatasetParser):
         ]
 
 
-class WODMotionLogParser(LogParser):
+class WODMotionLogParser(BaseLogParser):
     """Lightweight, picklable handle to one WOD Motion log."""
 
     def __init__(

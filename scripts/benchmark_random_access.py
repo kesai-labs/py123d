@@ -49,6 +49,83 @@ def benchmark_access(
     }
 
 
+def benchmark_timestamps(name: str, load_fn: Callable[[], object], num_runs: int = 10) -> dict:
+    """Benchmark loading all timestamps for a single modality."""
+    # Warmup
+    load_fn()
+
+    latencies_ms = []
+    for _ in range(num_runs):
+        t0 = time.perf_counter()
+        result = load_fn()
+        t1 = time.perf_counter()
+        if result is not None:
+            latencies_ms.append((t1 - t0) * 1000)
+
+    if not latencies_ms:
+        return {"name": name, "samples": 0}
+
+    return {
+        "name": name,
+        "samples": len(latencies_ms),
+        "mean_ms": statistics.mean(latencies_ms),
+        "median_ms": statistics.median(latencies_ms),
+        "p95_ms": sorted(latencies_ms)[int(len(latencies_ms) * 0.95)],
+        "min_ms": min(latencies_ms),
+        "max_ms": max(latencies_ms),
+    }
+
+
+def run_timestamp_benchmark(scene: SceneAPI, num_runs: int = 10) -> List[dict]:
+    """Benchmark loading all timestamps for each modality."""
+    results = []
+
+    results.append(benchmark_timestamps("ts.iteration", scene.get_all_iteration_timestamps, num_runs))
+    results.append(benchmark_timestamps("ts.ego_state_se3", scene.get_all_ego_state_se3_timestamps, num_runs))
+    results.append(benchmark_timestamps("ts.box_detections_se3", scene.get_all_box_detections_se3_timestamps, num_runs))
+    results.append(
+        benchmark_timestamps("ts.traffic_light_detections", scene.get_all_traffic_light_detections_timestamps, num_runs)
+    )
+
+    for cam_id in scene.available_pinhole_camera_ids:
+        results.append(
+            benchmark_timestamps(
+                f"ts.pinhole_camera.{cam_id.name}",
+                lambda cid=cam_id: scene.get_all_pinhole_camera_timestamps(cid),
+                num_runs,
+            )
+        )
+
+    for cam_id in scene.available_fisheye_mei_camera_ids:
+        results.append(
+            benchmark_timestamps(
+                f"ts.fisheye_mei_camera.{cam_id.name}",
+                lambda cid=cam_id: scene.get_all_fisheye_mei_camera_timestamps(cid),
+                num_runs,
+            )
+        )
+
+    for lidar_id in scene.available_lidar_ids + [LidarID.LIDAR_MERGED]:
+        results.append(
+            benchmark_timestamps(
+                f"ts.lidar.{lidar_id.name}",
+                lambda lid=lidar_id: scene.get_all_lidar_timestamps(lid),
+                num_runs,
+            )
+        )
+
+    for custom_name in scene.get_all_custom_modality_metadatas():
+        results.append(
+            benchmark_timestamps(
+                f"ts.custom.{custom_name}",
+                lambda cn=custom_name: scene.get_all_custom_modality_timestamps(cn),
+                num_runs,
+            )
+        )
+
+    return results
+
+
 def run_benchmark(scene: SceneAPI, num_samples: int = 100) -> List[dict]:
     """Run benchmarks for all available modalities on a scene."""
     n = scene.number_of_iterations
@@ -174,6 +251,7 @@ def main():
         log_names=[args.log_name] if args.log_name else None,
         duration_s=args.duration,
         max_num_scenes=args.num_scenes,
+        shuffle=True,
     )
 
     print(f"Loading scenes with filter: {scene_filter}")
@@ -184,6 +262,11 @@ def main():
         print(f"=== Scene {i}: {scene.log_name} ({scene.number_of_iterations} iterations) ===")
         results = run_benchmark(scene, num_samples=args.num_samples)
         print_results(results)
+        print()
+
+        print("--- Timestamp loading (all timestamps per modality) ---")
+        ts_results = run_timestamp_benchmark(scene)
+        print_results(ts_results)
         print()
 
 

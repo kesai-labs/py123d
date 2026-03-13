@@ -6,6 +6,8 @@ from typing import List, Optional, Union
 import shapely
 
 from py123d.datatypes.detections.box_detection_label import BoxDetectionLabel, DefaultBoxDetectionLabel
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
+from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.time import Timestamp
 from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, OccupancyMap2D, PoseSE2, PoseSE3, Vector2D, Vector3D
 
@@ -187,6 +189,8 @@ class BoxDetectionsSE2:
     Provides indexed access, iteration, lookup by track token, and a 2D occupancy map.
     """
 
+    __slot__ = ("_box_detections", "_timestamp")
+
     def __init__(self, box_detections: List[BoxDetectionSE2], timestamp: Timestamp) -> None:
         """Initialize a BoxDetectionsSE2 instance.
 
@@ -241,20 +245,26 @@ class BoxDetectionsSE2:
         return OccupancyMap2D(geometries=geometries, ids=ids)
 
 
-class BoxDetectionsSE3:
+class BoxDetectionsSE3(BaseModality):
     """Container for a list of SE3 box detections.
 
     Provides indexed access, iteration, lookup by track token, and a 2D occupancy map.
     """
 
-    def __init__(self, box_detections: List[BoxDetectionSE3], timestamp: Timestamp) -> None:
+    __slot__ = ("_box_detections", "_timestamp", "_metadata")
+
+    def __init__(
+        self, box_detections: List[BoxDetectionSE3], timestamp: Timestamp, metadata: BoxDetectionsSE3Metadata
+    ) -> None:
         """Initialize a BoxDetectionsSE3 instance.
 
         :param box_detections: A list of :class:`BoxDetectionSE3` instances.
         :param timestamp: The :class:`~py123d.datatypes.time.Timestamp` of the box detections.
+        :param metadata: The metadata for the box detections.
         """
         self._box_detections = box_detections
         self._timestamp = timestamp
+        self._metadata = metadata
 
     @property
     def box_detections(self) -> List[BoxDetectionSE3]:
@@ -265,6 +275,11 @@ class BoxDetectionsSE3:
     def timestamp(self) -> Timestamp:
         """The :class:`~py123d.datatypes.time.Timestamp` of the box detections."""
         return self._timestamp
+
+    @property
+    def metadata(self) -> BoxDetectionsSE3Metadata:
+        """The metadata for the box detections modality."""
+        return self._metadata
 
     def __getitem__(self, index: int) -> BoxDetectionSE3:
         """Retrieve a box detection by its index.

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Union
 
-from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.common.utils.enums import SerialIntEnum
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
 from py123d.datatypes.time.timestamp import Timestamp
 
 
@@ -21,9 +22,14 @@ class CustomModalityMetadata(BaseModalityMetadata):
         self._metadata = metadata
 
     @property
-    def modality_name(self) -> str:
-        """Returns the name of the modality that this metadata describes."""
-        return f"custom.{self._modality_id}"
+    def modality_type(self) -> ModalityType:
+        """Returns the type of the modality that this metadata describes."""
+        return ModalityType.CUSTOM
+
+    @property
+    def modality_id(self) -> Optional[Union[str, SerialIntEnum]]:
+        """Returns the ID of the custom modality that this metadata describes."""
+        return self._modality_id
 
     def to_dict(self) -> Dict[str, Any]:
         return {"modality_id": self._modality_id, "metadata": self._metadata}
@@ -40,7 +46,7 @@ class CustomModalityMetadata(BaseModalityMetadata):
         return cls(modality_id=modality_id, metadata=metadata)
 
 
-class CustomModality:
+class CustomModality(BaseModality):
     """A custom modality for dataset-specific information.
 
     This class wraps a dictionary (with string keys) and a corresponding

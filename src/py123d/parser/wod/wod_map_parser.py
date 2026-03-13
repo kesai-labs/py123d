@@ -14,7 +14,7 @@ from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType,
 from py123d.datatypes.map_objects.map_objects import Carpark, Crosswalk, Lane, LaneGroup, RoadEdge, RoadLine, StopZone
 from py123d.geometry import Polyline3D
 from py123d.geometry.utils.units import mph_to_mps
-from py123d.parser.abstract_dataset_parser import MapParser
+from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.wod.utils.wod_boundary_utils import WaymoLaneData, fill_lane_boundaries
 from py123d.parser.wod.utils.wod_constants import (
     WAYMO_LANE_TYPE_CONVERSION,
@@ -31,7 +31,7 @@ from py123d.parser.wod.waymo_open_dataset.protos import map_pb2
 STOP_ZONE_DEPTH = 0.5  # Depth of synthesized stop zone polygons in meters
 
 
-class WODMapParser(MapParser):
+class WODMapParser(BaseMapParser):
     """Shared map parser for WOD Perception and WOD Motion datasets.
 
     Both datasets share the same map feature protobuf format, so this parser

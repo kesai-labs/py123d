@@ -1,49 +1,31 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 
 @dataclass
-class DatasetConverterConfig:
+class LogWriterConfig:
     force_log_conversion: bool = False
     force_map_conversion: bool = False
     async_conversion: bool = False
 
-    # Map
-    include_map: bool = False
-
-    # Ego
-    include_ego: bool = False
-
-    # Box Detections
-    include_box_detections: bool = False
-    include_box_lidar_points: bool = False
-
-    # Traffic Lights
-    include_traffic_lights: bool = False
+    exclude_modality_keys: set[str] = field(default_factory=set)
+    exclude_modality_types: set[str] = field(default_factory=set)
 
     # Pinhole Cameras
-    include_pinhole_cameras: bool = False
     pinhole_camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
 
     # Fisheye MEI Cameras
-    include_fisheye_mei_cameras: bool = False
     fisheye_mei_camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
 
     # Lidars
-    include_lidars: bool = False
     lidar_store_option: Literal["path", "binary"] = "path"
     lidar_point_cloud_codec: Optional[Literal["laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"]] = None
     lidar_point_feature_codec: Optional[Literal["ipc_zstd", "ipc_lz4", "ipc"]] = None  # None drops features.
 
     # IPC write options
     ipc_max_batch_size: Optional[int] = None
-
-    # Scenario tag / Route
-    # NOTE: These are only supported for nuPlan. Consider removing or expanding support.
-    include_scenario_tags: bool = False
-    include_route: bool = False
 
     def __post_init__(self):
         assert self.pinhole_camera_store_option in {

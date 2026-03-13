@@ -1,8 +1,10 @@
 from typing import Dict, Final, Set
 
 from py123d.datatypes import LaneType, PinholeCameraID, RoadLineType
-from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry.pose import PoseSE3
+from py123d.parser.registry import AV2SensorBoxDetectionLabel
 
 AV2_SENSOR_SPLITS: Set[str] = {"av2-sensor_train", "av2-sensor_val", "av2-sensor_test"}
 
@@ -60,3 +62,6 @@ AV2_SENSOR_EGO_STATE_SE3_METADATA = EgoStateSE3Metadata(
     center_to_imu_se3=PoseSE3(x=1.339, y=0.0, z=0.438, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
     rear_axle_to_imu_se3=PoseSE3.identity(),
 )
+
+
+AV2_SENSOR_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(box_detection_label_class=AV2SensorBoxDetectionLabel)

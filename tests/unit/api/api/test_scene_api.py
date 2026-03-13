@@ -173,7 +173,7 @@ def scene_api():
 
     fcam_meta = Mock(spec=FisheyeMEICameraMetadata)
     fcam_meta.camera_name = "fcam_l"
-    api._fisheye_mei_camera_metadatas = {FisheyeMEICameraID.FCAM_L: fcam_meta}
+    api._fisheye_mei_camera_metadatas = {FisheyeMEICameraID.FMCAM_L: fcam_meta}
 
     lidar_meta = Mock(spec=LidarMetadata)
     lidar_meta.lidar_name = "lidar_top"
@@ -250,7 +250,7 @@ class TestSceneAPIProperties:
 
     def test_available_fisheye_mei_camera_ids(self, scene_api):
         """Test available_fisheye_mei_camera_ids property."""
-        assert scene_api.available_fisheye_mei_camera_ids == [FisheyeMEICameraID.FCAM_L]
+        assert scene_api.available_fisheye_mei_camera_ids == [FisheyeMEICameraID.FMCAM_L]
 
     def test_available_fisheye_mei_camera_names(self, scene_api):
         """Test available_fisheye_mei_camera_names property."""
@@ -305,7 +305,7 @@ class TestSceneAPIMethods:
 
     def test_get_fisheye_mei_camera_at_iteration(self, scene_api):
         """Test get_fisheye_mei_camera_at_iteration method."""
-        result = scene_api.get_fisheye_mei_camera_at_iteration(0, FisheyeMEICameraID.FCAM_L)
+        result = scene_api.get_fisheye_mei_camera_at_iteration(0, FisheyeMEICameraID.FMCAM_L)
         assert result is not None
 
     def test_get_lidar_at_iteration(self, scene_api):

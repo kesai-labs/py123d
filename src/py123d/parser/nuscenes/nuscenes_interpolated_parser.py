@@ -27,11 +27,11 @@ from py123d.datatypes import (
 )
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.metadata.sensor_metadata import FisheyeMEICameraMetadatas, LidarMetadatas, PinholeCameraMetadatas
-from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
-from py123d.parser.abstract_dataset_parser import (
-    DatasetParser,
-    LogParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
@@ -63,7 +63,7 @@ _TARGET_DT_US: int = int(TARGET_DT * 1e6)
 _CAMERA_TIMESTAMP_TOLERANCE_US: int = 100_000
 
 
-class NuScenesInterpolatedParser(DatasetParser):
+class NuScenesInterpolatedParser(BaseDatasetParser):
     """Dataset parser for the nuScenes dataset that interpolates to 10Hz.
 
     In contrast to :class:`NuScenesParser`, this parser upsamples the native 2Hz keyframe
@@ -160,7 +160,7 @@ class NuScenesInterpolatedParser(DatasetParser):
         ]
 
 
-class NuScenesInterpolatedLogParser(LogParser):
+class NuScenesInterpolatedLogParser(BaseLogParser):
     """Lightweight, picklable handle to one nuScenes scene/log with 10Hz interpolation.
 
     Upsamples the native 2Hz keyframe rate to 10Hz by leveraging intermediate lidar
@@ -486,7 +486,7 @@ class NuScenesInterpolatedLogParser(LogParser):
                     # The sweep covers the 1/20s (50ms) period before that timestamp.
                     yield ParsedLidar(
                         lidar_name="LIDAR_TOP",
-                        lidar_type=LidarID.LIDAR_TOP,
+                        lidar_id=LidarID.LIDAR_TOP,
                         start_timestamp=Timestamp.from_us(sweep["timestamp"] - NUSCENES_LIDAR_SWEEP_DURATION_US),
                         end_timestamp=Timestamp.from_us(sweep["timestamp"]),
                         relative_path=absolute_lidar_path.relative_to(self._nuscenes_data_root),
@@ -1000,7 +1000,7 @@ def _extract_lidar_from_sample_data(
         start_timestamp = Timestamp.from_us(sweep["timestamp"] - NUSCENES_LIDAR_SWEEP_DURATION_US)
         lidar_data = ParsedLidar(
             lidar_name="LIDAR_TOP",
-            lidar_type=LidarID.LIDAR_TOP,
+            lidar_id=LidarID.LIDAR_TOP,
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
             relative_path=absolute_lidar_path.relative_to(nuscenes_data_root),

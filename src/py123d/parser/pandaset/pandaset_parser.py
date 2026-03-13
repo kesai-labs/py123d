@@ -27,10 +27,10 @@ from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, EulerAnglesInde
 from py123d.geometry.transform import abs_to_rel_se3_array
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
 from py123d.geometry.utils.rotation_utils import get_quaternion_array_from_euler_array
-from py123d.parser.abstract_dataset_parser import (
-    DatasetParser,
-    LogParser,
-    MapParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
+    BaseMapParser,
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
@@ -57,7 +57,7 @@ from py123d.parser.pandaset.utils.pandaset_utlis import (
 from py123d.parser.registry import PandasetBoxDetectionLabel
 
 
-class PandasetParser(DatasetParser):
+class PandasetParser(BaseDatasetParser):
     """Dataset parser for the Pandaset dataset."""
 
     def __init__(
@@ -107,19 +107,19 @@ class PandasetParser(DatasetParser):
 
         return log_paths_and_split
 
-    def get_log_parsers(self) -> List[LogParser]:
+    def get_log_parsers(self) -> List[BaseLogParser]:
         """Inherited, see superclass."""
         return [
             PandasetLogParser(source_log_path=source_log_path, split=split)
             for source_log_path, split in self._log_paths_and_split
         ]
 
-    def get_map_parsers(self) -> List[MapParser]:
+    def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
         return []  # NOTE @DanielDauner: Pandaset does not have maps.
 
 
-class PandasetLogParser(LogParser):
+class PandasetLogParser(BaseLogParser):
     """Lightweight, picklable handle to one Pandaset log."""
 
     def __init__(self, source_log_path: Path, split: str) -> None:
@@ -173,7 +173,7 @@ class PandasetLogParser(LogParser):
         assert self._log_metadata is not None
         return self._log_metadata
 
-    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+    def iter_modalities_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
         """Not implemented — use :meth:`iter_frames` for frame-based conversion."""
         raise NotImplementedError("Pandaset parser only supports frame-based conversion via iter_frames().")
 
@@ -419,7 +419,7 @@ def _extract_pandaset_lidar(source_log_path: Path, iteration: int, timestamp: Ti
 
     return ParsedLidar(
         lidar_name=LidarID.LIDAR_MERGED.serialize(),
-        lidar_type=LidarID.LIDAR_MERGED,
+        lidar_id=LidarID.LIDAR_MERGED,
         start_timestamp=timestamp,
         end_timestamp=Timestamp.from_us(
             timestamp.time_us + 100_000

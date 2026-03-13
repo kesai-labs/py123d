@@ -140,8 +140,12 @@ class SceneAPI(abc.ABC):
     # ------------------------------------------------------------------------------------------------------------------
 
     # 5.1 Metadata
+    @abc.abstractmethod
     def get_traffic_light_detections_metadata(self) -> Optional[TrafficLightDetectionsMetadata]:
-        raise NotImplementedError
+        """Returns the :class:`~py123d.datatypes.detections.TrafficLightDetectionsMetadata` of the scene, if available.
+
+        :return: The traffic light detection metadata, or None if not available.
+        """
 
     # 5.2 Timestamps
     @abc.abstractmethod
@@ -253,26 +257,26 @@ class SceneAPI(abc.ABC):
     # ------------------------------------------------------------------------------------------------------------------
     @abc.abstractmethod
     def get_all_custom_modality_metadatas(self) -> Dict[str, CustomModalityMetadata]:
-        """Returns the metadata for all custom modalities in the scene, keyed by modality name.
+        """Returns the metadata for all custom modalities in the scene, keyed by modality ID.
 
-        :return: A dictionary of custom modality metadata, keyed by modality name.
+        :return: A dictionary of custom modality metadata, keyed by modality ID.
         """
 
     @abc.abstractmethod
-    def get_all_custom_modality_timestamps(self, name: str) -> List[Timestamp]:
+    def get_all_custom_modality_timestamps(self, modality_id: str) -> List[Timestamp]:
         """Returns all custom modality timestamps within the current scene.
 
-        :param name: The name of the custom modality.
+        :param modality_id: The ID of the custom modality.
         :return: All custom modality timestamps in the scene, ordered by time.
         """
 
     @abc.abstractmethod
-    def get_custom_modality_at_iteration(self, iteration: int, name: str) -> Optional[CustomModality]:
-        """Returns the :class:`~py123d.datatypes.custom.CustomModality` with the given name at a given iteration,
+    def get_custom_modality_at_iteration(self, iteration: int, modality_id: str) -> Optional[CustomModality]:
+        """Returns the :class:`~py123d.datatypes.custom.CustomModality` with the given ID at a given iteration,
             if available.
 
         :param iteration: The iteration to get the custom modality for.
-        :param name: The name of the custom modality (e.g. ``"route"``, ``"predictions"``).
+        :param modality_id: The ID of the custom modality (e.g. ``"route"``, ``"predictions"``).
         :return: The custom modality, or None if not available.
         """
 

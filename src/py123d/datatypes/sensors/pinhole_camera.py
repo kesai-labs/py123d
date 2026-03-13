@@ -5,10 +5,11 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import numpy.typing as npt
+from pyparsing import Union
 
 from py123d.common.utils.enums import SerialIntEnum, classproperty
 from py123d.common.utils.mixin import ArrayMixin, indexed_array_repr
-from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
 from py123d.datatypes.time import Timestamp
 from py123d.geometry import PoseSE3
 
@@ -47,7 +48,7 @@ class PinholeCameraID(SerialIntEnum):
     """Right stereo camera."""
 
 
-class PinholeCamera:
+class PinholeCamera(BaseModality):
     """Represents the recording of a pinhole camera including its metadata, image, extrinsic pose, and timestamp."""
 
     __slots__ = ("_metadata", "_image", "_extrinsic", "_timestamp")
@@ -57,7 +58,7 @@ class PinholeCamera:
         metadata: PinholeCameraMetadata,
         image: npt.NDArray[np.uint8],
         extrinsic: PoseSE3,
-        timestamp: Optional[Timestamp] = None,
+        timestamp: Timestamp,
     ) -> None:
         """Initialize a PinholeCamera instance.
 
@@ -70,6 +71,11 @@ class PinholeCamera:
         self._image = image
         self._extrinsic = extrinsic
         self._timestamp = timestamp
+
+    @property
+    def timestamp(self) -> Timestamp:
+        """The :class:`~py123d.datatypes.time.Timestamp` of the image capture, if available."""
+        return self._timestamp
 
     @property
     def metadata(self) -> PinholeCameraMetadata:
@@ -85,11 +91,6 @@ class PinholeCamera:
     def extrinsic(self) -> PoseSE3:
         """The extrinsic :class:`~py123d.geometry.PoseSE3` of the pinhole camera, relative to the ego vehicle frame."""
         return self._extrinsic
-
-    @property
-    def timestamp(self) -> Optional[Timestamp]:
-        """The :class:`~py123d.datatypes.time.Timestamp` of the image capture, if available."""
-        return self._timestamp
 
 
 class PinholeIntrinsicsIndex(IntEnum):
@@ -371,10 +372,6 @@ class PinholeCameraMetadata(BaseModalityMetadata):
         self._camera_to_imu_se3 = camera_to_imu_se3
         self._is_undistorted = is_undistorted
 
-    @property
-    def modality_name(self) -> str:
-        return f"pinhole_camera.{self.camera_id.serialize()}"
-
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]) -> PinholeCameraMetadata:
         """Create a :class:`PinholeCameraMetadata` from a dictionary.
@@ -414,6 +411,14 @@ class PinholeCameraMetadata(BaseModalityMetadata):
         data_dict["camera_to_imu_se3"] = self.camera_to_imu_se3.tolist()
         data_dict["is_undistorted"] = self.is_undistorted
         return data_dict
+
+    @property
+    def modality_type(self) -> ModalityType:
+        return ModalityType.PINHOLE_CAMERA
+
+    @property
+    def modality_id(self) -> Optional[Union[str, SerialIntEnum]]:
+        return self._camera_id
 
     @property
     def camera_name(self) -> str:

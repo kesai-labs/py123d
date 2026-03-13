@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
 
 from py123d.common.utils.enums import SerialIntEnum
 from py123d.common.utils.mixin import ArrayMixin, indexed_array_repr
-from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
 from py123d.datatypes.time import Timestamp
 from py123d.geometry import PoseSE3
 from py123d.geometry.geometry_index import Point3DIndex
@@ -17,14 +17,14 @@ from py123d.geometry.geometry_index import Point3DIndex
 class FisheyeMEICameraID(SerialIntEnum):
     """Enumeration of fisheye MEI camera ids in multi-sensor setups."""
 
-    FCAM_L = 0
+    FMCAM_L = 0
     """Left-facing fisheye MEI camera."""
 
-    FCAM_R = 1
+    FMCAM_R = 1
     """Right-facing fisheye MEI camera."""
 
 
-class FisheyeMEICamera:
+class FisheyeMEICamera(BaseModality):
     """Fisheye MEI camera data structure."""
 
     __slots__ = ("_metadata", "_image", "_extrinsic", "_timestamp")
@@ -49,6 +49,11 @@ class FisheyeMEICamera:
         self._timestamp = timestamp
 
     @property
+    def timestamp(self) -> Timestamp:
+        """Timestamp of the camera image."""
+        return self._timestamp
+
+    @property
     def metadata(self) -> FisheyeMEICameraMetadata:
         """The :class:`FisheyeMEICameraMetadata` object for the camera."""
         return self._metadata
@@ -62,11 +67,6 @@ class FisheyeMEICamera:
     def extrinsic(self) -> PoseSE3:
         """Extrinsic :class:`~py123d.geometry.PoseSE3` of the camera."""
         return self._extrinsic
-
-    @property
-    def timestamp(self) -> Timestamp:
-        """Timestamp of the camera image."""
-        return self._timestamp
 
 
 class FisheyeMEIDistortionIndex(IntEnum):
@@ -301,9 +301,14 @@ class FisheyeMEICameraMetadata(BaseModalityMetadata):
         )
 
     @property
-    def modality_name(self) -> str:
-        """Returns the name of the modality that this metadata describes."""
-        return f"fisheye_mei_camera.{self.camera_id.serialize()}"
+    def modality_type(self) -> ModalityType:
+        """Returns the type of the modality that this metadata describes."""
+        return ModalityType.FISHEYE_MEI_CAMERA
+
+    @property
+    def modality_id(self) -> Optional[Union[str, SerialIntEnum]]:
+        """Returns the ID of the modality that this metadata describes, which is the camera ID."""
+        return self._camera_id
 
     @property
     def camera_name(self) -> str:

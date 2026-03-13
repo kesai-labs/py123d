@@ -3,8 +3,8 @@ from __future__ import annotations
 import abc
 
 from py123d.datatypes import LogMetadata
-from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
-from py123d.parser.abstract_dataset_parser import ParsedFrame, ParsedModality
+from py123d.datatypes.modalities.base_modality import BaseModality
+from py123d.parser.base_dataset_parser import ModalitiesSync
 
 
 class AbstractLogWriter(abc.ABC):
@@ -18,7 +18,8 @@ class AbstractLogWriter(abc.ABC):
     def reset(self, log_metadata: LogMetadata) -> bool:
         """Prepare the writer for a new log. Returns True if the log needs writing."""
 
-    def write_sync(self, frame: ParsedFrame) -> None:
+    @abc.abstractmethod
+    def write_sync(self, modalities_sync: ModalitiesSync) -> None:
         """Write one synchronized frame — all modalities plus one sync-table row.
 
         :param timestamp: The timestamp of the frame.
@@ -26,11 +27,12 @@ class AbstractLogWriter(abc.ABC):
         :param kwargs: Modality name -> data pairs to write.
         """
 
-    def write_async(self, modality: ParsedModality, modality_metadata: BaseModalityMetadata) -> None:
+    @abc.abstractmethod
+    def write_async(self, modality: BaseModality) -> None:
         """Write a single async modality observation.
 
         :param timestamp: The timestamp of the observation.
-        :param modality_name: The modality name identifying the writer.
+        :param modality_key: The modality name identifying the writer.
         :param data: The modality data to write.
         """
 

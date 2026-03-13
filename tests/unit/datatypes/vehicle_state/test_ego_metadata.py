@@ -1,6 +1,6 @@
 import pytest
 
-from py123d.datatypes.vehicle_state.ego_metadata import EgoStateSE3Metadata
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import PoseSE3
 
 

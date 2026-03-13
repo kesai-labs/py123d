@@ -6,7 +6,8 @@ import numpy as np
 import numpy.typing as npt
 
 from py123d.common.utils.enums import SerialIntEnum
-from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.datatypes.modalities.base_modality import BaseModalityMetadata, ModalityType
+from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry import Point3DIndex, PoseSE3
 
 
@@ -112,9 +113,12 @@ class LidarMetadata(BaseModalityMetadata):
         return self._lidar_to_imu_se3
 
     @property
-    def modality_name(self) -> str:
-        """Returns the name of the modality that this metadata describes."""
-        return f"lidar.{self.lidar_id.serialize()}"
+    def modality_type(self) -> ModalityType:
+        return ModalityType.LIDAR
+
+    @property
+    def modality_id(self) -> Optional[Union[str, SerialIntEnum]]:
+        return self._lidar_id
 
     @classmethod
     def from_dict(cls, data_dict: dict) -> LidarMetadata:
@@ -143,35 +147,39 @@ class LidarMetadata(BaseModalityMetadata):
 
 
 class LidarMergedMetadata(BaseModalityMetadata, Mapping[LidarID, LidarMetadata]):
-    __slots__ = ("_data",)
+    __slots__ = ("_lidar_metadata_dict",)
 
     def __init__(self, lidar_metadata_dict: Dict[LidarID, LidarMetadata]):
-        self._data = lidar_metadata_dict
+        self._lidar_metadata_dict = lidar_metadata_dict
 
     def __getitem__(self, key: LidarID) -> LidarMetadata:
-        return self._data[key]
+        return self._lidar_metadata_dict[key]
 
     def __iter__(self) -> Iterator[LidarID]:
-        return iter(self._data)
+        return iter(self._lidar_metadata_dict)
 
     def __len__(self) -> int:
-        return len(self._data)
+        return len(self._lidar_metadata_dict)
 
     @property
-    def modality_name(self) -> str:
-        return f"lidar.{LidarID.LIDAR_MERGED.serialize()}"
+    def modality_type(self) -> ModalityType:
+        return ModalityType.LIDAR
+
+    @property
+    def modality_id(self) -> Optional[Union[str, SerialIntEnum]]:
+        return LidarID.LIDAR_MERGED
 
     @property
     def lidars_metadata(self) -> Dict[LidarID, LidarMetadata]:
         """Returns the dictionary of per-lidar metadata contained in this merged metadata."""
-        return self._data
+        return self._lidar_metadata_dict
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the metadata instance to a plain Python dictionary.
 
         :return: A dictionary representation using only default Python types.
         """
-        return {str(int(lid)): meta.to_dict() for lid, meta in self._data.items()}
+        return {str(int(lid)): meta.to_dict() for lid, meta in self._lidar_metadata_dict.items()}
 
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]) -> LidarMergedMetadata:
@@ -188,10 +196,18 @@ class LidarMergedMetadata(BaseModalityMetadata, Mapping[LidarID, LidarMetadata])
 class Lidar:
     """Data structure for Lidar point cloud data and associated metadata."""
 
-    __slots__ = ("_metadata", "_point_cloud_3d", "_point_cloud_features")
+    __slots__ = (
+        "_timestamp",
+        "_timestamp_end",
+        "_metadata",
+        "_point_cloud_3d",
+        "_point_cloud_features",
+    )
 
     def __init__(
         self,
+        timestamp: Timestamp,
+        timestamp_end: Timestamp,
         metadata: Union[LidarMetadata, LidarMergedMetadata],
         point_cloud_3d: npt.NDArray[np.float32],
         point_cloud_features: Optional[Dict[str, npt.NDArray]] = None,
@@ -203,6 +219,8 @@ class Lidar:
             and the (x, y, z), indexed by :class:`~py123d.geometry.Point3DIndex`.
         :param point_cloud_features: Optional dictionary of point cloud features.
         """
+        self._timestamp = timestamp
+        self._timestamp_end = timestamp_end
         self._metadata = metadata
         self._point_cloud_3d = point_cloud_3d
         self._point_cloud_features = point_cloud_features
@@ -211,6 +229,16 @@ class Lidar:
     def metadata(self) -> Union[LidarMetadata, LidarMergedMetadata]:
         """The :class:`LidarMetadata` associated with this Lidar recording."""
         return self._metadata
+
+    @property
+    def timestamp(self) -> Timestamp:
+        """The timestamp associated with this Lidar recording."""
+        return self._timestamp
+
+    @property
+    def timestamp_end(self) -> Timestamp:
+        """The end timestamp associated with this Lidar recording."""
+        return self._timestamp_end
 
     @property
     def point_cloud_3d(self) -> npt.NDArray[np.float32]:
@@ -262,7 +290,7 @@ class Lidar:
         return channel
 
     @property
-    def timestamp(self) -> Optional[npt.NDArray[np.int64]]:
+    def timestamps(self) -> Optional[npt.NDArray[np.int64]]:
         """The point cloud as an Nx1 array of timestamps in microseconds, if available."""
         timestamp: Optional[npt.NDArray[np.int64]] = None
         key = LidarFeature.TIMESTAMP.serialize()

@@ -34,10 +34,10 @@ from py123d.datatypes import (
 from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Quaternion, Vector3D
-from py123d.parser.abstract_dataset_parser import (
-    DatasetParser,
-    LogParser,
-    MapParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
+    BaseMapParser,
     ParsedCamera,
     ParsedFrame,
     ParsedLidar,
@@ -65,8 +65,8 @@ KITTI360_PINHOLE_CAMERA_IDS = {
     PinholeCameraID.PCAM_STEREO_R: "image_01",
 }
 KITTI360_FISHEYE_MEI_CAMERA_IDS = {
-    FisheyeMEICameraID.FCAM_L: "image_02",
-    FisheyeMEICameraID.FCAM_R: "image_03",
+    FisheyeMEICameraID.FMCAM_L: "image_02",
+    FisheyeMEICameraID.FMCAM_R: "image_03",
 }
 
 KITTI360_SPLITS: List[str] = ["kitti360_train", "kitti360_val", "kitti360_test"]
@@ -116,7 +116,7 @@ def _get_kitti360_required_modality_roots(kitti360_folders: Dict[str, Path]) -> 
     }
 
 
-class Kitti360Parser(DatasetParser):
+class Kitti360Parser(BaseDatasetParser):
     """Dataset parser for the KITTI-360 dataset."""
 
     def __init__(
@@ -159,8 +159,8 @@ class Kitti360Parser(DatasetParser):
         :return: A list of tuples containing the log name and split name
         """
 
-        def _has_modality(seq_name: str, modality_name: str, root: Path) -> bool:
-            if modality_name == DIR_3D_BBOX:
+        def _has_modality(seq_name: str, modality_key: str, root: Path) -> bool:
+            if modality_key == DIR_3D_BBOX:
                 # expected: data_3d_bboxes/train/<seq_name>.xml
                 xml_path = root / f"{seq_name}.xml"
                 return xml_path.exists()
@@ -191,9 +191,9 @@ class Kitti360Parser(DatasetParser):
                 continue
             for sequence_name in sequence_names:
                 missing_modalities = [
-                    modality_name
-                    for modality_name, root in required_modality_roots.items()
-                    if not _has_modality(sequence_name, modality_name, root)
+                    modality_key
+                    for modality_key, root in required_modality_roots.items()
+                    if not _has_modality(sequence_name, modality_key, root)
                 ]
                 if len(missing_modalities) == 0:
                     log_paths_and_split.append((sequence_name, split))
@@ -206,7 +206,7 @@ class Kitti360Parser(DatasetParser):
         logging.info(f"Valid sequences found: {len(log_paths_and_split)}")
         return log_paths_and_split
 
-    def get_map_parsers(self) -> List[MapParser]:
+    def get_map_parsers(self) -> List[BaseMapParser]:
         """Returns one :class:`MapParser` per map region in the dataset."""
         return [
             Kitti360MapParser(
@@ -217,7 +217,7 @@ class Kitti360Parser(DatasetParser):
             for log_name, split in self._log_names_and_split
         ]
 
-    def get_log_parsers(self) -> List[LogParser]:
+    def get_log_parsers(self) -> List[BaseLogParser]:
         """Returns one :class:`LogParser` per log in the dataset."""
         return [
             Kitti360LogParser(
@@ -232,7 +232,7 @@ class Kitti360Parser(DatasetParser):
         ]
 
 
-class Kitti360LogParser(LogParser):
+class Kitti360LogParser(BaseLogParser):
     """Lightweight, picklable handle to one KITTI-360 log."""
 
     def __init__(
@@ -327,7 +327,7 @@ class Kitti360LogParser(LogParser):
         assert self._log_metadata is not None
         return self._log_metadata
 
-    def iter_modality_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
+    def iter_modalities_async(self, modality_metadata: BaseModalityMetadata) -> Iterator[ParsedModality]:
         """Not implemented — use :meth:`iter_frames` for frame-based conversion."""
         raise NotImplementedError("KITTI-360 parser only supports frame-based conversion via iter_frames().")
 
@@ -782,7 +782,7 @@ def _extract_kitti360_lidar(
         # The Velodyne HDL-64E rotates at 10Hz, so each sweep covers 100ms.
         return ParsedLidar(
             lidar_name=KITTI360_LIDAR_NAME,
-            lidar_type=LidarID.LIDAR_TOP,
+            lidar_id=LidarID.LIDAR_TOP,
             start_timestamp=timestamp,
             end_timestamp=Timestamp.from_us(timestamp.time_us + KITTI360_LIDAR_SWEEP_DURATION_US),
             iteration=idx,

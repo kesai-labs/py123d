@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import enum
+import sys
 from typing import Union
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 
 class classproperty(object):
@@ -29,18 +35,18 @@ class SerialIntEnum(enum.Enum):
         return self.name.lower() if lower else self.name
 
     @classmethod
-    def deserialize(cls, key: str) -> SerialIntEnum:
+    def deserialize(cls, key: str) -> Self:
         """Deserialize the type when loading from a string."""
         # Allow for lower/upper case letters during deserialize
         return cls.__members__[key.upper()] if key.islower() else cls.__members__[key]
 
     @classmethod
-    def from_int(cls, value: int) -> SerialIntEnum:
+    def from_int(cls, value: int) -> Self:
         """Get the enum from an int."""
         return cls(value)
 
     @classmethod
-    def from_arbitrary(cls, value: Union[int, str, SerialIntEnum]) -> SerialIntEnum:
+    def from_arbitrary(cls, value: Union[int, str, SerialIntEnum]) -> Self:
         """Get the enum from an int, string, or enum instance."""
         if isinstance(value, cls):
             return value

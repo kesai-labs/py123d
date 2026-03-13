@@ -1,23 +1,12 @@
 from __future__ import annotations
 
-from py123d.datatypes.metadata.base_metadata import BaseModalityMetadata
+from py123d.datatypes.modalities.base_modality import BaseModalityMetadata, ModalityType
 from py123d.geometry import PoseSE2, PoseSE3
 from py123d.geometry.transform import abs_to_rel_se2, abs_to_rel_se3, rel_to_abs_se2, rel_to_abs_se3
 
 
 class EgoStateSE3Metadata(BaseModalityMetadata):
-    """Metadata that describes the physical dimensions of the ego vehicle.
-
-    The vehicle geometry is defined through two SE3 extrinsic transforms that relate
-    the vehicle's center and rear axle frames to the IMU frame:
-
-    - ``center_to_imu_se3``: maps coordinates from the vehicle center frame to the IMU frame.
-    - ``rear_axle_to_imu_se3``: maps coordinates from the rear axle frame to the IMU frame.
-
-    For most datasets the IMU is co-located with the rear axle, so
-    ``rear_axle_to_imu_se3`` is the identity. KITTI-360 is the notable exception
-    where the IMU has a lateral offset from the rear axle.
-    """
+    """Metadata that describes the physical dimensions of the ego vehicle."""
 
     __slots__ = ("vehicle_name", "width", "length", "height", "wheel_base", "center_to_imu_se3", "rear_axle_to_imu_se3")
 
@@ -106,9 +95,9 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
         return self.center_to_imu_se3.z - self.rear_axle_to_imu_se3.z
 
     @property
-    def modality_name(self) -> str:
+    def modality_type(self) -> ModalityType:
         """Returns the name of the modality that this metadata describes."""
-        return "ego_state_se3"
+        return ModalityType.EGO_STATE_SE3
 
     def to_dict(self) -> dict:
         """Converts the :class:`EgoStateSE3Metadata` instance to a dictionary.
@@ -126,7 +115,7 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
         }
 
 
-def get_carla_lincoln_mkz_2020_ego_metadata() -> EgoStateSE3Metadata:
+def get_carla_lincoln_mkz_2020_metadata() -> EgoStateSE3Metadata:
     """Helper function to get CARLA Lincoln MKZ 2020 ego metadata."""
     # NOTE: These parameters are taken from the CARLA simulator vehicle model. The rear axles to center transform
     # parameters are calculated based on parameters from the CARLA simulator.
@@ -146,45 +135,45 @@ def get_carla_lincoln_mkz_2020_ego_metadata() -> EgoStateSE3Metadata:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def imu_se3_to_rear_axle_se3(imu_se3: PoseSE3, ego_metadata: EgoStateSE3Metadata) -> PoseSE3:
+def imu_se3_to_rear_axle_se3(imu_se3: PoseSE3, metadata: EgoStateSE3Metadata) -> PoseSE3:
     """Converts an IMU world pose to a rear axle world pose in SE3.
 
     :param imu_se3: The IMU pose in the global frame.
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The rear axle pose in the global frame.
     """
-    return rel_to_abs_se3(origin=imu_se3, pose_se3=ego_metadata.rear_axle_to_imu_se3)
+    return rel_to_abs_se3(origin=imu_se3, pose_se3=metadata.rear_axle_to_imu_se3)
 
 
-def rear_axle_se3_to_imu_se3(rear_axle_se3: PoseSE3, ego_metadata: EgoStateSE3Metadata) -> PoseSE3:
+def rear_axle_se3_to_imu_se3(rear_axle_se3: PoseSE3, metadata: EgoStateSE3Metadata) -> PoseSE3:
     """Converts a rear axle world pose to an IMU world pose in SE3.
 
     :param rear_axle_se3: The rear axle pose in the global frame.
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The IMU pose in the global frame.
     """
-    imu_in_rear_axle = abs_to_rel_se3(ego_metadata.rear_axle_to_imu_se3, PoseSE3.identity())
+    imu_in_rear_axle = abs_to_rel_se3(metadata.rear_axle_to_imu_se3, PoseSE3.identity())
     return rel_to_abs_se3(origin=rear_axle_se3, pose_se3=imu_in_rear_axle)
 
 
-def imu_se2_to_rear_axle_se2(imu_se2: PoseSE2, ego_metadata: EgoStateSE3Metadata) -> PoseSE2:
+def imu_se2_to_rear_axle_se2(imu_se2: PoseSE2, metadata: EgoStateSE3Metadata) -> PoseSE2:
     """Converts an IMU world pose to a rear axle world pose in SE2.
 
     :param imu_se2: The IMU pose in the global frame (SE2).
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The rear axle pose in the global frame (SE2).
     """
-    return rel_to_abs_se2(origin=imu_se2, pose_se2=ego_metadata.rear_axle_to_imu_se3.pose_se2)
+    return rel_to_abs_se2(origin=imu_se2, pose_se2=metadata.rear_axle_to_imu_se3.pose_se2)
 
 
-def rear_axle_se2_to_imu_se2(rear_axle_se2: PoseSE2, ego_metadata: EgoStateSE3Metadata) -> PoseSE2:
+def rear_axle_se2_to_imu_se2(rear_axle_se2: PoseSE2, metadata: EgoStateSE3Metadata) -> PoseSE2:
     """Converts a rear axle world pose to an IMU world pose in SE2.
 
     :param rear_axle_se2: The rear axle pose in the global frame (SE2).
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The IMU pose in the global frame (SE2).
     """
-    imu_in_rear_axle = abs_to_rel_se2(ego_metadata.rear_axle_to_imu_se3.pose_se2, PoseSE2.identity())
+    imu_in_rear_axle = abs_to_rel_se2(metadata.rear_axle_to_imu_se3.pose_se2, PoseSE2.identity())
     return rel_to_abs_se2(origin=rear_axle_se2, pose_se2=imu_in_rear_axle)
 
 
@@ -193,43 +182,43 @@ def rear_axle_se2_to_imu_se2(rear_axle_se2: PoseSE2, ego_metadata: EgoStateSE3Me
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def imu_se3_to_center_se3(imu_se3: PoseSE3, ego_metadata: EgoStateSE3Metadata) -> PoseSE3:
+def imu_se3_to_center_se3(imu_se3: PoseSE3, metadata: EgoStateSE3Metadata) -> PoseSE3:
     """Converts an IMU world pose to a vehicle center world pose in SE3.
 
     :param imu_se3: The IMU pose in the global frame.
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The center pose in the global frame.
     """
-    return rel_to_abs_se3(origin=imu_se3, pose_se3=ego_metadata.center_to_imu_se3)
+    return rel_to_abs_se3(origin=imu_se3, pose_se3=metadata.center_to_imu_se3)
 
 
-def center_se3_to_imu_se3(center_se3: PoseSE3, ego_metadata: EgoStateSE3Metadata) -> PoseSE3:
+def center_se3_to_imu_se3(center_se3: PoseSE3, metadata: EgoStateSE3Metadata) -> PoseSE3:
     """Converts a vehicle center world pose to an IMU world pose in SE3.
 
     :param center_se3: The center pose in the global frame.
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The IMU pose in the global frame.
     """
-    imu_in_center = abs_to_rel_se3(ego_metadata.center_to_imu_se3, PoseSE3.identity())
+    imu_in_center = abs_to_rel_se3(metadata.center_to_imu_se3, PoseSE3.identity())
     return rel_to_abs_se3(origin=center_se3, pose_se3=imu_in_center)
 
 
-def imu_se2_to_center_se2(imu_se2: PoseSE2, ego_metadata: EgoStateSE3Metadata) -> PoseSE2:
+def imu_se2_to_center_se2(imu_se2: PoseSE2, metadata: EgoStateSE3Metadata) -> PoseSE2:
     """Converts an IMU world pose to a vehicle center world pose in SE2.
 
     :param imu_se2: The IMU pose in the global frame (SE2).
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The center pose in the global frame (SE2).
     """
-    return rel_to_abs_se2(origin=imu_se2, pose_se2=ego_metadata.center_to_imu_se3.pose_se2)
+    return rel_to_abs_se2(origin=imu_se2, pose_se2=metadata.center_to_imu_se3.pose_se2)
 
 
-def center_se2_to_imu_se2(center_se2: PoseSE2, ego_metadata: EgoStateSE3Metadata) -> PoseSE2:
+def center_se2_to_imu_se2(center_se2: PoseSE2, metadata: EgoStateSE3Metadata) -> PoseSE2:
     """Converts a vehicle center world pose to an IMU world pose in SE2.
 
     :param center_se2: The center pose in the global frame (SE2).
-    :param ego_metadata: The ego metadata.
+    :param metadata: The ego metadata.
     :return: The IMU pose in the global frame (SE2).
     """
-    imu_in_center = abs_to_rel_se2(ego_metadata.center_to_imu_se3.pose_se2, PoseSE2.identity())
+    imu_in_center = abs_to_rel_se2(metadata.center_to_imu_se3.pose_se2, PoseSE2.identity())
     return rel_to_abs_se2(origin=center_se2, pose_se2=imu_in_center)

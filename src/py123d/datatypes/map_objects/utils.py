@@ -20,7 +20,9 @@ def get_trimesh_from_boundaries(
         """Helper function to interpolate a polyline to a fixed number of samples."""
         num_samples = max(num_samples, 2)
         distances = np.linspace(0, polyline_3d.length, num=num_samples, endpoint=True, dtype=np.float64)
-        return polyline_3d.interpolate(distances)
+        points = polyline_3d.interpolate(distances)
+        assert isinstance(points, np.ndarray) and points.shape == (num_samples, 3)
+        return points
 
     average_length = (left_boundary.length + right_boundary.length) / 2
     num_samples = int(average_length // resolution) + 1

@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 
 import pyarrow as pa
 
-from py123d.api.scene.arrow.modalities.base_modality import BaseModalityWriter
+from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
 from py123d.api.scene.arrow.modalities.sync_utils import (
     get_all_modality_timestamps,
     get_first_sync_index,
@@ -18,16 +18,15 @@ from py123d.datatypes import (
     TrafficLightDetectionsMetadata,
     TrafficLightStatus,
 )
+from py123d.datatypes.modalities.base_modality import BaseModality
 
-_MODALITY_NAME = "traffic_light_detections"
-
-
+_modality_key = "FIXME"
 # ------------------------------------------------------------------------------------------------------------------
 # Writer
 # ------------------------------------------------------------------------------------------------------------------
 
 
-class ArrowTrafficLightDetectionsWriter(BaseModalityWriter):
+class ArrowTrafficLightDetectionsWriter(ArrowBaseModalityWriter):
     def __init__(
         self,
         log_dir: Path,
@@ -36,15 +35,15 @@ class ArrowTrafficLightDetectionsWriter(BaseModalityWriter):
         ipc_compression_level: Optional[int] = None,
     ) -> None:
         self._modality_metadata = metadata
-        self._modality_name = metadata.modality_name
+        self._modality_key = metadata.modality_type
 
-        file_path = log_dir / f"{metadata.modality_name}.arrow"
+        file_path = log_dir / f"{metadata.modality_type}.arrow"
 
         schema = pa.schema(
             [
-                (f"{self._modality_name}.timestamp_us", pa.int64()),
-                (f"{self._modality_name}.lane_id", pa.list_(pa.int32())),
-                (f"{self._modality_name}.status", pa.list_(pa.uint8())),
+                (f"{self._modality_key}.timestamp_us", pa.int64()),
+                (f"{self._modality_key}.lane_id", pa.list_(pa.int32())),
+                (f"{self._modality_key}.status", pa.list_(pa.uint8())),
             ]
         )
         super().__init__(
@@ -55,22 +54,20 @@ class ArrowTrafficLightDetectionsWriter(BaseModalityWriter):
             max_batch_size=1000,
         )
 
-    def write_modality(self, traffic_light_detections: TrafficLightDetections):
-        assert isinstance(traffic_light_detections, TrafficLightDetections), (
-            f"Expected TrafficLightDetections, got {type(traffic_light_detections)}"
-        )
+    def write_modality(self, modality: BaseModality) -> None:
+        assert isinstance(modality, TrafficLightDetections), f"Expected TrafficLightDetections, got {type(modality)}"
         lane_id_list = []
         status_list = []
 
-        for traffic_light_detection in traffic_light_detections:
+        for traffic_light_detection in modality:
             lane_id_list.append(traffic_light_detection.lane_id)
             status_list.append(traffic_light_detection.status)
 
         self.write_batch(
             {
-                f"{self._modality_name}.timestamp_us": [traffic_light_detections.timestamp.time_us],
-                f"{self._modality_name}.lane_id": [lane_id_list],
-                f"{self._modality_name}.status": [status_list],
+                f"{self._modality_key}.timestamp_us": [modality.timestamp.time_us],
+                f"{self._modality_key}.lane_id": [lane_id_list],
+                f"{self._modality_key}.status": [status_list],
             }
         )
 
@@ -96,10 +93,10 @@ class ArrowTrafficLightDetectionsReader:
         :param table_index: The resolved sync table index.
         :return: The traffic light detections, or None if unavailable.
         """
-        tl_table = get_modality_table(log_dir, _MODALITY_NAME)
+        tl_table = get_modality_table(log_dir, _modality_key)
         if tl_table is None:
             return None
-        row_idx = get_first_sync_index(sync_table, _MODALITY_NAME, table_index)
+        row_idx = get_first_sync_index(sync_table, _modality_key, table_index)
         if row_idx is None:
             return None
         return _deserialize_traffic_light_detections(tl_table, row_idx)
@@ -118,7 +115,7 @@ class ArrowTrafficLightDetectionsReader:
         :return: All traffic light detection timestamps in the scene, ordered by time.
         """
         return get_all_modality_timestamps(
-            log_dir, sync_table, scene_metadata, _MODALITY_NAME, f"{_MODALITY_NAME}.timestamp_us"
+            log_dir, sync_table, scene_metadata, _modality_key, f"{_modality_key}.timestamp_us"
         )
 
 
@@ -128,18 +125,18 @@ def _deserialize_traffic_light_detections(
 ) -> Optional[TrafficLightDetections]:
     """Deserialize traffic light detections from Arrow table columns at the given row index."""
     tl_columns = [
-        f"{_MODALITY_NAME}.timestamp_us",
-        f"{_MODALITY_NAME}.lane_id",
-        f"{_MODALITY_NAME}.status",
+        f"{_modality_key}.timestamp_us",
+        f"{_modality_key}.lane_id",
+        f"{_modality_key}.status",
     ]
     if not all_columns_in_schema(arrow_table, tl_columns):
         return None
 
-    timestamp = Timestamp.from_us(arrow_table[f"{_MODALITY_NAME}.timestamp_us"][index].as_py())
+    timestamp = Timestamp.from_us(arrow_table[f"{_modality_key}.timestamp_us"][index].as_py())
     detections: List[TrafficLightDetection] = []
     for lane_id, status in zip(
-        arrow_table[f"{_MODALITY_NAME}.lane_id"][index].as_py(),
-        arrow_table[f"{_MODALITY_NAME}.status"][index].as_py(),
+        arrow_table[f"{_modality_key}.lane_id"][index].as_py(),
+        arrow_table[f"{_modality_key}.status"][index].as_py(),
     ):
         detections.append(
             TrafficLightDetection(
