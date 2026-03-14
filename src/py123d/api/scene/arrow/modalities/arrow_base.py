@@ -1,9 +1,13 @@
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import pyarrow as pa
 
-from py123d.datatypes.modalities.base_modality import BaseModality
+from py123d.api.scene.arrow.modalities.sync_utils import get_all_modality_timestamps
+from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
+from py123d.datatypes.time.timestamp import Timestamp
 
 
 class ArrowBaseModalityWriter:
@@ -82,3 +86,35 @@ class ArrowBaseModalityWriter:
         if self._source is not None:
             self._source.close()
             self._source = None
+
+
+class ArrowBaseModalityReader(ABC):
+    """Base class for stateless Arrow modality readers.
+
+    All readers follow a common 3-step pattern:
+    1. Load the modality table from ``log_dir`` using ``metadata.modality_key``.
+    2. Resolve the row index via the sync table.
+    3. Deserialize the row into a domain object.
+    """
+
+    @staticmethod
+    @abstractmethod
+    def read_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        dataset: str,
+    ) -> Optional[BaseModality]:
+        pass
+
+    @staticmethod
+    def read_all_timestamps(
+        log_dir: Path,
+        sync_table: pa.Table,
+        scene_metadata: SceneMetadata,
+        metadata: BaseModalityMetadata,
+    ) -> List[Timestamp]:
+        modality_key = metadata.modality_key
+        return get_all_modality_timestamps(
+            log_dir, sync_table, scene_metadata, modality_key, f"{modality_key}.timestamp_us"
+        )

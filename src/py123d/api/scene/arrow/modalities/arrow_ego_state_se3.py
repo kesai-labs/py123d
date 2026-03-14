@@ -1,16 +1,10 @@
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 import pyarrow as pa
 
-from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
-from py123d.api.scene.arrow.modalities.sync_utils import (
-    get_all_modality_timestamps,
-    get_first_sync_index,
-    get_modality_table,
-)
+from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
 from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema, get_optional_array_mixin
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.time.timestamp import Timestamp
@@ -70,96 +64,18 @@ class ArrowEgoStateSE3Writer(ArrowBaseModalityWriter):
 # ------------------------------------------------------------------------------------------------------------------
 
 
-class ArrowEgoStateSE3Reader:
+class ArrowEgoStateSE3Reader(ArrowBaseModalityReader):
     """Stateless reader for ego state SE3 data from Arrow tables."""
 
     @staticmethod
-    def read_at_iteration(
-        log_dir: Path,
-        sync_table: pa.Table,
-        table_index: int,
-        metadata: Optional[EgoStateSE3Metadata],
+    def read_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        dataset: str,
     ) -> Optional[EgoStateSE3]:
-        """Read ego state at a specific sync table index.
-
-        :param log_dir: Path to the log directory.
-        :param sync_table: The sync Arrow table.
-        :param table_index: The resolved sync table index.
-        :param metadata: Ego state metadata.
-        :return: The ego state, or None if unavailable.
-        """
-        if metadata is None:
-            return None
-
-        ego_table = get_modality_table(log_dir, metadata.modality_key)
-        if ego_table is None or metadata is None:
-            return None
-        row_idx = get_first_sync_index(sync_table, metadata.modality_key, table_index)
-        if row_idx is None:
-            return None
-        return _deserialize_ego_state_se3(ego_table, row_idx, metadata)
-
-    @staticmethod
-    def read_all_timestamps(
-        log_dir: Path, sync_table: pa.Table, scene_metadata: SceneMetadata, modality_metadata: EgoStateSE3Metadata
-    ) -> List[Timestamp]:
-        """Read all ego state timestamps within the scene range.
-
-        :param log_dir: Path to the log directory.
-        :param sync_table: The sync Arrow table.
-        :param scene_metadata: Scene metadata defining the iteration range.
-        :param modality_metadata: Ego state metadata.
-        :return: All ego state timestamps in the scene, ordered by time.
-        """
-        return get_all_modality_timestamps(
-            log_dir,
-            sync_table,
-            scene_metadata,
-            modality_metadata.modality_key,
-            f"{modality_metadata.modality_key}.timestamp_us",
-        )
-
-    @staticmethod
-    def read_at_timestamp(
-        log_dir: Path,
-        sync_table: pa.Table,
-        timestamp: Timestamp,
-        modality_metadata: Optional[EgoStateSE3Metadata],
-    ) -> Optional[EgoStateSE3]:
-        """Read ego state at a specific timestamp.
-
-        :param log_dir: Path to the log directory.
-        :param sync_table: The sync Arrow table.
-        :param timestamp: The timestamp to query.
-        :param modality_metadata: Ego state metadata.
-        :return: The ego state, or None if unavailable.
-        """
-        if modality_metadata is None:
-            return None
-
-        ego_table = get_modality_table(log_dir, modality_metadata.modality_key)
-        if ego_table is None or modality_metadata is None:
-            return None
-
-        # Find the closest row index in the ego table for the given timestamp
-        timestamp_column = f"{modality_metadata.modality_key}.timestamp_us"
-        if timestamp_column not in ego_table.schema.names:
-            return None
-
-        timestamps = ego_table[timestamp_column]
-        closest_idx = None
-        closest_diff = None
-        for i in range(len(timestamps)):
-            ts = Timestamp.from_us(timestamps[i].as_py())
-            diff = abs(ts.time_us - timestamp.time_us)
-            if closest_diff is None or diff < closest_diff:
-                closest_diff = diff
-                closest_idx = i
-
-        if closest_idx is None:
-            return None
-
-        return _deserialize_ego_state_se3(ego_table, closest_idx, modality_metadata)
+        assert isinstance(metadata, EgoStateSE3Metadata)
+        return _deserialize_ego_state_se3(table, index, metadata)
 
 
 def _deserialize_ego_state_se3(

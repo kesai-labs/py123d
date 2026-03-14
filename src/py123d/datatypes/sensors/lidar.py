@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, Mapping, Optional, Type, Union
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Type, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +18,7 @@ class LidarID(SerialIntEnum):
     """Unknown Lidar type."""
 
     LIDAR_MERGED = 1
+    """Merged sensor Lidar type"""
 
     LIDAR_TOP = 2
     """Top-facing Lidar type."""
@@ -220,11 +221,6 @@ class Lidar(BaseModality):
         self._point_cloud_features = point_cloud_features
 
     @property
-    def metadata(self) -> Union[LidarMetadata, LidarMergedMetadata]:
-        """The :class:`LidarMetadata` associated with this Lidar recording."""
-        return self._metadata
-
-    @property
     def lidar_metadatas(self) -> Dict[LidarID, LidarMetadata]:
         """Returns the dictionary of per-lidar metadata contained in this Lidar's metadata.
 
@@ -237,6 +233,16 @@ class Lidar(BaseModality):
         else:
             lidar_metadatas = {self._metadata.lidar_id: self._metadata}
         return lidar_metadatas
+
+    @property
+    def is_merged(self) -> bool:
+        """Returns True if this Lidar contains merged data from multiple lidars, False if it contains data from a single lidar."""
+        return isinstance(self._metadata, LidarMergedMetadata)
+
+    @property
+    def metadata(self) -> Union[LidarMetadata, LidarMergedMetadata]:
+        """The :class:`LidarMetadata` associated with this Lidar recording."""
+        return self._metadata
 
     @property
     def timestamp(self) -> Timestamp:
@@ -323,3 +329,69 @@ class Lidar(BaseModality):
         if self._point_cloud_features is not None and key in self._point_cloud_features:
             elongation = self._point_cloud_features[key].astype(np.float32)  # type: ignore
         return elongation
+
+
+def get_merged_lidar(lidars: List[Lidar]) -> Optional[Lidar]:
+    """Merges multiple Lidar objects into a single Lidar object with concatenated point clouds and features."""
+
+    lidar_merged: Optional[Lidar] = None
+
+    if len(lidars) >= 1:
+        lidar_metadatas: Dict[LidarID, LidarMetadata] = {}
+        for lidar in lidars:
+            lidar_metadatas.update(lidar.lidar_metadatas)
+
+        # Use earliest start timestamp and latest end timestamp from the individual lidars
+        timestamp = min(lidars, key=lambda l: l.timestamp.time_us).timestamp
+        timestamp_end = max(lidars, key=lambda l: l.timestamp_end.time_us).timestamp_end
+
+        point_cloud_3d = np.concatenate([lidar.point_cloud_3d for lidar in lidars], axis=0)
+        point_cloud_features_list: Dict[str, List[np.ndarray]] = {}
+        for lidar in lidars:
+            if lidar.point_cloud_features is not None:
+                for feature_name, feature_values in lidar.point_cloud_features.items():
+                    if feature_name not in point_cloud_features_list:
+                        point_cloud_features_list[feature_name] = []
+                    point_cloud_features_list[feature_name].append(feature_values)
+
+        point_cloud_features = {
+            feature_name: np.concatenate(features_list, axis=0)
+            for feature_name, features_list in point_cloud_features_list.items()
+        }
+        lidar_merged = Lidar(
+            timestamp=timestamp,
+            timestamp_end=timestamp_end,
+            metadata=LidarMergedMetadata(lidar_metadata_dict=lidar_metadatas),
+            point_cloud_3d=point_cloud_3d,
+            point_cloud_features=point_cloud_features,
+        )
+
+    return lidar_merged
+
+
+def get_individual_lidar(lidar_merged: Optional[Lidar], lidar_id: LidarID) -> Optional[Lidar]:
+    """Splits a merged Lidar object into an individual Lidar object for a specific LidarID."""
+    assert lidar_id != LidarID.LIDAR_MERGED, "Cannot split merged lidar with LIDAR_MERGED ID"
+
+    target_lidar: Optional[Lidar] = None
+
+    if lidar_merged is not None:
+        target_metadata = lidar_merged.lidar_metadatas.get(lidar_id, None)
+        point_cloud_ids = lidar_merged.ids
+        if target_metadata is not None and point_cloud_ids is not None:
+            target_mask = point_cloud_ids == lidar_id.value
+            target_point_cloud_3d = lidar_merged.point_cloud_3d[target_mask]
+            target_point_cloud_features = {
+                feature_name: feature_values[target_mask]
+                for feature_name, feature_values in (lidar_merged.point_cloud_features or {}).items()
+            }
+            target_metadata = lidar_merged.lidar_metadatas[lidar_id]
+            target_lidar = Lidar(
+                timestamp=lidar_merged.timestamp,
+                timestamp_end=lidar_merged.timestamp_end,
+                metadata=target_metadata,
+                point_cloud_3d=target_point_cloud_3d,
+                point_cloud_features=target_point_cloud_features,
+            )
+
+    return target_lidar

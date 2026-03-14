@@ -1,15 +1,13 @@
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 import pyarrow as pa
 
-from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
-from py123d.api.scene.arrow.modalities.sync_utils import get_all_modality_timestamps, get_modality_table
-from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.utils.msgpack_utils import msgpack_decode_with_numpy, msgpack_encode_with_numpy
 from py123d.datatypes.custom.custom_modality import CustomModality, CustomModalityMetadata
-from py123d.datatypes.modalities.base_modality import BaseModality
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.time.timestamp import Timestamp
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -62,54 +60,22 @@ class ArrowCustomModalityWriter(ArrowBaseModalityWriter):
 # ------------------------------------------------------------------------------------------------------------------
 
 
-class ArrowCustomModalityReader:
+class ArrowCustomModalityReader(ArrowBaseModalityReader):
     """Stateless reader for custom modality data from Arrow tables."""
 
     @staticmethod
-    def read_at_iteration(
-        log_dir: Path,
-        table_index: int,
-        name: str,
+    def read_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        dataset: str,
     ) -> Optional[CustomModality]:
-        """Read a custom modality at a specific table index.
-
-        Custom modalities are indexed directly by table index (not via sync table),
-        since each row maps 1:1 to a sync iteration.
-
-        :param log_dir: Path to the log directory.
-        :param table_index: The resolved table index.
-        :param name: The custom modality name (e.g. ``"route"``, ``"predictions"``).
-        :return: The custom modality, or None if unavailable.
-        """
-        modality_prefix = f"custom.{name}"
-        table = get_modality_table(log_dir, modality_prefix)
-        if table is None:
-            return None
-        encoded_data: bytes = table[f"{modality_prefix}.data"][table_index].as_py()
-        timestamp_us: int = table[f"{modality_prefix}.timestamp_us"][table_index].as_py()
+        assert isinstance(metadata, CustomModalityMetadata), f"Expected CustomModalityMetadata, got {type(metadata)}"
+        _modality_key = metadata.modality_key
+        timestamp_us: int = table[f"{_modality_key}.timestamp_us"][index].as_py()
+        encoded_data: bytes = table[f"{_modality_key}.data"][index].as_py()
         data = msgpack_decode_with_numpy(encoded_data)
-        return CustomModality(data=data, timestamp=Timestamp.from_us(timestamp_us))  # type: ignore
-
-    @staticmethod
-    def read_all_timestamps(
-        log_dir: Path,
-        sync_table: pa.Table,
-        scene_metadata: SceneMetadata,
-        name: str,
-    ) -> List[Timestamp]:
-        """Read all timestamps for a custom modality within the scene range.
-
-        :param log_dir: Path to the log directory.
-        :param sync_table: The sync Arrow table.
-        :param scene_metadata: Scene metadata defining the iteration range.
-        :param name: The custom modality name.
-        :return: All custom modality timestamps in the scene, ordered by time.
-        """
-        modality_key = f"custom.{name}"
-        return get_all_modality_timestamps(
-            log_dir,
-            sync_table,
-            scene_metadata,
-            modality_key,
-            f"{modality_key}.timestamp_us",
-        )
+        return CustomModality(
+            data=data,
+            timestamp=Timestamp.from_us(timestamp_us),
+        )  # type: ignore

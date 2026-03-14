@@ -39,7 +39,7 @@ def get_sync_table(log_dir: Path) -> pa.Table:
     return table
 
 
-def get_first_sync_index(sync_table: pa.Table, column_name: str, idx: int) -> Optional[int]:
+def get_modality_index_from_sync_index(sync_table: pa.Table, column_name: str, idx: int) -> Optional[int]:
     """Extracts the first row index from a sync table column.
 
     Handles both scalar (``pa.int64``) and list-typed (``pa.list_(pa.int64())``) sync columns.
@@ -108,7 +108,7 @@ def get_all_modality_timestamps(
     # Find first referenced row index (scan forward)
     first_row: Optional[int] = None
     for i in range(initial_idx, end_idx):
-        first_row = get_first_sync_index(sync_table, modality_key, i)
+        first_row = get_modality_index_from_sync_index(sync_table, modality_key, i)
         if first_row is not None:
             break
 

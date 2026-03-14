@@ -3,18 +3,14 @@ from typing import List, Literal, Optional
 
 import pyarrow as pa
 
-from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
-from py123d.api.scene.arrow.modalities.sync_utils import (
-    get_all_modality_timestamps,
-    get_first_sync_index,
-    get_modality_table,
-)
+from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
+from py123d.api.scene.arrow.modalities.sync_utils import get_all_modality_timestamps
 from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema, get_optional_array_mixin
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE3, BoxDetectionsSE3
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
-from py123d.datatypes.modalities.base_modality import BaseModality
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.bounding_box import BoundingBoxSE3
 from py123d.geometry.geometry_index import BoundingBoxSE3Index, Vector3DIndex
@@ -89,48 +85,26 @@ class ArrowBoxDetectionsSE3Writer(ArrowBaseModalityWriter):
 # ------------------------------------------------------------------------------------------------------------------
 
 
-class ArrowBoxDetectionsSE3Reader:
+class ArrowBoxDetectionsSE3Reader(ArrowBaseModalityReader):
     """Stateless reader for box detections SE3 data from Arrow tables."""
 
     @staticmethod
-    def read_at_iteration(
-        log_dir: Path,
-        sync_table: pa.Table,
-        table_index: int,
-        metadata: Optional[BoxDetectionsSE3Metadata],
+    def read_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        dataset: str,
     ) -> Optional[BoxDetectionsSE3]:
-        """Read box detections at a specific sync table index.
-
-        :param log_dir: Path to the log directory.
-        :param sync_table: The sync Arrow table.
-        :param table_index: The resolved sync table index.
-        :param metadata: Box detections metadata (contains label class info).
-        :return: The box detections, or None if unavailable.
-        """
-        if metadata is None:
-            return None
-        box_table = get_modality_table(log_dir, metadata.modality_key)
-        if box_table is None:
-            return None
-        row_idx = get_first_sync_index(sync_table, metadata.modality_key, table_index)
-        if row_idx is None:
-            return None
-        return _deserialize_box_detections_se3(box_table, row_idx, metadata)
+        assert isinstance(metadata, BoxDetectionsSE3Metadata)
+        return _deserialize_box_detections_se3(table, index, metadata)
 
     @staticmethod
     def read_all_timestamps(
         log_dir: Path,
         sync_table: pa.Table,
-        metadata: BoxDetectionsSE3Metadata,
         scene_metadata: SceneMetadata,
+        metadata: BaseModalityMetadata,
     ) -> List[Timestamp]:
-        """Read all box detection timestamps within the scene range.
-
-        :param log_dir: Path to the log directory.
-        :param sync_table: The sync Arrow table.
-        :param scene_metadata: Scene metadata defining the iteration range.
-        :return: All box detection timestamps in the scene, ordered by time.
-        """
         return get_all_modality_timestamps(
             log_dir, sync_table, scene_metadata, metadata.modality_key, f"{metadata.modality_key}.timestamp_us"
         )
