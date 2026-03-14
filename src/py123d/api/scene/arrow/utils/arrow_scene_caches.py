@@ -19,6 +19,8 @@ def _get_complete_log_scene_metadata(log_dir: Union[Path, str], log_metadata: Lo
     initial_uuid = convert_to_str_uuid(table["sync.uuid"][0].as_py())
     num_rows = table.num_rows
     return SceneMetadata(
+        dataset=log_metadata.dataset,
+        split=log_metadata.split,
         initial_uuid=initial_uuid,
         initial_idx=0,
         duration_s=log_metadata.timestep_seconds * num_rows,

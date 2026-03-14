@@ -1,5 +1,7 @@
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Optional, Union
+
+import pyarrow as pa
 
 from py123d.api.map.arrow.arrow_map_api import get_lru_cached_map_api
 from py123d.api.map.map_api import MapAPI
@@ -10,7 +12,12 @@ from py123d.api.scene.arrow.modalities.arrow_ego_state_se3 import ArrowEgoStateS
 from py123d.api.scene.arrow.modalities.arrow_lidar import ArrowLidarReader
 from py123d.api.scene.arrow.modalities.arrow_sync import get_timestamp_from_arrow_table
 from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections import ArrowTrafficLightDetectionsReader
-from py123d.api.scene.arrow.modalities.sync_utils import get_sync_table
+from py123d.api.scene.arrow.modalities.sync_utils import (
+    get_all_modality_timestamps,
+    get_first_sync_index,
+    get_modality_table,
+    get_sync_table,
+)
 from py123d.api.scene.arrow.utils.arrow_scene_caches import (
     _get_complete_log_scene_metadata,
 )
@@ -41,7 +48,7 @@ from py123d.datatypes import (
 )
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
-from py123d.datatypes.modalities.base_modality import BaseModalityMetadata, ModalityType
+from py123d.datatypes.modalities.base_modality import BaseModalityMetadata, ModalityType, get_modality_key
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 
 
@@ -143,39 +150,113 @@ class ArrowSceneAPI(SceneAPI):
     # 4. General modality access
     # ------------------------------------------------------------------------------------------------------------------
 
-    def get_all_modality_metadatas(self) -> Optional[BaseModalityMetadata]:
-        pass
+    def _resolve_modality_key(
+        self,
+        modality_type: Union[str, ModalityType],
+        modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
+    ) -> str:
+        """Resolve a modality type and optional id to a modality key string."""
+        if isinstance(modality_type, str):
+            modality_type = ModalityType.deserialize(modality_type)
+        if isinstance(modality_id, int):
+            modality_id = SerialIntEnum.from_int(modality_id)
+        return get_modality_key(modality_type, modality_id)
+
+    def get_all_modality_metadatas(self) -> Dict[str, BaseModalityMetadata]:
+        """Returns all modality metadatas found in the log directory.
+
+        :return: Mapping of modality key to its metadata.
+        """
+        return self._get_log_dir_metadatas().modality_metadatas
 
     def get_modality_metadata(
         self,
-        modality_type: str,
+        modality_type: Union[str, ModalityType],
         modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
     ) -> Optional[BaseModalityMetadata]:
-        pass
+        """Returns the metadata for a specific modality.
+
+        :param modality_type: The modality type as a string or :class:`ModalityType`.
+        :param modality_id: Optional modality id (e.g. sensor id).
+        :return: The metadata, or None if the modality is not present.
+        """
+        modality_key = self._resolve_modality_key(modality_type, modality_id)
+        return self._get_log_dir_metadatas().modality_metadatas.get(modality_key)
 
     def get_modality_timestamps(
         self,
-        modality_type: str,
+        modality_type: Union[str, ModalityType],
         modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
-    ) -> Optional[List[Timestamp]]:
-        pass
+    ) -> List[Timestamp]:
+        """Returns all timestamps for a specific modality within the scene range.
+
+        :param modality_type: The modality type as a string or :class:`ModalityType`.
+        :param modality_id: Optional modality id (e.g. sensor id).
+        :return: List of timestamps, empty if the modality is not present.
+        """
+        modality_key = self._resolve_modality_key(modality_type, modality_id)
+        sync_table = get_sync_table(self._log_dir)
+        modality_table = get_modality_table(self._log_dir, modality_key)
+        if modality_table is None:
+            return []
+
+        # Find the timestamp column: prefer "{key}.timestamp_us", fall back to first "*timestamp_us" column.
+        ts_col_name = f"{modality_key}.timestamp_us"
+        if ts_col_name not in modality_table.column_names:
+            ts_col_name = next((c for c in modality_table.column_names if c.endswith("timestamp_us")), None)
+        if ts_col_name is None:
+            return []
+
+        return get_all_modality_timestamps(
+            self._log_dir, sync_table, self.get_scene_metadata(), modality_key, ts_col_name
+        )
 
     def get_modality_at_iteration(
         self,
         iteration: int,
-        modality_type: str,
+        modality_type: Union[str, ModalityType],
         modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
-    ) -> Optional[CustomModality]:
-        pass
+    ) -> Optional[pa.Table]:
+        """Returns the raw Arrow row(s) for a modality at the given iteration.
 
-    def get_modality_at_timestamp(
-        self,
-        timestamp: Timestamp,
-        modality_type: str,
-        modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
-        criteria: Literal["exact", "forward", "backward"] = "exact",
-    ) -> Optional[CustomModality]:
-        pass
+        This is a generic accessor that returns the raw Arrow data. For typed access,
+        use the modality-specific methods (e.g. :meth:`get_ego_state_se3_at_iteration`).
+
+        :param iteration: The iteration index (supports negative for history).
+        :param modality_type: The modality type as a string or :class:`ModalityType`.
+        :param modality_id: Optional modality id (e.g. sensor id).
+        :return: An Arrow table slice for the matched rows, or None if unavailable.
+        """
+        modality_key = self._resolve_modality_key(modality_type, modality_id)
+        sync_table = get_sync_table(self._log_dir)
+        table_index = self._get_table_index(iteration)
+
+        if modality_key not in sync_table.column_names:
+            return None
+
+        modality_table = get_modality_table(self._log_dir, modality_key)
+        if modality_table is None:
+            return None
+
+        row_idx = get_first_sync_index(sync_table, modality_key, table_index)
+        if row_idx is None:
+            return None
+
+        # Check if this is a list-typed sync column (async/deferred sync → multiple rows per iteration).
+        sync_value = sync_table[modality_key][table_index].as_py()
+        if isinstance(sync_value, list):
+            return modality_table.slice(row_idx, len(sync_value))
+        return modality_table.slice(row_idx, 1)
+
+    # TODO: implement in the future.
+    # def get_modality_at_timestamp(
+    #     self,
+    #     timestamp: Timestamp,
+    #     modality_type: str,
+    #     modality_id: Optional[Union[int, str, SerialIntEnum]] = None,
+    #     criteria: Literal["exact", "forward", "backward"] = "exact",
+    # ) -> Optional[CustomModality]:
+    #     pass
 
     # ------------------------------------------------------------------------------------------------------------------
     # 3. EgoStateSE3
