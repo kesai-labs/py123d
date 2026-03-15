@@ -1,13 +1,13 @@
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional, Type
+from warnings import warn
 
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
-from py123d.api.scene.arrow.modalities.sync_utils import get_all_modality_timestamps
 from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema, get_optional_array_mixin
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
+from py123d.datatypes.detections.box_detection_label import BoxDetectionLabel
 from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE3, BoxDetectionsSE3
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
@@ -94,20 +94,64 @@ class ArrowBoxDetectionsSE3Reader(ArrowBaseModalityReader):
         table: pa.Table,
         metadata: BaseModalityMetadata,
         dataset: str,
+        **kwargs,
     ) -> Optional[BoxDetectionsSE3]:
         assert isinstance(metadata, BoxDetectionsSE3Metadata)
         return _deserialize_box_detections_se3(table, index, metadata)
 
     @staticmethod
-    def read_all_timestamps(
-        log_dir: Path,
-        sync_table: pa.Table,
-        scene_metadata: SceneMetadata,
+    def read_column_at_index(
+        index: int,
+        table: pa.Table,
         metadata: BaseModalityMetadata,
-    ) -> List[Timestamp]:
-        return get_all_modality_timestamps(
-            log_dir, sync_table, scene_metadata, metadata.modality_key, f"{metadata.modality_key}.timestamp_us"
-        )
+        column: str,
+        dataset: str,
+        deserialize: bool = False,
+        **kwargs,
+    ) -> Optional[Any]:
+        column_at_iteration: Optional[Any] = None
+
+        full_column_name = f"{metadata.modality_key}.{column}"
+        if full_column_name in table.column_names:
+            column_at_iteration = table[full_column_name][index].as_py()  # type: ignore
+        if deserialize:
+            if column == "bounding_box_se3":
+                column_at_iteration = _deserialize_bounding_box_se3_list(column_at_iteration)  # type: ignore
+            elif column == "velocity_3d":
+                column_at_iteration = _deserialize_velocity_3d_list(column_at_iteration)  # type: ignore
+            elif column == "label":
+                column_at_iteration = _deserialize_label_list(
+                    column_at_iteration,  # type: ignore
+                    metadata.box_detection_label_class,  # type: ignore
+                )  # type: ignore
+            else:
+                warn(
+                    f"Deserialization for column '{column}' is not implemented. Returning raw value.",
+                    category=UserWarning,
+                )
+
+        return column_at_iteration
+
+
+def _deserialize_bounding_box_se3_list(bounding_box_se3_list: List[List[float]]) -> List[BoundingBoxSE3]:
+    """Deserialize a list of bounding boxes from a list of lists of floats."""
+    deserialized_list = []
+    for bounding_box_se3 in bounding_box_se3_list:
+        deserialized_list.append(BoundingBoxSE3.from_list(bounding_box_se3))
+    return deserialized_list
+
+
+def _deserialize_velocity_3d_list(velocity_3d_list: List[List[float]]) -> List[Optional[Vector3D]]:
+    """Deserialize a list of 3D velocities from a list of lists of floats."""
+    deserialized_list = []
+    for velocity_3d in velocity_3d_list:
+        deserialized_list.append(get_optional_array_mixin(velocity_3d, Vector3D))  # type: ignore
+    return deserialized_list
+
+
+def _deserialize_label_list(label_list: List[str], label_class: Type[BoxDetectionLabel]) -> List[BoxDetectionLabel]:
+    """Deserialize a list of labels from a list of strings."""
+    return [label_class(label) for label in label_list]
 
 
 def _deserialize_box_detections_se3(

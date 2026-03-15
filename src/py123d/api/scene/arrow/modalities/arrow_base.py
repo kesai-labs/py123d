@@ -5,10 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 import numpy as np
 import pyarrow as pa
 
-from py123d.api.scene.arrow.modalities.sync_utils import get_all_modality_timestamps
-from py123d.api.scene.scene_metadata import SceneMetadata
-from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
-from py123d.datatypes.time.timestamp import Timestamp
+from py123d.datatypes import BaseModality, BaseModalityMetadata, Timestamp
 
 
 class ArrowBaseModalityWriter:
@@ -110,12 +107,15 @@ class ArrowBaseModalityReader(ABC):
         """Reads and deserializes a modality from the given table at the specified row index."""
 
     @staticmethod
-    def get_column_at_index(
+    @abstractmethod
+    def read_column_at_index(
         index: int,
         table: pa.Table,
         metadata: BaseModalityMetadata,
         column: str,
+        dataset: str,
         deserialize: bool = False,
+        **kwargs,
     ) -> Optional[Any]:
         """Return a single column value at the given row index.
 
@@ -129,26 +129,6 @@ class ArrowBaseModalityReader(ABC):
         :param deserialize: If True, deserialize the value to its domain type.
         :return: The column value, or None if the column is not present.
         """
-        full_column_name = f"{metadata.modality_key}.{column}"
-        if full_column_name not in table.column_names:
-            return None
-        return table[full_column_name][index].as_py()
-
-    @staticmethod
-    def read_all_timestamps(
-        log_dir: Path,
-        sync_table: pa.Table,
-        scene_metadata: SceneMetadata,
-        metadata: BaseModalityMetadata,
-    ) -> List[Timestamp]:
-        modality_key = metadata.modality_key
-        return get_all_modality_timestamps(
-            log_dir,
-            sync_table,
-            scene_metadata,
-            modality_key,
-            f"{modality_key}.timestamp_us",
-        )
 
     @classmethod
     def read_at_timestamp(

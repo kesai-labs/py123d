@@ -188,7 +188,12 @@ class ArrowSceneAPI(SceneAPI):
             return []
 
         return get_all_modality_timestamps(
-            self._log_dir, sync_table, self.get_scene_metadata(), _modality_key, ts_col_name, include_history
+            self._log_dir,
+            sync_table,
+            self.get_scene_metadata(),
+            _modality_key,
+            ts_col_name,
+            include_history,
         )
 
     def get_modality_at_iteration(
@@ -285,11 +290,12 @@ class ArrowSceneAPI(SceneAPI):
             modality_index = get_modality_index_from_sync_index(sync_table, _modality_key, sync_index)
             modality_metadata = self.get_modality_metadata(_modality_type, modality_id)
             if modality_table is not None and modality_index is not None and modality_metadata is not None:
-                modality = MODALITY_READERS[_modality_type].get_column_at_index(
+                modality = MODALITY_READERS[_modality_type].read_column_at_index(
                     index=modality_index,
                     table=modality_table,
                     metadata=modality_metadata,
                     column=column,
+                    dataset=self.dataset,
                     deserialize=deserialize,
                 )
 

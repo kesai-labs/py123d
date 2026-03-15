@@ -1,8 +1,6 @@
 from pathlib import Path
-from typing import Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Tuple, Union
 
-import numpy as np
-import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
@@ -178,9 +176,38 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         metadata: BaseModalityMetadata,
         dataset: str,
         scaling_factor: Optional[Tuple[int, int]] = None,
+        **kwargs,
     ) -> Optional[Camera]:
         assert isinstance(metadata, BaseCameraMetadata)
         return _deserialize_camera(table, index, metadata, dataset, scaling_factor=scaling_factor)
+
+    @staticmethod
+    def read_column_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        column: str,
+        dataset: str,
+        deserialize: bool = False,
+        scaling_factor: Optional[Tuple[int, int]] = None,
+        **kwargs,
+    ) -> Optional[Any]:
+        column_at_iteration: Optional[Any] = None
+        full_column_name = f"{metadata.modality_key}.{column}"
+        if full_column_name in table.column_names:
+            column_at_iteration = table[full_column_name][index].as_py()
+        if deserialize and column_at_iteration is not None:
+            if column == "data":
+                column_at_iteration = _deserialize_data_column(
+                    data=column_at_iteration,
+                    dataset=dataset,
+                    scaling_factor=scaling_factor,
+                )
+            elif column == "pose_se3":
+                column_at_iteration = PoseSE3.from_list(column_at_iteration)
+            elif column == "timestamp_us":
+                column_at_iteration = Timestamp.from_us(column_at_iteration)
+        return column_at_iteration
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -212,30 +239,13 @@ def _deserialize_camera(
     if table_data is None or extrinsic_data is None:
         return None
 
-    extrinsic = PoseSE3.from_list(extrinsic_data)
-    image: Optional[npt.NDArray[np.uint8]] = None
+    image = _deserialize_data_column(
+        data=table_data,
+        dataset=dataset,
+        scaling_factor=scaling_factor,
+    )
 
-    if isinstance(table_data, str):
-        sensor_root = get_dataset_paths().get_sensor_root(dataset)
-        assert sensor_root is not None, f"Dataset path for sensor loading not found for dataset: {dataset}"
-        full_image_path = Path(sensor_root) / table_data
-        assert full_image_path.exists(), f"Camera file not found: {full_image_path}"
-        image = load_image_from_jpeg_file(full_image_path, scaling_factor=scaling_factor)
-    elif isinstance(table_data, bytes):
-        if is_jpeg_binary(table_data):
-            image = decode_image_from_jpeg_binary(table_data, scaling_factor=scaling_factor)
-        elif is_png_binary(table_data):
-            image = decode_image_from_png_binary(table_data)
-        else:
-            raise ValueError("Camera binary data is neither in JPEG nor PNG format.")
-    elif isinstance(table_data, int):
-        raise NotImplementedError(
-            "MP4 reading by frame index is not implemented in this version. This feature is intended for demonstration purposes and is not optimized for performance."
-        )
-    else:
-        raise NotImplementedError(
-            f"Only string file paths, bytes, or int frame indices are supported for camera data, got {type(table_data)}"
-        )
+    extrinsic = PoseSE3.from_list(extrinsic_data)
 
     assert image is not None, "Failed to load camera image from Arrow table data."
     return Camera(
@@ -244,3 +254,32 @@ def _deserialize_camera(
         extrinsic=extrinsic,
         timestamp=Timestamp.from_us(timestamp_data),
     )
+
+
+def _deserialize_data_column(
+    data: Union[str, bytes, int],
+    dataset: str,
+    scaling_factor: Optional[Tuple[int, int]] = None,
+) -> Optional[Any]:
+    if isinstance(data, str):
+        sensor_root = get_dataset_paths().get_sensor_root(dataset)
+        assert sensor_root is not None, f"Dataset path for sensor loading not found for dataset: {dataset}"
+        full_image_path = Path(sensor_root) / data
+        assert full_image_path.exists(), f"Camera file not found: {full_image_path}"
+        image = load_image_from_jpeg_file(full_image_path, scaling_factor=scaling_factor)
+    elif isinstance(data, bytes):
+        if is_jpeg_binary(data):
+            image = decode_image_from_jpeg_binary(data, scaling_factor=scaling_factor)
+        elif is_png_binary(data):
+            image = decode_image_from_png_binary(data)
+        else:
+            raise ValueError("Camera binary data is neither in JPEG nor PNG format.")
+    elif isinstance(data, int):
+        raise NotImplementedError(
+            "MP4 reading by frame index is not implemented in this version. This feature is intended for demonstration purposes and is not optimized for performance."
+        )
+    else:
+        raise NotImplementedError(
+            f"Only string file paths, bytes, or int frame indices are supported for camera data, got {type(data)}"
+        )
+    return image

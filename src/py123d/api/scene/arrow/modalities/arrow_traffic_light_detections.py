@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 import pyarrow as pa
 
@@ -81,9 +81,34 @@ class ArrowTrafficLightDetectionsReader(ArrowBaseModalityReader):
         table: pa.Table,
         metadata: BaseModalityMetadata,
         dataset: str,
+        **kwargs,
     ) -> Optional[TrafficLightDetections]:
         assert isinstance(metadata, TrafficLightDetectionsMetadata)
         return _deserialize_traffic_light_detections(table, index, metadata)
+
+    @staticmethod
+    def read_column_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        column: str,
+        dataset: str,
+        deserialize: bool = False,
+        **kwargs,
+    ) -> Optional[Any]:
+        """Return a single column value at the given row index. For traffic light detections, we support reading timestamp_us, lane_id, and status columns."""
+        assert isinstance(metadata, TrafficLightDetectionsMetadata)
+        full_column_name = f"{metadata.modality_key}.{column}"
+        column_at_iteration: Optional[Any] = None
+        if full_column_name in table.column_names:
+            column_at_iteration = table[full_column_name][index].as_py()
+            if deserialize and column == "timestamp_us":
+                column_at_iteration = Timestamp.from_us(column_at_iteration)  # type: ignore
+            elif deserialize and column == "status":
+                column_at_iteration = [TrafficLightStatus(s) for s in column_at_iteration]  # type: ignore
+            elif deserialize and column == "lane_id":
+                column_at_iteration = [int(lane_id) for lane_id in column_at_iteration]  # type: ignore
+        return column_at_iteration
 
 
 def _deserialize_traffic_light_detections(

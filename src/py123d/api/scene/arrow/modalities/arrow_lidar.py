@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -177,22 +177,36 @@ class ArrowLidarReader(ArrowBaseModalityReader):
         )
         return _deserialize_lidar(table, index, lidar_id, modality_key, lidar_metadatas, dataset)
 
+    @staticmethod
+    def read_column_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        column: str,
+        dataset: str,
+        deserialize: bool = False,
+        **kwargs,
+    ) -> Optional[Any]:
+        """For lidar reader, we only support reading the full point cloud data column as binary or path."""
+        assert isinstance(metadata, (LidarMetadata, LidarMergedMetadata))
+        full_column_name = f"{metadata.modality_key}.{column}"
+        column_at_iteration: Optional[Any] = None
+        if full_column_name in table.column_names:
+            column_at_iteration = table[full_column_name][index].as_py()
+        if deserialize and column_at_iteration is not None:
+            if column in {"timestamp_us", "end_timestamp_us"}:
+                column_at_iteration = Timestamp.from_us(column_at_iteration)  # type: ignore
+            elif column == "data":
+                lidar_metadatas = (
+                    dict(metadata) if isinstance(metadata, LidarMergedMetadata) else {metadata.lidar_id: metadata}
+                )
+                column_at_iteration = _deserialize_pcs(column_at_iteration, dataset, lidar_metadatas)  # type: ignore
+        return column_at_iteration
+
 
 # ------------------------------------------------------------------------------------------------------------------
 # Reader Internals
 # ------------------------------------------------------------------------------------------------------------------
-
-
-def _decode_lidar_binary(blob: bytes) -> Tuple[npt.NDArray[np.float32], Optional[Dict[str, npt.NDArray]]]:
-    """Auto-detect codec and decode a lidar binary blob into xyz + features."""
-    if is_draco_binary(blob):
-        return load_point_cloud_from_draco_binary(blob)
-    elif is_laz_binary(blob):
-        return load_point_cloud_from_laz_binary(blob)
-    elif is_ipc_binary(blob):
-        return load_point_cloud_from_ipc_binary(blob)
-    else:
-        raise ValueError("Unknown lidar binary format (not Draco, LAZ, or IPC).")
 
 
 def _deserialize_lidar(
@@ -222,15 +236,7 @@ def _deserialize_lidar(
     if data_col in arrow_table.schema.names:
         lidar_data = arrow_table[data_col][index].as_py()
         if lidar_data is not None:
-            if isinstance(lidar_data, str):
-                point_cloud_3d, point_cloud_feature = load_point_cloud_data_from_path(
-                    relative_path=lidar_data,
-                    dataset=dataset,
-                    index=index,
-                    lidar_metadatas=lidar_metadatas,
-                )
-            elif isinstance(lidar_data, bytes):
-                point_cloud_3d, point_cloud_feature = _decode_lidar_binary(lidar_data)
+            point_cloud_3d, point_cloud_feature = _deserialize_pcs(lidar_data, dataset, lidar_metadatas)
 
     if point_cloud_3d is None:
         return None
@@ -256,3 +262,35 @@ def _deserialize_lidar(
         point_cloud_3d=point_cloud_3d,
         point_cloud_features=point_cloud_feature,
     )
+
+
+def _deserialize_pcs(
+    lidar_data: Union[bytes, str],
+    dataset: str,
+    lidar_metadatas: Optional[Dict[LidarID, LidarMetadata]],
+) -> Tuple[npt.NDArray[np.float32], Optional[Dict[str, npt.NDArray]]]:
+    if isinstance(lidar_data, str):
+        point_cloud_3d, point_cloud_feature = load_point_cloud_data_from_path(
+            relative_path=lidar_data,
+            dataset=dataset,
+            index=None,
+            lidar_metadatas=lidar_metadatas,
+        )
+    elif isinstance(lidar_data, bytes):
+        point_cloud_3d, point_cloud_feature = _decode_lidar_binary(lidar_data)
+    else:
+        raise ValueError(f"Unsupported lidar data type: {type(lidar_data)}")
+
+    return point_cloud_3d, point_cloud_feature
+
+
+def _decode_lidar_binary(blob: bytes) -> Tuple[npt.NDArray[np.float32], Optional[Dict[str, npt.NDArray]]]:
+    """Auto-detect codec and decode a lidar binary blob into xyz + features."""
+    if is_draco_binary(blob):
+        return load_point_cloud_from_draco_binary(blob)
+    elif is_laz_binary(blob):
+        return load_point_cloud_from_laz_binary(blob)
+    elif is_ipc_binary(blob):
+        return load_point_cloud_from_ipc_binary(blob)
+    else:
+        raise ValueError("Unknown lidar binary format (not Draco, LAZ, or IPC).")

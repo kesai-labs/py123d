@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import pyarrow as pa
 
@@ -80,3 +80,26 @@ class ArrowCustomModalityReader(ArrowBaseModalityReader):
             data=data,
             timestamp=Timestamp.from_us(timestamp_us),
         )  # type: ignore
+
+    @staticmethod
+    def read_column_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        column: str,
+        dataset: str,
+        deserialize: bool = False,
+        **kwargs,
+    ) -> Optional[Any]:
+        assert isinstance(metadata, CustomModalityMetadata), f"Expected CustomModalityMetadata, got {type(metadata)}"
+        full_column_name = f"{metadata.modality_key}.{column}"
+
+        column_at_iteration: Optional[Any] = None
+        if full_column_name in table.column_names:
+            column_at_iteration = table[full_column_name][index].as_py()
+            if deserialize and column == "data":
+                column_at_iteration = msgpack_decode_with_numpy(column_at_iteration)  # type: ignore
+            elif deserialize and column == "timestamp_us":
+                column_at_iteration = Timestamp.from_us(column_at_iteration)  # type: ignore
+
+        return column_at_iteration

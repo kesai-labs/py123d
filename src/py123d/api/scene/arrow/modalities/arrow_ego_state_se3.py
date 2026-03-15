@@ -79,12 +79,14 @@ class ArrowEgoStateSE3Reader(ArrowBaseModalityReader):
         return _deserialize_ego_state_se3(table, index, metadata)
 
     @staticmethod
-    def get_column_at_index(
+    def read_column_at_index(
         index: int,
         table: pa.Table,
         metadata: BaseModalityMetadata,
         column: str,
+        dataset: str,
         deserialize: bool = False,
+        **kwargs,
     ) -> Optional[Any]:
         """Return a single column value from the ego state Arrow table at a given row index.
 
@@ -99,8 +101,8 @@ class ArrowEgoStateSE3Reader(ArrowBaseModalityReader):
         column_at_iteration: Optional[Any] = None
         if full_column_name in table.column_names:
             column_at_iteration = table[full_column_name][index].as_py()
-            if deserialize and column in EGO_STATE_SE3_DESERIALIZE_FUNCS:
-                column_at_iteration = EGO_STATE_SE3_DESERIALIZE_FUNCS[column](column_at_iteration)
+            if deserialize and column in EGO_STATE_SE3_DESERIALIZE_FUNC:
+                column_at_iteration = EGO_STATE_SE3_DESERIALIZE_FUNC[column](column_at_iteration)
         else:
             raise ValueError(
                 f"Column '{full_column_name}' not found in Arrow table for modality '{metadata.modality_key}'"
@@ -109,7 +111,7 @@ class ArrowEgoStateSE3Reader(ArrowBaseModalityReader):
         return column_at_iteration
 
 
-EGO_STATE_SE3_DESERIALIZE_FUNCS: Dict[str, Callable[[Any], Any]] = {
+EGO_STATE_SE3_DESERIALIZE_FUNC: Dict[str, Callable[[Any], Any]] = {
     "imu_se3": PoseSE3.from_list,
     "dynamic_state_se3": lambda v: get_optional_array_mixin(data=v, cls=DynamicStateSE3),
     "timestamp_us": Timestamp.from_us,
@@ -124,15 +126,15 @@ def _deserialize_ego_state_se3(
     """Deserialize an ego state from Arrow table columns at the given row index."""
 
     modality_key = metadata.modality_key
-    ego_columns = [f"{modality_key}.{field}" for field in EGO_STATE_SE3_DESERIALIZE_FUNCS]
+    ego_columns = [f"{modality_key}.{field}" for field in EGO_STATE_SE3_DESERIALIZE_FUNC.keys()]
     if not all_columns_in_schema(modality_table, ego_columns):
         return None
 
-    timestamp = EGO_STATE_SE3_DESERIALIZE_FUNCS["timestamp_us"](
+    timestamp = EGO_STATE_SE3_DESERIALIZE_FUNC["timestamp_us"](
         modality_table[f"{modality_key}.timestamp_us"][index].as_py()
     )
-    imu_se3 = EGO_STATE_SE3_DESERIALIZE_FUNCS["imu_se3"](modality_table[f"{modality_key}.imu_se3"][index].as_py())
-    dynamic_state_se3 = EGO_STATE_SE3_DESERIALIZE_FUNCS["dynamic_state_se3"](
+    imu_se3 = EGO_STATE_SE3_DESERIALIZE_FUNC["imu_se3"](modality_table[f"{modality_key}.imu_se3"][index].as_py())
+    dynamic_state_se3 = EGO_STATE_SE3_DESERIALIZE_FUNC["dynamic_state_se3"](
         modality_table[f"{modality_key}.dynamic_state_se3"][index].as_py()
     )
     return EgoStateSE3.from_imu(
