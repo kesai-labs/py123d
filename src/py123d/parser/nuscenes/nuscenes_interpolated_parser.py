@@ -10,20 +10,20 @@ from pyquaternion import Quaternion
 
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.datatypes import (
+    BaseModality,
     BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
+    BoxDetectionsSE3Metadata,
     DynamicStateSE3,
     EgoStateSE3,
+    EgoStateSE3Metadata,
+    LidarMergedMetadata,
     LogMetadata,
     PinholeCameraID,
     PinholeCameraMetadata,
     Timestamp,
 )
-from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
-from py123d.datatypes.modalities.base_modality import BaseModality
-from py123d.datatypes.sensors.lidar import LidarMergedMetadata
-from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
 from py123d.parser.base_dataset_parser import (
     BaseDatasetParser,

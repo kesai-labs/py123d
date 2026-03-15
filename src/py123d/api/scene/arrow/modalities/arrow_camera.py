@@ -23,8 +23,7 @@ from py123d.common.io.camera.png_camera_io import (
     load_png_binary_from_png_file,
 )
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICamera, FisheyeMEICameraMetadata
-from py123d.datatypes.sensors.pinhole_camera import PinholeCamera, PinholeCameraMetadata
+from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, Camera
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.geometry_index import PoseSE3Index
 from py123d.geometry.pose import PoseSE3
@@ -57,9 +56,7 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
         ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
         ipc_compression_level: Optional[int] = None,
     ) -> None:
-        assert isinstance(metadata, (PinholeCameraMetadata, FisheyeMEICameraMetadata)), (
-            f"Expected PinholeCameraMetadata or FisheyeMEICameraMetadata, got {type(metadata)}"
-        )
+        assert isinstance(metadata, BaseCameraMetadata), f"Expected BaseCameraMetadata subclass, got {type(metadata)}"
         assert camera_codec in {"path", "jpeg_binary", "png_binary"}, f"Unsupported camera codec: {camera_codec}"
 
         self._metadata = metadata
@@ -86,9 +83,7 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
         )
 
     def write_modality(self, modality: BaseModality) -> None:
-        assert isinstance(modality, (ParsedCamera, PinholeCamera, FisheyeMEICamera)), (
-            f"Expected ParsedCamera, PinholeCamera, or FisheyeMEICamera, got {type(modality)}"
-        )
+        assert isinstance(modality, (ParsedCamera, Camera)), f"Expected ParsedCamera or Camera, got {type(modality)}"
         if self._camera_codec == "jpeg_binary":
             data = _get_jpeg_binary_from_camera_modality(modality)
         elif self._camera_codec == "png_binary":
@@ -116,7 +111,7 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def _get_jpeg_binary_from_camera_modality(camera_data: Union[ParsedCamera, PinholeCamera, FisheyeMEICamera]) -> bytes:
+def _get_jpeg_binary_from_camera_modality(camera_data: Union[ParsedCamera, Camera]) -> bytes:
     if isinstance(camera_data, ParsedCamera):
         if camera_data.has_byte_string:
             byte_string = camera_data._byte_string
@@ -136,13 +131,13 @@ def _get_jpeg_binary_from_camera_modality(camera_data: Union[ParsedCamera, Pinho
             return encode_image_as_jpeg_binary(numpy_image)
         else:
             raise NotImplementedError("ParsedCamera must provide byte_string or file path for jpeg_binary codec.")
-    elif isinstance(camera_data, (PinholeCamera, FisheyeMEICamera)):
+    elif isinstance(camera_data, Camera):
         return encode_image_as_jpeg_binary(camera_data.image)
     else:
         raise NotImplementedError(f"Unsupported camera type for jpeg_binary codec: {type(camera_data)}")
 
 
-def _get_png_binary_from_camera_modality(camera_data: Union[ParsedCamera, PinholeCamera, FisheyeMEICamera]) -> bytes:
+def _get_png_binary_from_camera_modality(camera_data: Union[ParsedCamera, Camera]) -> bytes:
     if isinstance(camera_data, ParsedCamera):
         if camera_data.has_byte_string:
             byte_string = camera_data._byte_string
@@ -162,7 +157,7 @@ def _get_png_binary_from_camera_modality(camera_data: Union[ParsedCamera, Pinhol
             return encode_image_as_png_binary(numpy_image)
         else:
             raise NotImplementedError("ParsedCamera must provide byte_string or file path for png_binary codec.")
-    elif isinstance(camera_data, (PinholeCamera, FisheyeMEICamera)):
+    elif isinstance(camera_data, Camera):
         return encode_image_as_png_binary(camera_data.image)
     else:
         raise NotImplementedError(f"Unsupported camera type for png_binary codec: {type(camera_data)}")
@@ -174,7 +169,7 @@ def _get_png_binary_from_camera_modality(camera_data: Union[ParsedCamera, Pinhol
 
 
 class ArrowCameraReader(ArrowBaseModalityReader):
-    """Stateless reader for pinhole and fisheye MEI camera data from Arrow tables."""
+    """Stateless reader for camera data from Arrow tables."""
 
     @staticmethod
     def read_at_index(
@@ -183,8 +178,8 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         metadata: BaseModalityMetadata,
         dataset: str,
         scaling_factor: Optional[Tuple[int, int]] = None,
-    ) -> Optional[Union[PinholeCamera, FisheyeMEICamera]]:
-        assert isinstance(metadata, (PinholeCameraMetadata, FisheyeMEICameraMetadata))
+    ) -> Optional[Camera]:
+        assert isinstance(metadata, BaseCameraMetadata)
         return _deserialize_camera(table, index, metadata, dataset, scaling_factor=scaling_factor)
 
 
@@ -196,10 +191,10 @@ class ArrowCameraReader(ArrowBaseModalityReader):
 def _deserialize_camera(
     arrow_table: pa.Table,
     index: int,
-    camera_metadata: Union[PinholeCameraMetadata, FisheyeMEICameraMetadata],
+    camera_metadata: BaseCameraMetadata,
     dataset: str,
     scaling_factor: Optional[Tuple[int, int]] = None,
-) -> Optional[Union[PinholeCamera, FisheyeMEICamera]]:
+) -> Optional[Camera]:
     """Deserialize a camera observation from Arrow table columns at the given row index."""
     modality_key = camera_metadata.modality_key
 
@@ -234,12 +229,6 @@ def _deserialize_camera(
         else:
             raise ValueError("Camera binary data is neither in JPEG nor PNG format.")
     elif isinstance(table_data, int):
-        # camera_name = (
-        #     camera_metadata.modality_id.serialize()
-        #     if hasattr(camera_metadata.modality_id, "serialize")
-        #     else str(camera_metadata.modality_id)
-        # )
-        # image = _unoptimized_demo_mp4_read(scene_metadata, camera_name, table_data)
         raise NotImplementedError(
             "MP4 reading by frame index is not implemented in this version. This feature is intended for demonstration purposes and is not optimized for performance."
         )
@@ -249,29 +238,9 @@ def _deserialize_camera(
         )
 
     assert image is not None, "Failed to load camera image from Arrow table data."
-    if isinstance(camera_metadata, PinholeCameraMetadata):
-        return PinholeCamera(
-            metadata=camera_metadata,
-            image=image,
-            extrinsic=extrinsic,
-            timestamp=Timestamp.from_us(timestamp_data),
-        )
-    else:
-        return FisheyeMEICamera(
-            metadata=camera_metadata,  # type: ignore[arg-type]
-            image=image,
-            extrinsic=extrinsic,
-            timestamp=Timestamp.from_us(timestamp_data),
-        )
-
-
-# def _unoptimized_demo_mp4_read(scene_metadata: SceneMetadata, camera_name: str, frame_index: int) -> Optional[np.ndarray]:
-#     """Reads a frame from an MP4 file for demonstration purposes. This feature is not optimized for performance."""
-#     image: Optional[npt.NDArray[np.uint8]] = None
-#     py123d_sensor_root = get_dataset_paths().py123d_sensors_root
-#     assert py123d_sensor_root is not None, "PY123D_DATA_ROOT must be set for MP4 reading."
-#     mp4_path = py123d_sensor_root / scene_metadata.split / camera_name / f"{camera_name}.mp4"
-#     if mp4_path.exists():
-#         reader = get_mp4_reader_from_path(str(mp4_path))
-#         image = reader.get_frame(frame_index)
-#     return image
+    return Camera(
+        metadata=camera_metadata,
+        image=image,
+        extrinsic=extrinsic,
+        timestamp=Timestamp.from_us(timestamp_data),
+    )

@@ -1,32 +1,40 @@
 from __future__ import annotations
 
 import abc
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, TypeVar, Union
 
 from py123d.api.map.map_api import MapAPI
 from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.common.utils.enums import SerialIntEnum
 from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
     CustomModality,
     EgoStateSE3,
     EgoStateSE3Metadata,
-    FisheyeMEICamera,
-    FisheyeMEICameraID,
-    FisheyeMEICameraMetadata,
     Lidar,
     LidarID,
     LidarMetadata,
     LogMetadata,
     MapMetadata,
-    PinholeCamera,
-    PinholeCameraID,
-    PinholeCameraMetadata,
     Timestamp,
     TrafficLightDetections,
 )
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
+from py123d.datatypes.sensors import BaseCameraMetadata, Camera, CameraID
+
+T = TypeVar("T")
+
+
+def checked_optional_cast(obj: object, cls: type[T]) -> Optional[T]:
+    """Checks that ``obj`` is an instance of ``cls`` or None, then returns it with the narrowed type."""
+    if obj is None:
+        return None
+    if not isinstance(obj, cls):
+        raise TypeError(f"Expected object of type {cls} or None, but got {type(obj)}")
+    return obj
 
 
 class SceneAPI(abc.ABC):
@@ -38,7 +46,7 @@ class SceneAPI(abc.ABC):
     # 1. Abstract Methods, to be implemented by subclasses
     # ------------------------------------------------------------------------------------------------------------------
 
-    # 1. Scene / Log Metadata
+    # 1.1 Scene / Log Metadata
     # ------------------------------------------------------------------------------------------------------------------
 
     @abc.abstractmethod
@@ -70,15 +78,8 @@ class SceneAPI(abc.ABC):
         :return: List of timestamps, one per iteration in the scene.
         """
 
-    # 2. Map
+    # 1.2 Map
     # ------------------------------------------------------------------------------------------------------------------
-
-    @abc.abstractmethod
-    def get_map_api(self) -> Optional[MapAPI]:
-        """Returns the :class:`~py123d.api.MapAPI` of the scene, if available.
-
-        :return: The map API, or None if not available.
-        """
 
     @abc.abstractmethod
     def get_map_metadata(self) -> Optional[MapMetadata]:
@@ -87,68 +88,202 @@ class SceneAPI(abc.ABC):
         :return: The map metadata, or None if not available.
         """
 
-    # 3. EgoStateSE3
-    # ------------------------------------------------------------------------------------------------------------------
     @abc.abstractmethod
+    def get_map_api(self) -> Optional[MapAPI]:
+        """Returns the :class:`~py123d.api.MapAPI` of the scene, if available.
+
+        :return: The map API, or None if not available.
+        """
+
+    # 1.3 General Modalities
+    # ------------------------------------------------------------------------------------------------------------------
+
+    @abc.abstractmethod
+    def get_all_modality_metadatas(self) -> Dict[str, BaseModalityMetadata]:
+        """Returns all modality metadatas found in the log directory.
+
+        :return: Mapping of modality key to its metadata.
+        """
+
+    @abc.abstractmethod
+    def get_modality_metadata(
+        self,
+        modality_type: Union[str, ModalityType],
+        modality_id: Optional[Union[str, SerialIntEnum]] = None,
+    ) -> Optional[BaseModalityMetadata]:
+        """Returns the metadata for a specific modality.
+
+        :param modality_type: The type of the modality.
+        :param modality_id: The ID of the modality, if applicable.
+        :return: The modality metadata, or None if not found.
+        """
+
+    @abc.abstractmethod
+    def get_all_modality_timestamps(
+        self,
+        modality_type: Union[str, ModalityType],
+        modality_id: Optional[Union[str, SerialIntEnum]] = None,
+    ) -> List[Timestamp]:
+        """Returns all timestamps for a specific modality within the scene range.
+
+        :param modality_type: The modality type as a string or :class:`ModalityType`.
+        :param modality_id: Optional modality id (e.g. sensor id).
+        :return: List of timestamps, empty if the modality is not present.
+        """
+
+    @abc.abstractmethod
+    def get_modality_at_iteration(
+        self,
+        iteration: int,
+        modality_type: Union[str, ModalityType],
+        modality_id: Optional[Union[str, SerialIntEnum]] = None,
+        **kwargs,
+    ) -> Optional[BaseModality]:
+        """Returns the modality data at a given iteration, if available.
+
+        :param iteration: The iteration to get the modality data for.
+        :param modality_type: The modality type as a string or :class:`ModalityType`.
+        :param modality_id: Optional modality id (e.g. sensor id).
+        :return: The modality data at the given iteration, or None if not available.
+        """
+
+    @abc.abstractmethod
+    def get_modality_at_timestamp(
+        self,
+        timestamp: Union[Timestamp, int],
+        modality_type: Union[str, ModalityType],
+        modality_id: Optional[Union[str, SerialIntEnum]] = None,
+        criteria: Literal["exact", "nearest", "forward", "backward"] = "exact",
+        **kwargs,
+    ) -> Optional[BaseModality]:
+        """Returns the modality data at a given timestamp, if available.
+
+        :param timestamp: The timestamp to get the modality data for, as a Timestamp object or integer nanoseconds.
+        :param modality_type: The modality type as a string or :class:`ModalityType`.
+        :param modality_id: Optional modality id (e.g. sensor id).
+        :param criteria: Criteria for matching the timestamp if an exact match is not found. One of:
+            - "exact": Only return data if an exact timestamp match is found.
+            - "nearest": Return data from the nearest timestamp.
+            - "forward": Return data from the nearest timestamp that is greater than or equal to the requested timestamp.
+            - "backward": Return data from the nearest timestamp that is less than or equal to the requested timestamp.
+        :return: The modality data at the given timestamp, or None if not available.
+        """
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # 2. Per-modality access methods.
+    # ------------------------------------------------------------------------------------------------------------------
+
+    # 2.1 Ego State SE3
+    # ------------------------------------------------------------------------------------------------------------------
+
     def get_ego_state_se3_metadata(self) -> Optional[EgoStateSE3Metadata]:
         """Returns the :class:`~py123d.datatypes.EgoStateSE3Metadata` of the ego vehicle, if available.
 
         :return: The ego metadata, or None if not available.
         """
+        ego_state_se3_metadata = self.get_modality_metadata(ModalityType.EGO_STATE_SE3)
+        return checked_optional_cast(ego_state_se3_metadata, EgoStateSE3Metadata)
 
-    @abc.abstractmethod
     def get_all_ego_state_se3_timestamps(self) -> List[Timestamp]:
         """Returns all ego state timestamps within the current scene.
 
         :return: All ego state timestamps in the scene, ordered by time.
         """
+        return self.get_all_modality_timestamps(modality_type=ModalityType.EGO_STATE_SE3)
 
-    @abc.abstractmethod
     def get_ego_state_se3_at_iteration(self, iteration: int) -> Optional[EgoStateSE3]:
         """Returns the :class:`~py123d.datatypes.vehicle_state.EgoStateSE3` at a given iteration, if available.
 
         :param iteration: The iteration to get the ego state for.
         :return: The ego state at the given iteration, or None if not available.
         """
+        ego_state_se3 = self.get_modality_at_iteration(iteration, modality_type=ModalityType.EGO_STATE_SE3)
+        return checked_optional_cast(ego_state_se3, EgoStateSE3)
 
-    # 4. BoxDetectionsSE3
+    def get_ego_state_se3_at_timestamp(
+        self,
+        timestamp: Union[Timestamp, int],
+        criteria: Literal["exact", "nearest", "forward", "backward"] = "exact",
+    ) -> Optional[EgoStateSE3]:
+        """Returns the :class:`~py123d.datatypes.vehicle_state.EgoStateSE3` at a given timestamp, if available.
+
+        :param timestamp: The timestamp to get the ego state for, as a Timestamp object or integer nanoseconds.
+        :param criteria: Criteria for matching the timestamp if an exact match is not found. One of:
+            - "exact": Only return data if an exact timestamp match is found.
+            - "nearest": Return data from the nearest timestamp.
+            - "forward": Return data from the nearest timestamp that is greater than or equal to the requested timestamp.
+            - "backward": Return data from the nearest timestamp that is less than or equal to the requested timestamp.
+        :return: The ego state at the given timestamp, or None if not available.
+        """
+        ego_state_se3 = self.get_modality_at_timestamp(
+            timestamp, modality_type=ModalityType.EGO_STATE_SE3, criteria=criteria
+        )
+        return checked_optional_cast(ego_state_se3, EgoStateSE3)
+
+    # 2.2 Box Detections SE3
     # ------------------------------------------------------------------------------------------------------------------
 
-    @abc.abstractmethod
     def get_box_detections_se3_metadata(self) -> Optional[BoxDetectionsSE3Metadata]:
         """Returns the :class:`~py123d.datatypes.detections.BoxDetectionsSE3Metadata` of the scene, if available.
 
         :return: The box detection metadata, or None if not available.
         """
+        box_detections_se3_metadata = self.get_modality_metadata(ModalityType.BOX_DETECTIONS_SE3)
+        return checked_optional_cast(box_detections_se3_metadata, BoxDetectionsSE3Metadata)
 
-    @abc.abstractmethod
     def get_all_box_detections_se3_timestamps(self) -> List[Timestamp]:
         """Returns all box detection timestamps within the current scene.
 
         :return: All box detection timestamps in the scene, ordered by time.
         """
+        return self.get_all_modality_timestamps(modality_type=ModalityType.BOX_DETECTIONS_SE3)
 
-    @abc.abstractmethod
     def get_box_detections_se3_at_iteration(self, iteration: int) -> Optional[BoxDetectionsSE3]:
         """Returns the :class:`~py123d.datatypes.detections.BoxDetectionsSE3` at a given iteration, if available.
 
         :param iteration: The iteration to get the box detections for.
         :return: The box detections at the given iteration, or None if not available.
         """
+        box_detections_se3 = self.get_modality_at_iteration(iteration, modality_type=ModalityType.BOX_DETECTIONS_SE3)
+        return checked_optional_cast(box_detections_se3, BoxDetectionsSE3)
 
-    # 5. Traffic Light Detections
+    def get_box_detections_se3_at_timestamp(
+        self,
+        timestamp: Union[Timestamp, int],
+        criteria: Literal["exact", "nearest", "forward", "backward"] = "exact",
+    ) -> Optional[BoxDetectionsSE3]:
+        """Returns the :class:`~py123d.datatypes.detections.BoxDetectionsSE3` at a given timestamp, if available.
+
+        :param timestamp: The timestamp to get the box detections for, as a Timestamp object or integer nanoseconds.
+        :param criteria: Criteria for matching the timestamp if an exact match is not found. One of:
+            - "exact": Only return data if an exact timestamp match is found.
+            - "nearest": Return data from the nearest timestamp.
+            - "forward": Return data from the nearest timestamp that is greater than or equal to the requested timestamp.
+            - "backward": Return data from the nearest timestamp that is less than or equal to the requested timestamp.
+        :return: The box detections at the given timestamp, or None if not available.
+        """
+        box_detections_se3 = self.get_modality_at_timestamp(
+            timestamp, modality_type=ModalityType.BOX_DETECTIONS_SE3, criteria=criteria
+        )
+        return checked_optional_cast(box_detections_se3, BoxDetectionsSE3)
+
+    # 2.3 Traffic Light Detections
     # ------------------------------------------------------------------------------------------------------------------
-
-    # 5.1 Metadata
-    @abc.abstractmethod
     def get_traffic_light_detections_metadata(self) -> Optional[TrafficLightDetectionsMetadata]:
         """Returns the :class:`~py123d.datatypes.detections.TrafficLightDetectionsMetadata` of the scene, if available.
 
         :return: The traffic light detection metadata, or None if not available.
         """
+        traffic_light_detections_metadata = self.get_modality_metadata(ModalityType.TRAFFIC_LIGHT_DETECTIONS)
+        return checked_optional_cast(traffic_light_detections_metadata, TrafficLightDetectionsMetadata)
 
-    # 5.2 Timestamps
-    @abc.abstractmethod
+    def get_all_traffic_light_detections_timestamps(self) -> List[Timestamp]:
+        """Returns all traffic light detection timestamps within the current scene.
+
+        :return: All traffic light detection timestamps in the scene, ordered by time.
+        """
+        return self.get_all_modality_timestamps(modality_type=ModalityType.TRAFFIC_LIGHT_DETECTIONS)
+
     def get_traffic_light_detections_at_iteration(self, iteration: int) -> Optional[TrafficLightDetections]:
         """Returns the :class:`~py123d.datatypes.detections.TrafficLightDetections` at a given iteration,
             if available.
@@ -156,80 +291,58 @@ class SceneAPI(abc.ABC):
         :param iteration: The iteration to get the traffic light detections for.
         :return: The traffic light detections at the given iteration, or None if not available.
         """
+        traffic_light_detections = self.get_modality_at_iteration(
+            iteration, modality_type=ModalityType.TRAFFIC_LIGHT_DETECTIONS
+        )
+        return checked_optional_cast(traffic_light_detections, TrafficLightDetections)
 
-    @abc.abstractmethod
-    def get_all_traffic_light_detections_timestamps(self) -> List[Timestamp]:
-        """Returns all traffic light detection timestamps within the current scene.
+    def get_traffic_light_detections_at_timestamp(
+        self,
+        timestamp: Union[Timestamp, int],
+        criteria: Literal["exact", "nearest", "forward", "backward"] = "exact",
+    ) -> Optional[TrafficLightDetections]:
+        traffic_light_detections = self.get_modality_at_timestamp(
+            timestamp,
+            modality_type=ModalityType.TRAFFIC_LIGHT_DETECTIONS,
+            criteria=criteria,
+        )
+        return checked_optional_cast(traffic_light_detections, TrafficLightDetections)
 
-        :return: All traffic light detection timestamps in the scene, ordered by time.
-        """
-
-    # 3. Pinhole Camera
+    # 2.4 Camera
     # ------------------------------------------------------------------------------------------------------------------
 
-    @abc.abstractmethod
-    def get_pinhole_camera_metadatas(self) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
-        """Returns per-camera pinhole camera metadata, if available.
+    def get_camera_metadatas(self) -> Dict[CameraID, BaseCameraMetadata]:
+        """Returns per-camera metadata for all cameras in the scene.
 
-        :return: The pinhole camera metadatas, or None if not available.
+        :return: A dictionary mapping camera IDs to their metadata.
         """
+        pass
+
+    def get_all_camera_timestamps(self, camera_id: CameraID) -> List[Timestamp]:
+        """Returns all camera timestamps within the current scene.
+
+        :param camera_id: The camera ID.
+        :return: All camera timestamps in the scene, ordered by time.
+        """
+        return self.get_all_modality_timestamps(modality_type=ModalityType.CAMERA, modality_id=camera_id)
 
     @abc.abstractmethod
-    def get_pinhole_camera_at_iteration(
+    def get_camera_at_iteration(
         self,
         iteration: int,
-        camera_id: PinholeCameraID,
+        camera_id: CameraID,
         scaling_factor: Optional[tuple[int, int]] = None,
-    ) -> Optional[PinholeCamera]:
-        """Returns the :class:`~py123d.datatypes.sensors.PinholeCamera` of a given \
-            :class:`~py123d.datatypes.sensors.PinholeCameraID` at a given iteration, if available.
+    ) -> Optional[Camera]:
+        """Returns a :class:`~py123d.datatypes.sensors.Camera` at a given iteration, if available.
 
-        :param iteration: The iteration to get the pinhole camera for.
-        :param camera_id: The :type:`~py123d.datatypes.sensors.PinholeCameraID` of the pinhole camera.
-        :param scaling_factor: Optional (numerator, denominator) tuple for downscaling JPEG images during decode,
+        :param iteration: The iteration to get the camera for.
+        :param camera_id: The camera ID.
+        :param scaling_factor: Optional (numerator, denominator) tuple for downscaling images during decode,
             e.g. (1, 2) for half size. Requires the ``turbojpeg`` package.
-        :return: The pinhole camera, or None if not available.
+        :return: The camera, or None if not available.
         """
 
-    @abc.abstractmethod
-    def get_all_pinhole_camera_timestamps(self, camera_id: PinholeCameraID) -> List[Timestamp]:
-        """Returns all pinhole camera timestamps within the current scene.
-
-        :param camera_id: The :type:`~py123d.datatypes.sensors.PinholeCameraID` of the pinhole camera.
-        :return: All pinhole camera timestamps in the scene, ordered by time.
-        """
-
-    # 4. Fisheye MEI Camera
-    # ------------------------------------------------------------------------------------------------------------------
-
-    @abc.abstractmethod
-    def get_fisheye_mei_camera_metadatas(self) -> Optional[Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]]:
-        """Returns per-camera fisheye MEI camera metadata, if available.
-
-        :return: The fisheye MEI camera metadatas, or None if not available.
-        """
-
-    @abc.abstractmethod
-    def get_all_fisheye_mei_camera_timestamps(self, camera_id: FisheyeMEICameraID) -> List[Timestamp]:
-        """Returns all fisheye MEI camera timestamps within the current scene.
-
-        :param camera_id: The :type:`~py123d.datatypes.sensors.FisheyeMEICameraID` of the fisheye MEI camera.
-        :return: All fisheye MEI camera timestamps in the scene, ordered by time.
-        """
-
-    @abc.abstractmethod
-    def get_fisheye_mei_camera_at_iteration(
-        self, iteration: int, camera_id: FisheyeMEICameraID
-    ) -> Optional[FisheyeMEICamera]:
-        """Returns the :class:`~py123d.datatypes.sensors.FisheyeMEICamera` of a given \
-            :class:`~py123d.datatypes.sensors.FisheyeMEICameraID` at a given iteration, if available.
-
-        :param iteration: The iteration to get the fisheye MEI camera for.
-        :param camera_id: The :type:`~py123d.datatypes.sensors.FisheyeMEICameraID` of the fisheye MEI camera.
-        :return: The fisheye MEI camera, or None if not available.
-        """
-
-    # 5. Lidar
+    # 2.5 Lidar
     # ------------------------------------------------------------------------------------------------------------------
     @abc.abstractmethod
     def get_lidar_metadatas(self) -> Optional[Dict[LidarID, LidarMetadata]]:
@@ -245,6 +358,7 @@ class SceneAPI(abc.ABC):
         :param lidar_id: The :type:`~py123d.datatypes.sensors.LidarID` of the Lidar.
         :return: All lidar start timestamps in the scene, ordered by time.
         """
+        return self.get_all_modality_timestamps(modality_type=ModalityType.LIDAR, modality_id=lidar_id)
 
     @abc.abstractmethod
     def get_lidar_at_iteration(self, iteration: int, lidar_id: LidarID) -> Optional[Lidar]:
@@ -256,7 +370,7 @@ class SceneAPI(abc.ABC):
         :return: The Lidar, or None if not available.
         """
 
-    # 5. Custom Modalities
+    # 2.6 Custom Modalities
     # ------------------------------------------------------------------------------------------------------------------
     @abc.abstractmethod
     def get_all_custom_modality_metadatas(self) -> Dict[str, CustomModalityMetadata]:
@@ -352,27 +466,15 @@ class SceneAPI(abc.ABC):
         return self.scene_metadata.number_of_history_iterations
 
     @property
-    def available_pinhole_camera_ids(self) -> List[PinholeCameraID]:
-        """List of available :class:`~py123d.datatypes.sensors.PinholeCameraID`."""
-        metadatas = self.get_pinhole_camera_metadatas()
+    def available_camera_ids(self) -> List[CameraID]:
+        """List of available camera IDs."""
+        metadatas = self.get_camera_metadatas()
         return list(metadatas.keys()) if metadatas is not None else []
 
     @property
-    def available_pinhole_camera_names(self) -> List[str]:
-        """List of available pinhole camera names."""
-        metadatas = self.get_pinhole_camera_metadatas()
-        return [camera.camera_name for camera in metadatas.values()] if metadatas is not None else []
-
-    @property
-    def available_fisheye_mei_camera_ids(self) -> List[FisheyeMEICameraID]:
-        """List of available :class:`~py123d.datatypes.sensors.FisheyeMEICameraID`."""
-        metadatas = self.get_fisheye_mei_camera_metadatas()
-        return list(metadatas.keys()) if metadatas is not None else []
-
-    @property
-    def available_fisheye_mei_camera_names(self) -> List[str]:
-        """List of available fisheye MEI camera names."""
-        metadatas = self.get_fisheye_mei_camera_metadatas()
+    def available_camera_names(self) -> List[str]:
+        """List of available camera names."""
+        metadatas = self.get_camera_metadatas()
         return [camera.camera_name for camera in metadatas.values()] if metadatas is not None else []
 
     @property

@@ -57,12 +57,15 @@ class ViserConfig:
     camera_frustum_visible: bool = True
     camera_frustum_types: List[PinholeCameraID] = field(default_factory=lambda: all_camera_ids.copy())
     camera_frustum_scale: float = 1.0
-    camera_frustum_image_scale: float = 0.25  # Resize factor for the camera image shown on the frustum (<1.0 for speed)
+    camera_frustum_image_scale: Tuple[int, int] = (1, 4)  # Resize factor for the camera image
 
     # -> GUI
     camera_gui_visible: bool = True
     camera_gui_types: List[PinholeCameraID] = field(default_factory=lambda: [PinholeCameraID.PCAM_F0].copy())
-    camera_gui_image_scale: float = 0.25  # Resize factor for the camera image shown in the GUI (<1.0 for speed)
+    camera_gui_image_scale: Tuple[int, int] = (
+        1,
+        4,
+    )  # Resize factor for the camera image shown in the GUI (<1.0 for speed)
 
     # Fisheye MEI Cameras
     # -> Frustum
@@ -72,7 +75,7 @@ class ViserConfig:
         default_factory=lambda: [fcam for fcam in FisheyeMEICameraID]
     )
     fisheye_frustum_scale: float = 1.0
-    fisheye_frustum_image_scale: float = 0.25  # Resize factor for the camera image shown on the frustum
+    fisheye_frustum_image_scale: Tuple[int, int] = (1, 4)  # Resize factor for the camera image shown on the frustum
 
     # Lidar
     lidar_visible: bool = True
@@ -109,3 +112,7 @@ class ViserConfig:
             LidarID,
             self.lidar_ids,
         )
+
+        self.camera_gui_image_scale = tuple(self.camera_gui_image_scale)  # type: ignore
+        self.camera_frustum_image_scale = tuple(self.camera_frustum_image_scale)  # type: ignore
+        self.fisheye_frustum_image_scale = tuple(self.fisheye_frustum_image_scale)  # type: ignore

@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 from shapely.geometry import Polygon
 
-from py123d.datatypes import PinholeCameraMetadata
+from py123d.datatypes.sensors import PinholeCameraMetadata
 
 _InterpolationMode = Literal["nearest", "linear", "cubic"]
 _UndistortMode = Literal["optimal", "keep_focal_length"]

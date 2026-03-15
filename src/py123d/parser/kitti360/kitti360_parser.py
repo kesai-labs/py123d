@@ -23,6 +23,7 @@ from py123d.datatypes import (
     FisheyeMEIDistortion,
     FisheyeMEIProjection,
     LidarID,
+    LidarMergedMetadata,
     LidarMetadata,
     LogMetadata,
     PinholeCameraID,
@@ -257,7 +258,7 @@ class Kitti360LogParser(BaseLogParser):
         fisheye_mei_camera_metadatas = _get_kitti360_fisheye_mei_camera_metadata(
             self._kitti360_folders, self._camera_calibration
         )
-        lidar_metadata = _get_kitti360_lidar_metadata(self._kitti360_folders)
+        lidar_metadata = _get_kitti360_lidar_merged_metadata(self._kitti360_folders)
 
         timestamps_dict: Dict[str, List[Timestamp]] = _read_timestamps(self._log_name, self._kitti360_folders)
 
@@ -420,7 +421,7 @@ def _get_kitti360_fisheye_mei_camera_metadata(
     return fisheye_cam_metadatas
 
 
-def _get_kitti360_lidar_metadata(kitti360_folders: Dict[str, Path]) -> Dict[LidarID, LidarMetadata]:
+def _get_kitti360_lidar_merged_metadata(kitti360_folders: Dict[str, Path]) -> LidarMergedMetadata:
     """Gets the KITTI-360 Lidar metadata from calibration files."""
     extrinsic = get_kitti360_lidar_extrinsic(kitti360_folders[DIR_CALIB])
     extrinsic_pose_se3 = PoseSE3.from_transformation_matrix(extrinsic)
@@ -431,7 +432,7 @@ def _get_kitti360_lidar_metadata(kitti360_folders: Dict[str, Path]) -> Dict[Lida
             lidar_to_imu_se3=extrinsic_pose_se3,
         ),
     }
-    return metadata
+    return LidarMergedMetadata(metadata)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -709,7 +710,7 @@ def _extract_kitti360_lidar(
     idx: int,
     timestamp: Timestamp,
     kitti360_folders: Dict[str, Path],
-    lidar_metadata: Dict[LidarID, LidarMetadata],
+    lidar_metadata: LidarMergedMetadata,
 ) -> Optional[ParsedLidar]:
     """Extracts KITTI-360 Lidar data for the given sequence and index."""
 
@@ -722,7 +723,7 @@ def _extract_kitti360_lidar(
         # The KITTI-360 lidar timestamp marks the start of the sweep.
         # The Velodyne HDL-64E rotates at 10Hz, so each sweep covers 100ms.
         return ParsedLidar(
-            metadata=lidar_metadata[LidarID.LIDAR_TOP],
+            metadata=lidar_metadata,
             start_timestamp=timestamp,
             end_timestamp=Timestamp.from_us(timestamp.time_us + KITTI360_LIDAR_SWEEP_DURATION_US),
             iteration=idx,

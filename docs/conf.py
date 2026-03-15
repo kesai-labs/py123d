@@ -7,6 +7,16 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 
+from autoclasstoc import PublicDataAttrs
+
+
+class PublicDataAttrsNoEnum(PublicDataAttrs):
+    """Public data attributes, excluding inherited enum attrs ``name`` and ``value``."""
+
+    key = "public-attrs-no-enum"
+    exclude_pattern = ["name", "value"]
+
+
 project = "py123d"
 copyright = "2026"
 author = "DanielDauner"
@@ -80,6 +90,7 @@ autodoc_default_options = {
 autosummary_generate = True
 
 autoclasstoc_sections = [
+    "public-attrs-no-enum",
     "public-methods-without-dunders",
     "private-methods",
 ]

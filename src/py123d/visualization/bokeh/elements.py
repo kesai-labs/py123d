@@ -204,7 +204,7 @@ def get_lidar_bev_data(
 
 def get_camera_image_rgba(scene: SceneAPI, iteration: int, camera_id) -> Optional[np.ndarray]:
     """Return camera image as RGBA uint8 numpy array (flipped for Bokeh coordinate system)."""
-    camera = scene.get_pinhole_camera_at_iteration(iteration, camera_id)
+    camera = scene.get_camera_at_iteration(iteration, camera_id)
     if camera is None:
         return None
 

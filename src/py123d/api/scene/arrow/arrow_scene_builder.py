@@ -205,14 +205,9 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     for scene_extraction_metadata in scene_metadatas:
         add_scene = True
         start_idx = scene_extraction_metadata.initial_idx
-        if filter.pinhole_camera_ids is not None:
-            has_pinhole = any(log_dir.glob("pinhole_camera.*.arrow"))
-            if not has_pinhole:
-                add_scene = False
-
-        if filter.fisheye_mei_camera_ids is not None:
-            has_fisheye = any(log_dir.glob("fisheye_mei_camera.*.arrow"))
-            if not has_fisheye:
+        if filter.camera_ids is not None:
+            has_camera = any(log_dir.glob("camera.*.arrow"))
+            if not has_camera:
                 add_scene = False
 
         if filter.lidar_ids is not None:

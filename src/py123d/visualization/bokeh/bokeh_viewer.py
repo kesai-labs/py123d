@@ -399,11 +399,11 @@ class BokehViewer:
     # ------------------------------------------------------------------
 
     def _get_camera_options(self) -> List[str]:
-        names = self.scene.available_pinhole_camera_names
+        names = self.scene.available_camera_names
         return names if names else []
 
     def _camera_name_to_id(self) -> Dict[str, PinholeCameraID]:
-        metadatas = self.scene.get_pinhole_camera_metadatas()
+        metadatas = self.scene.get_camera_metadatas()
         return {meta.camera_name: cam_id for cam_id, meta in metadatas.items()}
 
     def _build_info_html(self) -> str:
@@ -426,7 +426,7 @@ class BokehViewer:
         detections = scene.get_box_detections_se3_at_iteration(self._iteration)
         if detections is not None:
             lines.append(f"<b>Detections:</b> {len(list(detections))}<br>")
-        lines.append(f"<b>Cameras:</b> {len(scene.available_pinhole_camera_ids)}<br>")
+        lines.append(f"<b>Cameras:</b> {len(scene.available_camera_ids)}<br>")
         lines.append(f"<b>Lidars:</b> {len(scene.available_lidar_ids)}<br>")
         lines.append("</div>")
         return "\n".join(lines)

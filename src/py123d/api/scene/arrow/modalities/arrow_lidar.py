@@ -157,11 +157,8 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
 class ArrowLidarReader(ArrowBaseModalityReader):
     """Stateless reader for lidar data from Arrow tables.
 
-    When called via the common interface (``read_at_iteration``), reads directly from the
-    Arrow table identified by ``metadata.modality_key``. No cross-table branching.
-
-    For higher-level logic (merged vs individual, on-the-fly merging), see
-    :meth:`ArrowSceneAPI.get_lidar_at_iteration`.
+    Always reads from the merged lidar table. An optional ``lidar_id`` kwarg controls
+    whether to return the full merged cloud or filter to an individual sensor.
     """
 
     @staticmethod
@@ -175,7 +172,9 @@ class ArrowLidarReader(ArrowBaseModalityReader):
         assert isinstance(metadata, (LidarMetadata, LidarMergedMetadata))
         modality_key = metadata.modality_key
         lidar_metadatas = dict(metadata) if isinstance(metadata, LidarMergedMetadata) else {metadata.lidar_id: metadata}
-        lidar_id = LidarID.LIDAR_MERGED if isinstance(metadata, LidarMergedMetadata) else metadata.lidar_id
+        lidar_id = kwargs.get(
+            "lidar_id", LidarID.LIDAR_MERGED if isinstance(metadata, LidarMergedMetadata) else metadata.lidar_id
+        )
         return _deserialize_lidar(table, index, lidar_id, modality_key, lidar_metadatas, dataset)
 
 

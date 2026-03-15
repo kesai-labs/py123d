@@ -55,12 +55,12 @@ viser_config:
   camera_frustum_visible: true
   # camera_frustum_types: null # Loads all by default
   camera_frustum_scale: 1.0
-  camera_frustum_image_scale: 0.25
+  camera_frustum_image_scale: [1, 4]
 
   # -> GUI
   camera_gui_visible: true
   # camera_gui_types: null # Loads front camera by default
-  camera_gui_image_scale: 0.25
+  camera_gui_image_scale: [1, 4]
 
   # Fisheye MEI Cameras
   # -> Frustum
@@ -68,7 +68,7 @@ viser_config:
   fisheye_mei_camera_frustum_visible: true
   # fisheye_mei_camera_frustum_types: [] # Loads all by default
   fisheye_frustum_scale: 1.0
-  fisheye_frustum_image_scale: 0.25
+  fisheye_frustum_image_scale: [1, 4]
 
   # Lidar
   lidar_visible: true

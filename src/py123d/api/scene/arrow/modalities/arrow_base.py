@@ -107,7 +107,32 @@ class ArrowBaseModalityReader(ABC):
         dataset: str,
         **kwargs,
     ) -> Optional[BaseModality]:
-        pass
+        """Reads and deserializes a modality from the given table at the specified row index."""
+
+    @staticmethod
+    def get_column_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        column: str,
+        deserialize: bool = False,
+    ) -> Optional[Any]:
+        """Return a single column value at the given row index.
+
+        The default implementation returns the raw value (via ``as_py()``).
+        Subclasses can override to support deserialization.
+
+        :param index: The row index in the Arrow table.
+        :param table: The Arrow modality table.
+        :param metadata: The modality metadata.
+        :param column: The field name (e.g. ``"imu_se3"``, ``"timestamp_us"``).
+        :param deserialize: If True, deserialize the value to its domain type.
+        :return: The column value, or None if the column is not present.
+        """
+        full_column_name = f"{metadata.modality_key}.{column}"
+        if full_column_name not in table.column_names:
+            return None
+        return table[full_column_name][index].as_py()
 
     @staticmethod
     def read_all_timestamps(
@@ -118,7 +143,11 @@ class ArrowBaseModalityReader(ABC):
     ) -> List[Timestamp]:
         modality_key = metadata.modality_key
         return get_all_modality_timestamps(
-            log_dir, sync_table, scene_metadata, modality_key, f"{modality_key}.timestamp_us"
+            log_dir,
+            sync_table,
+            scene_metadata,
+            modality_key,
+            f"{modality_key}.timestamp_us",
         )
 
     @classmethod

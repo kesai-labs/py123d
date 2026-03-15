@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Callable, Dict, Literal, Optional
 
 import pyarrow as pa
 
@@ -73,9 +73,47 @@ class ArrowEgoStateSE3Reader(ArrowBaseModalityReader):
         table: pa.Table,
         metadata: BaseModalityMetadata,
         dataset: str,
+        **kwargs,
     ) -> Optional[EgoStateSE3]:
         assert isinstance(metadata, EgoStateSE3Metadata)
         return _deserialize_ego_state_se3(table, index, metadata)
+
+    @staticmethod
+    def get_column_at_index(
+        index: int,
+        table: pa.Table,
+        metadata: BaseModalityMetadata,
+        column: str,
+        deserialize: bool = False,
+    ) -> Optional[Any]:
+        """Return a single column value from the ego state Arrow table at a given row index.
+
+        :param index: The row index in the Arrow table.
+        :param table: The Arrow modality table.
+        :param metadata: The modality metadata.
+        :param column: The field name (e.g. ``"imu_se3"``, ``"timestamp_us"``).
+        :param deserialize: If True, deserialize the value to its domain type.
+        :return: The column value, or None if the column is not present.
+        """
+        full_column_name = f"{metadata.modality_key}.{column}"
+        column_at_iteration: Optional[Any] = None
+        if full_column_name in table.column_names:
+            column_at_iteration = table[full_column_name][index].as_py()
+            if deserialize and column in EGO_STATE_SE3_DESERIALIZE_FUNCS:
+                column_at_iteration = EGO_STATE_SE3_DESERIALIZE_FUNCS[column](column_at_iteration)
+        else:
+            raise ValueError(
+                f"Column '{full_column_name}' not found in Arrow table for modality '{metadata.modality_key}'"
+            )
+
+        return column_at_iteration
+
+
+EGO_STATE_SE3_DESERIALIZE_FUNCS: Dict[str, Callable[[Any], Any]] = {
+    "imu_se3": PoseSE3.from_list,
+    "dynamic_state_se3": lambda v: get_optional_array_mixin(data=v, cls=DynamicStateSE3),
+    "timestamp_us": Timestamp.from_us,
+}
 
 
 def _deserialize_ego_state_se3(
@@ -86,18 +124,16 @@ def _deserialize_ego_state_se3(
     """Deserialize an ego state from Arrow table columns at the given row index."""
 
     modality_key = metadata.modality_key
-    ego_columns = [
-        f"{modality_key}.imu_se3",
-        f"{modality_key}.dynamic_state_se3",
-        f"{modality_key}.timestamp_us",
-    ]
+    ego_columns = [f"{modality_key}.{field}" for field in EGO_STATE_SE3_DESERIALIZE_FUNCS]
     if not all_columns_in_schema(modality_table, ego_columns):
         return None
-    timestamp = Timestamp.from_us(modality_table[f"{modality_key}.timestamp_us"][index].as_py())
-    imu_se3 = PoseSE3.from_list(modality_table[f"{modality_key}.imu_se3"][index].as_py())
-    dynamic_state_se3 = get_optional_array_mixin(
-        data=modality_table[f"{modality_key}.dynamic_state_se3"][index].as_py(),
-        cls=DynamicStateSE3,
+
+    timestamp = EGO_STATE_SE3_DESERIALIZE_FUNCS["timestamp_us"](
+        modality_table[f"{modality_key}.timestamp_us"][index].as_py()
+    )
+    imu_se3 = EGO_STATE_SE3_DESERIALIZE_FUNCS["imu_se3"](modality_table[f"{modality_key}.imu_se3"][index].as_py())
+    dynamic_state_se3 = EGO_STATE_SE3_DESERIALIZE_FUNCS["dynamic_state_se3"](
+        modality_table[f"{modality_key}.dynamic_state_se3"][index].as_py()
     )
     return EgoStateSE3.from_imu(
         imu_se3=imu_se3,

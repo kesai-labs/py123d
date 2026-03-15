@@ -1,14 +1,6 @@
 Fisheye MEI Camera
 ^^^^^^^^^^^^^^^^^^
 
-Fisheye MEI Camera Data
------------------------
-
-.. autoclass:: py123d.datatypes.sensors.FisheyeMEICamera
-   :members:
-   :exclude-members: __init__
-   :autoclasstoc:
-
 Fisheye MEI Metadata
 --------------------
 

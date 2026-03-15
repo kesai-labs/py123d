@@ -13,7 +13,7 @@ log_writer_config:
   force_map_conversion: ${force_map_conversion}
   async_conversion: ${async_conversion}
 
-  pinhole_camera_store_option: "jpeg_binary" # "path", "jpeg_binary", "png_binary", "mp4"
+  camera_store_option: "jpeg_binary" # "path", "jpeg_binary", "png_binary", "mp4"
   lidar_store_option: "binary" #  "path", "binary"
   lidar_codec: "ipc_lz4" # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
 

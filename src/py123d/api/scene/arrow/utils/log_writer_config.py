@@ -13,11 +13,8 @@ class LogWriterConfig:
     exclude_modality_keys: set[str] = field(default_factory=set)
     exclude_modality_types: set[str] = field(default_factory=set)
 
-    # Pinhole Cameras
-    pinhole_camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
-
-    # Fisheye MEI Cameras
-    fisheye_mei_camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
+    # Cameras
+    camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
 
     # Lidars
     lidar_store_option: Literal["path", "binary"] = "path"
@@ -27,17 +24,11 @@ class LogWriterConfig:
     ipc_max_batch_size: Optional[int] = None
 
     def __post_init__(self):
-        assert self.pinhole_camera_store_option in {
+        assert self.camera_store_option in {
             "path",
             "jpeg_binary",
             "png_binary",
-        }, f"Invalid Pinhole camera store option, got {self.pinhole_camera_store_option}."
-
-        assert self.fisheye_mei_camera_store_option in {
-            "path",
-            "jpeg_binary",
-            "png_binary",
-        }, f"Invalid Fisheye MEI camera store option, got {self.fisheye_mei_camera_store_option}."
+        }, f"Invalid camera store option, got {self.camera_store_option}."
 
         assert self.lidar_store_option in {
             "path",

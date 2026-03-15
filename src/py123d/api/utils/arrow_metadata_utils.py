@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Type, TypeVar
+from typing import Any, Dict, Type, TypeVar
 
 import msgpack
 import pyarrow as pa
@@ -61,7 +61,7 @@ def add_metadata_to_arrow_schema(
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def _get_modality_metadata_registry() -> Dict[ModalityType, Type[BaseModalityMetadata]]:
+def _get_modality_metadata_registry() -> Dict[ModalityType, Any]:
     """Returns the registry mapping ModalityType to its default metadata class.
 
     Imports are deferred to avoid circular dependencies and to keep the module
@@ -70,17 +70,20 @@ def _get_modality_metadata_registry() -> Dict[ModalityType, Type[BaseModalityMet
     from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
     from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
     from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
-    from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraMetadata
+    from py123d.datatypes.sensors.base_camera import camera_metadata_from_dict
     from py123d.datatypes.sensors.lidar import LidarMetadata
-    from py123d.datatypes.sensors.pinhole_camera import PinholeCameraMetadata
     from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
+
+    # _CameraMetadataFactory acts as a drop-in for a metadata class: its from_dict()
+    # reads the "camera_model" discriminator and dispatches to the correct subclass.
+    class _CameraMetadataFactory:
+        from_dict = staticmethod(camera_metadata_from_dict)
 
     return {
         ModalityType.EGO_STATE_SE3: EgoStateSE3Metadata,
         ModalityType.BOX_DETECTIONS_SE3: BoxDetectionsSE3Metadata,
         ModalityType.TRAFFIC_LIGHT_DETECTIONS: TrafficLightDetectionsMetadata,
-        ModalityType.PINHOLE_CAMERA: PinholeCameraMetadata,
-        ModalityType.FISHEYE_MEI_CAMERA: FisheyeMEICameraMetadata,
+        ModalityType.CAMERA: _CameraMetadataFactory,
         ModalityType.LIDAR: LidarMetadata,
         ModalityType.CUSTOM: CustomModalityMetadata,
     }
@@ -95,7 +98,7 @@ def _get_modality_key_overrides() -> Dict[str, Type[BaseModalityMetadata]]:
     }
 
 
-def resolve_metadata_class(modality_key: str) -> Type[BaseModalityMetadata]:
+def resolve_metadata_class(modality_key: str) -> Any:
     """Resolve the metadata class for a given modality key.
 
     Uses the modality type encoded in the key (the part before the first ``"."``)

@@ -15,10 +15,9 @@ class ModalityType(SerialIntEnum):
     BOX_DETECTIONS_SE3 = 2
     TRAFFIC_LIGHT_DETECTIONS = 3
     LIDAR = 4
-    PINHOLE_CAMERA = 5
-    FISHEYE_MEI_CAMERA = 6
+    CAMERA = 5
 
-    # NOTE: @DanielDauner: Possible to add more types, e.g. other camera models, radar, annotations, etc.
+    # NOTE: @DanielDauner: Possible to add more types, e.g. radar, annotations, etc.
 
 
 class BaseModalityMetadata(BaseMetadata):
@@ -92,8 +91,11 @@ def get_modality_id_from_key(
     return _modality_id
 
 
-def get_modality_key(modality_type: ModalityType, modality_id: Optional[Union[str, SerialIntEnum]] = None) -> str:
-    _modality_type_string = modality_type.serialize()
+def get_modality_key(
+    modality_type: Union[str, ModalityType],
+    modality_id: Optional[Union[str, SerialIntEnum]] = None,
+) -> str:
+    _modality_type_string = modality_type.serialize() if isinstance(modality_type, ModalityType) else modality_type
     _modality_id = modality_id.serialize() if isinstance(modality_id, SerialIntEnum) else modality_id
     if _modality_id is None:
         _modality_key = _modality_type_string

@@ -1,5 +1,7 @@
+from typing import Union
+
+from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, Camera, CameraChannelType, CameraModel, camera_metadata_from_dict
 from py123d.datatypes.sensors.fisheye_mei_camera import (
-    FisheyeMEICamera,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
     FisheyeMEIDistortion,
@@ -11,10 +13,10 @@ from py123d.datatypes.sensors.lidar import (
     Lidar,
     LidarFeature,
     LidarID,
+    LidarMergedMetadata,
     LidarMetadata,
 )
 from py123d.datatypes.sensors.pinhole_camera import (
-    PinholeCamera,
     PinholeCameraID,
     PinholeCameraMetadata,
     PinholeDistortion,
@@ -22,3 +24,6 @@ from py123d.datatypes.sensors.pinhole_camera import (
     PinholeIntrinsics,
     PinholeIntrinsicsIndex,
 )
+
+CameraID = Union[PinholeCameraID, FisheyeMEICameraID]
+CameraMetadata = Union[PinholeCameraMetadata, FisheyeMEICameraMetadata]

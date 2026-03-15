@@ -2,18 +2,16 @@ import concurrent.futures
 import time
 from typing import Dict, Optional, Tuple
 
-import cv2
 import numpy as np
 import numpy.typing as npt
 import viser
 
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.datatypes.sensors import (
-    FisheyeMEICamera,
+    Camera,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
     LidarID,
-    PinholeCamera,
     PinholeCameraID,
 )
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
@@ -37,24 +35,22 @@ def add_camera_frustums_to_viser_server(
         ego_pose[PoseSE3Index.XYZ] -= scene_center_array
 
         def _add_camera_frustums_to_viser_server(camera_type: PinholeCameraID) -> None:
-            camera = scene.get_pinhole_camera_at_iteration(scene_interation, camera_type)
+            camera = scene.get_camera_at_iteration(
+                scene_interation, camera_type, scaling_factor=viser_config.camera_frustum_image_scale
+            )
             if camera is not None:
-                camera_position, camera_quaternion, camera_image = _get_camera_values(
-                    camera,
-                    ego_pose.copy(),
-                    viser_config.camera_frustum_image_scale,
-                )
+                camera_position, camera_quaternion = _decompose_camera_pose(camera, ego_pose.copy())
                 if camera_type in camera_frustum_handles:
                     camera_frustum_handles[camera_type].position = camera_position
                     camera_frustum_handles[camera_type].wxyz = camera_quaternion
-                    camera_frustum_handles[camera_type].image = camera_image
+                    camera_frustum_handles[camera_type].image = camera.image
                 else:
                     camera_frustum_handles[camera_type] = viser_server.scene.add_camera_frustum(
                         f"camera_frustums/{camera_type.serialize()}",
                         fov=camera.metadata.fov_y,
                         aspect=camera.metadata.aspect_ratio,
                         scale=viser_config.camera_frustum_scale,
-                        image=camera_image,
+                        image=camera.image,
                         position=camera_position,
                         wxyz=camera_quaternion,
                     )
@@ -67,10 +63,6 @@ def add_camera_frustums_to_viser_server(
             }
             for future in concurrent.futures.as_completed(future_to_camera):
                 _ = future.result()
-
-        # TODO: Remove serial implementation, if not needed anymore.
-        # for camera_type in viser_config.camera_frustum_types:
-        #     _add_camera_frustums_to_viser_server(camera_type)
 
         return None
 
@@ -89,9 +81,11 @@ def add_fisheye_frustums_to_viser_server(
         ego_pose[PoseSE3Index.XYZ] -= scene_center_array
 
         def _add_fisheye_frustums_to_viser_server(fisheye_camera_type: FisheyeMEICameraID) -> None:
-            camera = scene.get_fisheye_mei_camera_at_iteration(scene_interation, fisheye_camera_type)
+            camera = scene.get_camera_at_iteration(
+                scene_interation, fisheye_camera_type, scaling_factor=viser_config.fisheye_frustum_image_scale
+            )
             if camera is not None:
-                fcam_position, fcam_quaternion, fcam_image = _get_fisheye_camera_values(
+                fcam_position, fcam_quaternion = _decompose_camera_pose(
                     camera,
                     ego_pose.copy(),
                     viser_config.fisheye_frustum_image_scale,
@@ -99,7 +93,7 @@ def add_fisheye_frustums_to_viser_server(
                 if fisheye_camera_type in fisheye_frustum_handles:
                     fisheye_frustum_handles[fisheye_camera_type].position = fcam_position
                     fisheye_frustum_handles[fisheye_camera_type].wxyz = fcam_quaternion
-                    fisheye_frustum_handles[fisheye_camera_type].image = fcam_image
+                    fisheye_frustum_handles[fisheye_camera_type].image = camera.image
                 else:
                     # NOTE @DanielDauner: The FOV is just taking as a static value here.
                     # The function se
@@ -108,7 +102,7 @@ def add_fisheye_frustums_to_viser_server(
                         fov=185,  # vertical fov
                         aspect=camera.metadata.aspect_ratio,
                         scale=viser_config.fisheye_frustum_scale,
-                        image=fcam_image,
+                        image=camera.image,
                         position=fcam_position,
                         wxyz=fcam_quaternion,
                     )
@@ -136,17 +130,18 @@ def add_camera_gui_to_viser_server(
 ) -> None:
     if viser_config.camera_gui_visible:
         for camera_type in viser_config.camera_gui_types:
-            camera = scene.get_pinhole_camera_at_iteration(scene_interation, camera_type)
+            camera = scene.get_camera_at_iteration(
+                scene_interation,
+                camera_type,
+                scaling_factor=viser_config.camera_gui_image_scale,
+            )
             if camera is not None:
                 if camera_type in camera_gui_handles:
-                    camera_gui_handles[camera_type].image = _rescale_image(
-                        camera.image, viser_config.camera_gui_image_scale
-                    )
+                    camera_gui_handles[camera_type].image = camera.image
                 else:
                     with viser_server.gui.add_folder(f"Camera {camera_type.serialize()}"):
                         camera_gui_handles[camera_type] = viser_server.gui.add_image(
-                            image=_rescale_image(camera.image, viser_config.camera_gui_image_scale),
-                            label=camera_type.serialize(),
+                            image=camera.image, label=camera_type.serialize()
                         )
 
 
@@ -193,11 +188,9 @@ def add_lidar_pc_to_viser_server(
         lidar_pc_handles[active_id].visible = False
 
 
-def _get_camera_values(
-    camera: PinholeCamera,
-    ego_pose: npt.NDArray[np.float64],
-    resize_factor: Optional[float] = None,
-) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.uint8]]:
+def _decompose_camera_pose(
+    camera: Camera, ego_pose: npt.NDArray[np.float64]
+) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     assert ego_pose.ndim == 1 and len(ego_pose) == len(PoseSE3Index)
 
     rel_camera_pose = camera.extrinsic.array
@@ -206,34 +199,17 @@ def _get_camera_values(
     camera_position = abs_camera_pose[PoseSE3Index.XYZ]
     camera_rotation = abs_camera_pose[PoseSE3Index.QUATERNION]
 
-    camera_image = _rescale_image(camera.image, resize_factor)
-    return camera_position, camera_rotation, camera_image
+    # camera_image = _rescale_image(camera.image, resize_factor)
+    return camera_position, camera_rotation
 
 
-def _get_fisheye_camera_values(
-    camera: FisheyeMEICamera,
-    ego_pose: npt.NDArray[np.float64],
-    resize_factor: Optional[float] = None,
-) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.uint8]]:
-    assert ego_pose.ndim == 1 and len(ego_pose) == len(PoseSE3Index)
-
-    rel_camera_pose = camera.extrinsic.array
-    abs_camera_pose = rel_to_abs_se3_array(origin=ego_pose, pose_se3_array=rel_camera_pose)
-
-    camera_position = abs_camera_pose[PoseSE3Index.XYZ]
-    camera_rotation = abs_camera_pose[PoseSE3Index.QUATERNION]
-
-    camera_image = _rescale_image(camera.image, resize_factor)
-    return camera_position, camera_rotation, camera_image
-
-
-def _rescale_image(image: npt.NDArray[np.uint8], scale: float) -> npt.NDArray[np.uint8]:
-    if scale == 1.0:
-        return image
-    new_width = int(image.shape[1] * scale)
-    new_height = int(image.shape[0] * scale)
-    downscaled_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-    return downscaled_image
+# def _rescale_image(image: npt.NDArray[np.uint8], scale: float) -> npt.NDArray[np.uint8]:
+#     if scale == 1.0:
+#         return image
+#     new_width = int(image.shape[1] * scale)
+#     new_height = int(image.shape[0] * scale)
+#     downscaled_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+#     return downscaled_image
 
 
 def calculate_fov(metadata: FisheyeMEICameraMetadata) -> tuple[float, float]:

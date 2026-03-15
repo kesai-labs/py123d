@@ -69,6 +69,7 @@ class ArrowCustomModalityReader(ArrowBaseModalityReader):
         table: pa.Table,
         metadata: BaseModalityMetadata,
         dataset: str,
+        **kwargs,
     ) -> Optional[CustomModality]:
         assert isinstance(metadata, CustomModalityMetadata), f"Expected CustomModalityMetadata, got {type(metadata)}"
         _modality_key = metadata.modality_key

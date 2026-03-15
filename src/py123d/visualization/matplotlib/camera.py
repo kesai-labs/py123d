@@ -8,7 +8,7 @@ from pyquaternion import Quaternion
 
 from py123d.datatypes.detections import BoxDetectionsSE3
 from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
-from py123d.datatypes.sensors import Lidar, PinholeCamera, PinholeIntrinsics
+from py123d.datatypes.sensors import Camera, Lidar, PinholeIntrinsics
 from py123d.datatypes.vehicle_state import EgoStateSE3
 from py123d.geometry import BoundingBoxSE3Index, Corners3DIndex
 from py123d.geometry.transform import abs_to_rel_se3_array
@@ -17,18 +17,18 @@ from py123d.visualization.matplotlib.helper import undistort_image_from_camera
 from py123d.visualization.matplotlib.lidar import get_lidar_pc_color
 
 
-def add_pinhole_camera_ax(ax: plt.Axes, pinhole_camera: PinholeCamera) -> plt.Axes:
+def add_pinhole_camera_ax(ax: plt.Axes, camera: Camera) -> plt.Axes:
     """Add pinhole camera image to matplotlib axis
 
     :param ax: matplotlib axis
     :param pinhole_camera: pinhole camera object
     :return: matplotlib axis with image
     """
-    ax.imshow(pinhole_camera.image)
+    ax.imshow(camera.image)
     return ax
 
 
-def add_lidar_to_camera_ax(ax: plt.Axes, camera: PinholeCamera, lidar: Lidar, undistort: bool = True) -> plt.Axes:
+def add_lidar_to_camera_ax(ax: plt.Axes, camera: Camera, lidar: Lidar, undistort: bool = True) -> plt.Axes:
     """Add lidar point cloud to camera image on matplotlib axis
 
     :param ax: matplotlib axis
@@ -56,7 +56,7 @@ def add_lidar_to_camera_ax(ax: plt.Axes, camera: PinholeCamera, lidar: Lidar, un
 
 def add_box_detections_to_camera_ax(
     ax: plt.Axes,
-    camera: PinholeCamera,
+    camera: Camera,
     box_detections: BoxDetectionsSE3,
     ego_state_se3: EgoStateSE3,
 ) -> plt.Axes:
@@ -265,7 +265,7 @@ def _transform_points_to_image(
 
 def _transform_pcs_to_images(
     lidar_xyz: npt.NDArray[np.float32],
-    camera: PinholeCamera,
+    camera: Camera,
     eps: float = 1e-3,
 ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.bool_]]:
     """Transforms lidar point cloud to image pixel coordinates

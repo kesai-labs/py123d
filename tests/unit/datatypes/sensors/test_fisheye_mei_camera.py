@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 
 from py123d.datatypes.metadata.base_metadata import BaseMetadata
+from py123d.datatypes.sensors.base_camera import Camera
 from py123d.datatypes.sensors.fisheye_mei_camera import (
-    FisheyeMEICamera,
     FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
     FisheyeMEIDistortion,
@@ -309,10 +309,10 @@ class TestFisheyeMEICameraMetadata:
 
 
 class TestFisheyeMEICamera:
-    """Test FisheyeMEICamera functionality."""
+    """Test Camera functionality."""
 
     def test_camera_initialization(self):
-        """Test FisheyeMEICamera initialization."""
+        """Test Camera initialization."""
 
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
@@ -327,7 +327,7 @@ class TestFisheyeMEICamera:
         image = np.zeros((1080, 1920), dtype=np.uint8)
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
-        camera = FisheyeMEICamera(
+        camera = Camera(
             metadata=metadata,
             image=image,
             extrinsic=extrinsic,
@@ -355,7 +355,7 @@ class TestFisheyeMEICamera:
         image = np.ones((480, 640), dtype=np.uint8)
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
-        camera = FisheyeMEICamera(
+        camera = Camera(
             metadata=metadata,
             image=image,
             extrinsic=extrinsic,
@@ -382,7 +382,7 @@ class TestFisheyeMEICamera:
         image = np.random.randint(0, 255, (480, 640), dtype=np.uint8)
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
-        camera = FisheyeMEICamera(
+        camera = Camera(
             metadata=metadata,
             image=image,
             extrinsic=extrinsic,
@@ -408,7 +408,7 @@ class TestFisheyeMEICamera:
         image = np.zeros((480, 640), dtype=np.uint8)
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
-        camera = FisheyeMEICamera(metadata=metadata, image=image, extrinsic=extrinsic, timestamp=Timestamp.from_s(0.0))
+        camera = Camera(metadata=metadata, image=image, extrinsic=extrinsic, timestamp=Timestamp.from_s(0.0))
 
         assert camera.extrinsic is extrinsic
 
@@ -428,6 +428,6 @@ class TestFisheyeMEICamera:
         image = np.zeros((480, 640, 3), dtype=np.uint8)
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
-        camera = FisheyeMEICamera(metadata=metadata, image=image, extrinsic=extrinsic, timestamp=Timestamp.from_s(0.0))
+        camera = Camera(metadata=metadata, image=image, extrinsic=extrinsic, timestamp=Timestamp.from_s(0.0))
 
         assert camera.image.shape == (480, 640, 3)

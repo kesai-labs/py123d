@@ -87,7 +87,7 @@ def run_timestamp_benchmark(scene: SceneAPI, num_runs: int = 10) -> List[dict]:
         benchmark_timestamps("ts.traffic_light_detections", scene.get_all_traffic_light_detections_timestamps, num_runs)
     )
 
-    for cam_id in scene.available_pinhole_camera_ids:
+    for cam_id in scene.available_camera_ids:
         results.append(
             benchmark_timestamps(
                 f"ts.pinhole_camera.{cam_id.name}",
@@ -96,7 +96,7 @@ def run_timestamp_benchmark(scene: SceneAPI, num_runs: int = 10) -> List[dict]:
             )
         )
 
-    for cam_id in scene.available_fisheye_mei_camera_ids:
+    for cam_id in scene.available_camera_ids:
         results.append(
             benchmark_timestamps(
                 f"ts.fisheye_mei_camera.{cam_id.name}",
@@ -166,24 +166,24 @@ def run_benchmark(scene: SceneAPI, num_samples: int = 100) -> List[dict]:
     )
 
     # Pinhole cameras
-    for cam_id in scene.available_pinhole_camera_ids:
+    for cam_id in scene.available_camera_ids:
         results.append(
             benchmark_access(
                 f"pinhole_camera.{cam_id.name}",
                 scene,
-                lambda it, cid=cam_id: scene.get_pinhole_camera_at_iteration(it, cid),
+                lambda it, cid=cam_id: scene.get_camera_at_iteration(it, cid),
                 iterations,
                 num_samples,
             )
         )
 
     # Fisheye MEI cameras
-    for cam_id in scene.available_fisheye_mei_camera_ids:
+    for cam_id in scene.available_camera_ids:
         results.append(
             benchmark_access(
                 f"fisheye_mei_camera.{cam_id.name}",
                 scene,
-                lambda it, cid=cam_id: scene.get_fisheye_mei_camera_at_iteration(it, cid),
+                lambda it, cid=cam_id: scene.get_camera_at_iteration(it, cid),
                 iterations,
                 num_samples,
             )

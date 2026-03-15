@@ -5,12 +5,10 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import numpy.typing as npt
-from pyparsing import Union
 
 from py123d.common.utils.enums import SerialIntEnum, classproperty
 from py123d.common.utils.mixin import ArrayMixin, indexed_array_repr
-from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
-from py123d.datatypes.time import Timestamp
+from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraModel, register_camera_metadata
 from py123d.geometry import PoseSE3
 
 
@@ -46,51 +44,6 @@ class PinholeCameraID(SerialIntEnum):
 
     PCAM_STEREO_R = 9
     """Right stereo camera."""
-
-
-class PinholeCamera(BaseModality):
-    """Represents the recording of a pinhole camera including its metadata, image, extrinsic pose, and timestamp."""
-
-    __slots__ = ("_metadata", "_image", "_extrinsic", "_timestamp")
-
-    def __init__(
-        self,
-        metadata: PinholeCameraMetadata,
-        image: npt.NDArray[np.uint8],
-        extrinsic: PoseSE3,
-        timestamp: Timestamp,
-    ) -> None:
-        """Initialize a PinholeCamera instance.
-
-        :param metadata: The metadata associated with the camera.
-        :param image: The image captured by the camera.
-        :param extrinsic: The extrinsic pose of the camera.
-        :param timestamp: The timestamp of the image capture, optional.
-        """
-        self._metadata = metadata
-        self._image = image
-        self._extrinsic = extrinsic
-        self._timestamp = timestamp
-
-    @property
-    def timestamp(self) -> Timestamp:
-        """The :class:`~py123d.datatypes.time.Timestamp` of the image capture, if available."""
-        return self._timestamp
-
-    @property
-    def metadata(self) -> PinholeCameraMetadata:
-        """The static :class:`PinholeCameraMetadata` associated with the pinhole camera."""
-        return self._metadata
-
-    @property
-    def image(self) -> npt.NDArray[np.uint8]:
-        """The image captured by the pinhole camera, as a numpy array."""
-        return self._image
-
-    @property
-    def extrinsic(self) -> PoseSE3:
-        """The extrinsic :class:`~py123d.geometry.PoseSE3` of the pinhole camera, relative to the ego vehicle frame."""
-        return self._extrinsic
 
 
 class PinholeIntrinsicsIndex(IntEnum):
@@ -327,7 +280,8 @@ class PinholeDistortion(ArrayMixin):
         return indexed_array_repr(self, PinholeDistortionIndex)
 
 
-class PinholeCameraMetadata(BaseModalityMetadata):
+@register_camera_metadata(CameraModel.PINHOLE)
+class PinholeCameraMetadata(BaseCameraMetadata):
     """Static metadata for a pinhole camera, stored in a log."""
 
     __slots__ = (
@@ -402,6 +356,7 @@ class PinholeCameraMetadata(BaseModalityMetadata):
         :return: A dictionary representation of the PinholeCameraMetadata instance, with default Python types.
         """
         data_dict = {}
+        data_dict["camera_model"] = self.camera_model.serialize()
         data_dict["camera_name"] = self.camera_name
         data_dict["camera_id"] = int(self.camera_id)
         data_dict["intrinsics"] = self.intrinsics.tolist() if self.intrinsics is not None else None
@@ -413,12 +368,9 @@ class PinholeCameraMetadata(BaseModalityMetadata):
         return data_dict
 
     @property
-    def modality_type(self) -> ModalityType:
-        return ModalityType.PINHOLE_CAMERA
-
-    @property
-    def modality_id(self) -> Optional[Union[str, SerialIntEnum]]:
-        return self._camera_id
+    def camera_model(self) -> CameraModel:
+        """The projection model of this camera."""
+        return CameraModel.PINHOLE
 
     @property
     def camera_name(self) -> str:
@@ -466,22 +418,15 @@ class PinholeCameraMetadata(BaseModalityMetadata):
         return not self._is_undistorted
 
     @property
-    def aspect_ratio(self) -> float:
-        """The aspect ratio (width / height) of the pinhole camera."""
-        return self.width / self.height
-
-    @property
     def fov_x(self) -> Optional[float]:
         """The horizontal field of view (FOV) of the pinhole camera in radians, if available."""
-        fov_x_rad: Optional[float] = None
         if self.intrinsics is not None:
-            fov_x_rad = 2 * np.arctan(self.width / (2 * self.intrinsics.fx))
-        return fov_x_rad
+            return 2 * np.arctan(self.width / (2 * self.intrinsics.fx))
+        return None
 
     @property
     def fov_y(self) -> Optional[float]:
         """The vertical field of view (FOV) of the pinhole camera in radians, if available."""
-        fov_y_rad: Optional[float] = None
         if self.intrinsics is not None:
-            fov_y_rad = 2 * np.arctan(self.height / (2 * self.intrinsics.fy))
-        return fov_y_rad
+            return 2 * np.arctan(self.height / (2 * self.intrinsics.fy))
+        return None

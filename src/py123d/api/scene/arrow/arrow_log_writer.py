@@ -16,12 +16,12 @@ from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections import Arr
 from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
-from py123d.datatypes import LogMetadata, PinholeCameraMetadata
+from py123d.datatypes import LogMetadata
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraMetadata
+from py123d.datatypes.sensors.base_camera import BaseCameraMetadata
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata, LidarMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.parser.base_dataset_parser import ModalitiesSync
@@ -150,20 +150,11 @@ class ArrowLogWriter(AbstractLogWriter):
                 ipc_compression_level=self._ipc_compression_level,
             )
 
-        elif isinstance(modality_metadata, PinholeCameraMetadata):
+        elif isinstance(modality_metadata, BaseCameraMetadata):
             modality_writer = ArrowCameraWriter(
                 log_dir=self._state.log_dir,
                 metadata=modality_metadata,
-                camera_codec=self._log_writer_config.pinhole_camera_store_option,
-                ipc_compression=self._ipc_compression,
-                ipc_compression_level=self._ipc_compression_level,
-            )
-
-        elif isinstance(modality_metadata, FisheyeMEICameraMetadata):
-            modality_writer = ArrowCameraWriter(
-                log_dir=self._state.log_dir,
-                metadata=modality_metadata,
-                camera_codec=self._log_writer_config.fisheye_mei_camera_store_option,
+                camera_codec=self._log_writer_config.camera_store_option,
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
             )
