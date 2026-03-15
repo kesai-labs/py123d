@@ -6,44 +6,10 @@ from typing import Any, Dict, Optional
 import numpy as np
 import numpy.typing as npt
 
-from py123d.common.utils.enums import SerialIntEnum, classproperty
+from py123d.common.utils.enums import classproperty
 from py123d.common.utils.mixin import ArrayMixin, indexed_array_repr
-from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraModel, register_camera_metadata
+from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraID, CameraModel, register_camera_metadata
 from py123d.geometry import PoseSE3
-
-
-class PinholeCameraID(SerialIntEnum):
-    """Enumeration of pinhole camera types."""
-
-    PCAM_F0 = 0
-    """Front camera."""
-
-    PCAM_B0 = 1
-    """Back camera."""
-
-    PCAM_L0 = 2
-    """Left camera, first from front to back."""
-
-    PCAM_L1 = 3
-    """Left camera, second from front to back."""
-
-    PCAM_L2 = 4
-    """Left camera, third from front to back."""
-
-    PCAM_R0 = 5
-    """Right camera, first from front to back."""
-
-    PCAM_R1 = 6
-    """Right camera, second from front to back."""
-
-    PCAM_R2 = 7
-    """Right camera, third from front to back."""
-
-    PCAM_STEREO_L = 8
-    """Left stereo camera."""
-
-    PCAM_STEREO_R = 9
-    """Right stereo camera."""
 
 
 class PinholeIntrinsicsIndex(IntEnum):
@@ -298,7 +264,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
     def __init__(
         self,
         camera_name: str,
-        camera_id: PinholeCameraID,
+        camera_id: CameraID,
         intrinsics: Optional[PinholeIntrinsics],
         distortion: Optional[PinholeDistortion],
         width: int,
@@ -309,7 +275,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         """Initialize a :class:`PinholeCameraMetadata` instance.
 
         :param camera_name: The name of the pinhole camera, according to the dataset naming convention.
-        :param camera_id: The :class:`PinholeCameraID` of the pinhole camera.
+        :param camera_id: The :class:`CameraID` of the pinhole camera.
         :param intrinsics: The :class:`PinholeIntrinsics` of the pinhole camera.
         :param distortion: The :class:`PinholeDistortion` of the pinhole camera.
         :param width: The image width in pixels.
@@ -341,7 +307,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         )
         return PinholeCameraMetadata(
             camera_name=data_dict["camera_name"],
-            camera_id=PinholeCameraID(data_dict["camera_id"]),
+            camera_id=CameraID(data_dict["camera_id"]),
             intrinsics=_intrinsics,
             distortion=_distortion,
             width=data_dict["width"],
@@ -378,8 +344,8 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         return self._camera_name
 
     @property
-    def camera_id(self) -> PinholeCameraID:
-        """The :class:`PinholeCameraID` of the pinhole camera."""
+    def camera_id(self) -> CameraID:
+        """The :class:`CameraID` of the pinhole camera."""
         return self._camera_id
 
     @property

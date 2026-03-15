@@ -32,7 +32,7 @@ from bokeh.models import (  # noqa: E402
 from bokeh.plotting import figure  # noqa: E402
 
 from py123d.api.scene.scene_api import SceneAPI  # noqa: E402
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID  # noqa: E402
+from py123d.datatypes.sensors.pinhole_camera import CameraID  # noqa: E402
 from py123d.visualization.bokeh.elements import (  # noqa: E402
     get_camera_image_rgba,
     get_detection_data,
@@ -402,7 +402,7 @@ class BokehViewer:
         names = self.scene.available_camera_names
         return names if names else []
 
-    def _camera_name_to_id(self) -> Dict[str, PinholeCameraID]:
+    def _camera_name_to_id(self) -> Dict[str, CameraID]:
         metadatas = self.scene.get_camera_metadatas()
         return {meta.camera_name: cam_id for cam_id, meta in metadatas.items()}
 

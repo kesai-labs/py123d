@@ -15,10 +15,10 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
+    CameraID,
     DynamicStateSE3,
     EgoStateSE3,
     EgoStateSE3Metadata,
-    FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
     FisheyeMEIDistortion,
     FisheyeMEIProjection,
@@ -26,7 +26,6 @@ from py123d.datatypes import (
     LidarMergedMetadata,
     LidarMetadata,
     LogMetadata,
-    PinholeCameraID,
     PinholeCameraMetadata,
     PinholeDistortion,
     PinholeIntrinsics,
@@ -338,10 +337,10 @@ class Kitti360LogParser(BaseLogParser):
 def _get_kitti360_pinhole_camera_metadata(
     kitti360_folders: Dict[str, Path],
     camera_calibration: Dict[str, PoseSE3],
-) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+) -> Dict[CameraID, PinholeCameraMetadata]:
     """Gets the KITTI-360 pinhole camera metadata from calibration files."""
 
-    pinhole_cam_metadatas: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    pinhole_cam_metadatas: Dict[CameraID, PinholeCameraMetadata] = {}
     persp = kitti360_folders[DIR_CALIB] / "perspective.txt"
     assert persp.exists()
     persp_result = {"image_00": {}, "image_01": {}}
@@ -377,10 +376,10 @@ def _get_kitti360_pinhole_camera_metadata(
 def _get_kitti360_fisheye_mei_camera_metadata(
     kitti360_folders: Dict[str, Path],
     camera_calibration: Dict[str, PoseSE3],
-) -> Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata]:
+) -> Dict[CameraID, FisheyeMEICameraMetadata]:
     """Gets the KITTI-360 fisheye MEI camera metadata from calibration files."""
 
-    fisheye_cam_metadatas: Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata] = {}
+    fisheye_cam_metadatas: Dict[CameraID, FisheyeMEICameraMetadata] = {}
     fisheye_camera02_path = kitti360_folders[DIR_CALIB] / "image_02.yaml"
     fisheye_camera03_path = kitti360_folders[DIR_CALIB] / "image_03.yaml"
 
@@ -739,7 +738,7 @@ def _extract_kitti360_pinhole_cameras(
     idx: int,
     timestamps_dict: Dict[str, List[Timestamp]],
     kitti360_folders: Dict[str, Path],
-    pinhole_camera_metadatas: Dict[PinholeCameraID, PinholeCameraMetadata],
+    pinhole_camera_metadatas: Dict[CameraID, PinholeCameraMetadata],
 ) -> List[ParsedCamera]:
     """Extracts KITTI-360 pinhole camera data for the given sequence and index."""
 
@@ -766,7 +765,7 @@ def _extract_kitti360_fisheye_mei_cameras(
     idx: int,
     timestamps_dict: Dict[str, List[Timestamp]],
     kitti360_folders: Dict[str, Path],
-    fisheye_mei_camera_metadatas: Dict[FisheyeMEICameraID, FisheyeMEICameraMetadata],
+    fisheye_mei_camera_metadatas: Dict[CameraID, FisheyeMEICameraMetadata],
 ) -> List[ParsedCamera]:
     """Extracts KITTI-360 fisheye MEI camera data for the given sequence and index."""
     fisheye_camera_data_list: List[ParsedCamera] = []

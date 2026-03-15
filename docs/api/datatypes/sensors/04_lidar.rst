@@ -19,8 +19,8 @@ Lidar Metadata
    :autoclasstoc:
 
 
-Lidar Types
------------
+Lidar IDs
+---------
 
 .. autoclass:: py123d.datatypes.sensors.LidarID
    :no-inherited-members:

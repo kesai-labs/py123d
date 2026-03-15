@@ -2,7 +2,7 @@ from typing import Dict, List
 
 from py123d.datatypes.detections import TrafficLightStatus
 from py123d.datatypes.map_objects import LaneType, RoadEdgeType, RoadLineType
-from py123d.datatypes.sensors import LidarID, PinholeCameraID
+from py123d.datatypes.sensors import CameraID, LidarID
 
 # Map features:
 # ----------------------------------------------------------------------------------------------------------------------
@@ -41,12 +41,12 @@ WAYMO_LANE_TYPE_CONVERSION: Dict[int, LaneType] = {
 WOD_PERCEPTION_AVAILABLE_SPLITS: List[str] = ["wod-perception_train", "wod-perception_val", "wod-perception_test"]
 
 # https://github.com/waymo-research/waymo-open-dataset/blob/master/src/waymo_open_dataset/dataset.proto#L50
-WOD_PERCEPTION_CAMERA_IDS: Dict[int, PinholeCameraID] = {
-    1: PinholeCameraID.PCAM_F0,  # front_camera
-    2: PinholeCameraID.PCAM_L0,  # front_left_camera
-    3: PinholeCameraID.PCAM_R0,  # front_right_camera
-    4: PinholeCameraID.PCAM_L1,  # left_camera
-    5: PinholeCameraID.PCAM_R1,  # right_camera
+WOD_PERCEPTION_CAMERA_IDS: Dict[int, CameraID] = {
+    1: CameraID.PCAM_F0,  # front_camera
+    2: CameraID.PCAM_L0,  # front_left_camera
+    3: CameraID.PCAM_R0,  # front_right_camera
+    4: CameraID.PCAM_L1,  # left_camera
+    5: CameraID.PCAM_R1,  # right_camera
 }
 
 # https://github.com/waymo-research/waymo-open-dataset/blob/master/src/waymo_open_dataset/dataset.proto#L66

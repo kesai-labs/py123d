@@ -14,6 +14,13 @@ from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.pose import PoseSE3
 
 
+class CameraChannelType(SerialIntEnum):
+    """Enumeration of camera channel types."""
+
+    RGB = 0
+    GRAYSCALE = 1
+
+
 class CameraModel(SerialIntEnum):
     """Enumeration of camera projection models."""
 
@@ -24,12 +31,63 @@ class CameraModel(SerialIntEnum):
     """Fisheye camera using the MEI (mirror) model."""
 
 
-class CameraChannelType(SerialIntEnum):
-    """Enumeration of camera channel types."""
+class CameraID(SerialIntEnum):
+    """Enumeration of camera IDs. These are unique within a sensor rig and can be used as modality IDs for camera metadata."""
 
-    RGB = 0
-    GRAYSCALE = 1
+    PCAM_F0 = 0
+    """Front pinhole camera."""
 
+    PCAM_B0 = 1
+    """Back pinhole camera."""
+
+    PCAM_L0 = 2
+    """Left pinhole camera, first from front to back."""
+
+    PCAM_L1 = 3
+    """Left pinhole camera, second from front to back."""
+
+    PCAM_L2 = 4
+    """Left pinhole camera, third from front to back."""
+
+    PCAM_R0 = 5
+    """Right pinhole camera, first from front to back."""
+
+    PCAM_R1 = 6
+    """Right pinhole camera, second from front to back."""
+
+    PCAM_R2 = 7
+    """Right pinhole camera, third from front to back."""
+
+    PCAM_STEREO_L = 8
+    """Left pinhole stereo camera."""
+
+    PCAM_STEREO_R = 9
+    """Right pinhole stereo camera."""
+
+    FMCAM_L = 10
+    """Left-facing fisheye MEI camera."""
+
+    FMCAM_R = 11
+    """Right-facing fisheye MEI camera."""
+
+
+ALL_PINHOLE_CAMERA_IDS = [
+    CameraID.PCAM_F0,
+    CameraID.PCAM_B0,
+    CameraID.PCAM_L0,
+    CameraID.PCAM_L1,
+    CameraID.PCAM_L2,
+    CameraID.PCAM_R0,
+    CameraID.PCAM_R1,
+    CameraID.PCAM_R2,
+    CameraID.PCAM_STEREO_L,
+    CameraID.PCAM_STEREO_R,
+]
+
+ALL_FISHEYE_MEI_CAMERA_IDS = [
+    CameraID.FMCAM_L,
+    CameraID.FMCAM_R,
+]
 
 # ---------------------------------------------------------------------------
 # Camera metadata registry (populated by subclasses via register_camera_metadata)

@@ -6,21 +6,10 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import numpy.typing as npt
 
-from py123d.common.utils.enums import SerialIntEnum
 from py123d.common.utils.mixin import ArrayMixin, indexed_array_repr
-from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraModel, register_camera_metadata
+from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraID, CameraModel, register_camera_metadata
 from py123d.geometry import PoseSE3
 from py123d.geometry.geometry_index import Point3DIndex
-
-
-class FisheyeMEICameraID(SerialIntEnum):
-    """Enumeration of fisheye MEI camera ids in multi-sensor setups."""
-
-    FMCAM_L = 0
-    """Left-facing fisheye MEI camera."""
-
-    FMCAM_R = 1
-    """Right-facing fisheye MEI camera."""
 
 
 class FisheyeMEIDistortionIndex(IntEnum):
@@ -203,7 +192,7 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
     def __init__(
         self,
         camera_name: str,
-        camera_id: FisheyeMEICameraID,
+        camera_id: CameraID,
         mirror_parameter: Optional[float],
         distortion: Optional[FisheyeMEIDistortion],
         projection: Optional[FisheyeMEIProjection],
@@ -246,7 +235,7 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         )
         return FisheyeMEICameraMetadata(
             camera_name=data_dict["camera_name"],
-            camera_id=FisheyeMEICameraID(data_dict["camera_id"]),
+            camera_id=CameraID(data_dict["camera_id"]),
             mirror_parameter=data_dict["mirror_parameter"],
             distortion=_distortion,
             projection=_projection,
@@ -266,7 +255,7 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         return self._camera_name
 
     @property
-    def camera_id(self) -> FisheyeMEICameraID:
+    def camera_id(self) -> CameraID:
         """The ID of the fisheye MEI camera."""
         return self._camera_id
 

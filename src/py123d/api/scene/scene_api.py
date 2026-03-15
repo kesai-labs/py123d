@@ -316,7 +316,13 @@ class SceneAPI(abc.ABC):
 
         :return: A dictionary mapping camera IDs to their metadata.
         """
-        pass
+        metadatas = self.get_all_modality_metadatas()
+        camera_metadatas = {
+            modality_id: metadata
+            for modality_id, metadata in metadatas.items()
+            if metadata.modality_type == ModalityType.CAMERA and isinstance(metadata, BaseCameraMetadata)
+        }
+        return camera_metadatas
 
     def get_all_camera_timestamps(self, camera_id: CameraID) -> List[Timestamp]:
         """Returns all camera timestamps within the current scene.
@@ -411,21 +417,6 @@ class SceneAPI(abc.ABC):
         return self.get_scene_metadata()
 
     @property
-    def map_metadata(self) -> Optional[MapMetadata]:
-        """The :class:`~py123d.datatypes.metadata.MapMetadata` of the scene, if available."""
-        return self.get_map_metadata()
-
-    @property
-    def ego_metadata(self) -> Optional[EgoStateSE3Metadata]:
-        """The :class:`~py123d.datatypes.vehicle_state.EgoStateSE3Metadata` of the ego vehicle, if available."""
-        return self.get_ego_state_se3_metadata()
-
-    @property
-    def map_api(self) -> Optional[MapAPI]:
-        """The :class:`~py123d.api.map.MapAPI` of the scene, if available."""
-        return self.get_map_api()
-
-    @property
     def dataset(self) -> str:
         """The dataset name from the log metadata."""
         return self.log_metadata.dataset
@@ -444,11 +435,6 @@ class SceneAPI(abc.ABC):
     def log_name(self) -> str:
         """The log name from the log metadata."""
         return self.log_metadata.log_name
-
-    @property
-    def version(self) -> str:
-        """The version of the py123d library used to create this log metadata."""
-        return self.log_metadata.version
 
     @property
     def scene_uuid(self) -> str:

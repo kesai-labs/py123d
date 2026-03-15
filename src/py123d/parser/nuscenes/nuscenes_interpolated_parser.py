@@ -15,12 +15,12 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
+    CameraID,
     DynamicStateSE3,
     EgoStateSE3,
     EgoStateSE3Metadata,
     LidarMergedMetadata,
     LogMetadata,
-    PinholeCameraID,
     PinholeCameraMetadata,
     Timestamp,
 )
@@ -800,7 +800,7 @@ def _find_nearest_cameras_for_sweep(
     target_timestamp: int,
     camera_timelines: Dict[str, List[Dict[str, Any]]],
     nuscenes_data_root: Path,
-    pinhole_cameras_metadata: Optional[Dict[PinholeCameraID, PinholeCameraMetadata]],
+    pinhole_cameras_metadata: Optional[Dict[CameraID, PinholeCameraMetadata]],
 ) -> List[ParsedCamera]:
     """Finds the last camera observation at or before a given sweep timestamp for each channel.
 
@@ -950,7 +950,7 @@ def _extract_nuscenes_cameras(
     nusc: NuScenes,
     sample: Dict[str, Any],
     nuscenes_data_root: Path,
-    pinhole_cameras_metadata: Optional[Dict[PinholeCameraID, PinholeCameraMetadata]],
+    pinhole_cameras_metadata: Optional[Dict[CameraID, PinholeCameraMetadata]],
 ) -> List[ParsedCamera]:
     """Extracts the pinhole camera data from a nuScenes keyframe sample."""
     if pinhole_cameras_metadata is None:

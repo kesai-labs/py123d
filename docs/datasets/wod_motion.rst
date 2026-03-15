@@ -54,10 +54,7 @@ Available Modalities
    * - Traffic Lights
      - ✓
      - Traffic lights include the status and the lane id they are associated with, see :class:`~py123d.datatypes.detections.TrafficLightDetections`.
-   * - Pinhole Cameras
-     - X
-     - n/a
-   * - Fisheye Cameras
+   * - Cameras
      - X
      - n/a
    * - Lidars

@@ -27,11 +27,3 @@ Fisheye MEI Projection
    :exclude-members: __init__
    :no-inherited-members:
    :autoclasstoc:
-
-
-Fisheye MEI Camera IDs
-----------------------
-
-.. autoclass:: py123d.datatypes.sensors.FisheyeMEICameraID
-   :no-inherited-members:
-   :exclude-members: __init__, __new__

@@ -1,6 +1,6 @@
 from typing import Dict, Final, List, Set
 
-from py123d.datatypes import FisheyeMEICameraID, PinholeCameraID
+from py123d.datatypes import CameraID
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry.pose import PoseSE3
@@ -12,14 +12,14 @@ KITTI360_DT: Final[float] = 0.1
 KITTI360_LIDAR_NAME: Final[str] = "velodyne_points"
 KITTI360_LIDAR_SWEEP_DURATION_US: Final[int] = 100_000  # 1/10s = 100ms, one full Velodyne HDL-64E rotation
 
-KITTI360_PINHOLE_CAMERA_IDS: Dict[PinholeCameraID, str] = {
-    PinholeCameraID.PCAM_STEREO_L: "image_00",
-    PinholeCameraID.PCAM_STEREO_R: "image_01",
+KITTI360_PINHOLE_CAMERA_IDS: Dict[CameraID, str] = {
+    CameraID.PCAM_STEREO_L: "image_00",
+    CameraID.PCAM_STEREO_R: "image_01",
 }
 
-KITTI360_FISHEYE_MEI_CAMERA_IDS: Dict[FisheyeMEICameraID, str] = {
-    FisheyeMEICameraID.FMCAM_L: "image_02",
-    FisheyeMEICameraID.FMCAM_R: "image_03",
+KITTI360_FISHEYE_MEI_CAMERA_IDS: Dict[CameraID, str] = {
+    CameraID.FMCAM_L: "image_02",
+    CameraID.FMCAM_R: "image_03",
 }
 
 KITTI360_ALL_SEQUENCES: Final[List[str]] = [

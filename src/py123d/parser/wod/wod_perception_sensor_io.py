@@ -4,7 +4,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 
 from py123d.common.utils.dependencies import check_dependencies
-from py123d.datatypes import LidarFeature, PinholeCameraID
+from py123d.datatypes import CameraID, LidarFeature
 from py123d.parser.wod.utils.wod_constants import WOD_PERCEPTION_CAMERA_IDS, WOD_PERCEPTION_LIDAR_IDS
 from py123d.parser.wod.waymo_open_dataset.utils.frame_utils import parse_range_image_and_camera_projection
 
@@ -31,7 +31,7 @@ def _get_frame_at_iteration(filepath: Path, iteration: int) -> Optional[dataset_
 def load_jpeg_binary_from_tf_record_file(
     tf_record_path: Path,
     iteration: int,
-    pinhole_camera_type: PinholeCameraID,
+    pinhole_camera_type: CameraID,
 ) -> Optional[bytes]:
     """Loads the JPEG binary of a specific pinhole camera from a Waymo TFRecord file at a given iteration."""
     frame = _get_frame_at_iteration(tf_record_path, iteration)

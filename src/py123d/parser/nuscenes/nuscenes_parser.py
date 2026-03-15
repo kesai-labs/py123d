@@ -11,12 +11,12 @@ from py123d.datatypes import (
     BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
+    CameraID,
     DynamicStateSE3,
     EgoStateSE3,
     LidarID,
     LidarMetadata,
     LogMetadata,
-    PinholeCameraID,
     PinholeCameraMetadata,
     PinholeDistortion,
     PinholeIntrinsics,
@@ -343,7 +343,7 @@ class NuScenesLogParser(BaseLogParser):
 def _get_nuscenes_pinhole_camera_metadata_from_scene(
     load_nusc_fn,
     scene_token: str,
-) -> Optional[Dict[PinholeCameraID, PinholeCameraMetadata]]:
+) -> Optional[Dict[CameraID, PinholeCameraMetadata]]:
     """Extracts the pinhole camera metadata from a nuScenes scene."""
     nusc = load_nusc_fn()
     try:
@@ -357,9 +357,9 @@ def _get_nuscenes_pinhole_camera_metadata_from_scene(
 def _get_nuscenes_pinhole_camera_metadata(
     nusc: NuScenes,
     scene: Dict[str, Any],
-) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+) -> Dict[CameraID, PinholeCameraMetadata]:
     """Extracts the pinhole camera metadata from a nuScenes scene."""
-    camera_metadata: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    camera_metadata: Dict[CameraID, PinholeCameraMetadata] = {}
     first_sample_token = scene["first_sample_token"]
     first_sample = nusc.get("sample", first_sample_token)
     for camera_type, camera_channel in NUSCENES_CAMERA_IDS.items():
@@ -525,7 +525,7 @@ def _extract_nuscenes_cameras(
     nusc: NuScenes,
     sample: Dict[str, Any],
     nuscenes_data_root: Path,
-    pinhole_cameras_metadata: Optional[Dict[PinholeCameraID, PinholeCameraMetadata]],
+    pinhole_cameras_metadata: Optional[Dict[CameraID, PinholeCameraMetadata]],
 ) -> List[ParsedCamera]:
     """Extracts the pinhole camera data from a nuScenes sample."""
     if pinhole_cameras_metadata is None:

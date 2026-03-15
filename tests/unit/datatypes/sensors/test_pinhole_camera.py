@@ -2,9 +2,8 @@ import numpy as np
 import pytest
 
 from py123d.datatypes.metadata.base_metadata import BaseMetadata
-from py123d.datatypes.sensors.base_camera import Camera
+from py123d.datatypes.sensors.base_camera import Camera, CameraID
 from py123d.datatypes.sensors.pinhole_camera import (
-    PinholeCameraID,
     PinholeCameraMetadata,
     PinholeDistortion,
     PinholeDistortionIndex,
@@ -16,36 +15,40 @@ from py123d.geometry import PoseSE3
 DUMMY_TIMESTAMP = Timestamp.from_s(0.0)
 
 
-class TestPinholeCameraID:
-    """Test PinholeCameraID enum functionality."""
+class TestCameraID:
+    """Test CameraID enum functionality."""
 
     def test_camera_id_values(self):
-        """Test that camera type enum has expected values."""
-        assert PinholeCameraID.PCAM_F0 == PinholeCameraID.PCAM_F0
-        assert PinholeCameraID.PCAM_B0 == PinholeCameraID.PCAM_B0
-        assert PinholeCameraID.PCAM_L0 == PinholeCameraID.PCAM_L0
-        assert PinholeCameraID.PCAM_L1 == PinholeCameraID.PCAM_L1
-        assert PinholeCameraID.PCAM_L2 == PinholeCameraID.PCAM_L2
-        assert PinholeCameraID.PCAM_R0 == PinholeCameraID.PCAM_R0
-        assert PinholeCameraID.PCAM_R1 == PinholeCameraID.PCAM_R1
-        assert PinholeCameraID.PCAM_R2 == PinholeCameraID.PCAM_R2
-        assert PinholeCameraID.PCAM_STEREO_L == PinholeCameraID.PCAM_STEREO_L
-        assert PinholeCameraID.PCAM_STEREO_R == PinholeCameraID.PCAM_STEREO_R
+        """Test that camera type enum has expected integer values."""
+        assert CameraID.PCAM_F0.value == 0
+        assert CameraID.PCAM_B0.value == 1
+        assert CameraID.PCAM_L0.value == 2
+        assert CameraID.PCAM_L1.value == 3
+        assert CameraID.PCAM_L2.value == 4
+        assert CameraID.PCAM_R0.value == 5
+        assert CameraID.PCAM_R1.value == 6
+        assert CameraID.PCAM_R2.value == 7
+        assert CameraID.PCAM_STEREO_L.value == 8
+        assert CameraID.PCAM_STEREO_R.value == 9
+        assert CameraID.FMCAM_L.value == 10
+        assert CameraID.FMCAM_R.value == 11
 
     def test_camera_id_from_int(self):
         """Test creating camera type from integer."""
-        assert PinholeCameraID(0) == PinholeCameraID.PCAM_F0
-        assert PinholeCameraID(5) == PinholeCameraID.PCAM_R0
-        assert PinholeCameraID(9) == PinholeCameraID.PCAM_STEREO_R
+        assert CameraID(0) == CameraID.PCAM_F0
+        assert CameraID(5) == CameraID.PCAM_R0
+        assert CameraID(9) == CameraID.PCAM_STEREO_R
+        assert CameraID(10) == CameraID.FMCAM_L
+        assert CameraID(11) == CameraID.FMCAM_R
 
     def test_camera_id_count(self):
         """Test that all camera types are defined."""
-        camera_ids = list(PinholeCameraID)
-        assert len(camera_ids) == 10
+        camera_ids = list(CameraID)
+        assert len(camera_ids) == 12
 
     def test_camera_id_unique_values(self):
         """Test that all camera type values are unique."""
-        values = [ct.value for ct in PinholeCameraID]
+        values = [ct.value for ct in CameraID]
         assert len(values) == len(set(values))
 
 
@@ -299,7 +302,7 @@ class TestPinholeMetadata:
         metadata = PinholeCameraMetadata.from_dict(data_dict)
 
         assert metadata.camera_name == "TestCamera"
-        assert metadata.camera_id == PinholeCameraID.PCAM_B0
+        assert metadata.camera_id == CameraID.PCAM_B0
         assert metadata.intrinsics is None
         assert metadata.distortion is not None
         assert metadata.width == 800
@@ -320,7 +323,7 @@ class TestPinholeMetadata:
 
         metadata = PinholeCameraMetadata.from_dict(data_dict)
 
-        assert metadata.camera_id == PinholeCameraID.PCAM_L0
+        assert metadata.camera_id == CameraID.PCAM_L0
         assert metadata.intrinsics is not None
         assert metadata.distortion is None
 
@@ -331,7 +334,7 @@ class TestPinholeMetadata:
         # 16:9 aspect ratio
         metadata_16_9 = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=None,
             width=1920,
@@ -343,7 +346,7 @@ class TestPinholeMetadata:
         # 4:3 aspect ratio
         metadata_4_3 = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=None,
             width=640,
@@ -359,7 +362,7 @@ class TestPinholeMetadata:
 
         metadata_narrow = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics_narrow,
             distortion=None,
             width=640,
@@ -368,7 +371,7 @@ class TestPinholeMetadata:
         )
         metadata_wide = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics_wide,
             distortion=None,
             width=640,
@@ -389,7 +392,7 @@ class TestPinholeMetadata:
 
         metadata = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_R1,
+            camera_id=CameraID.PCAM_R1,
             intrinsics=intrinsics,
             distortion=distortion,
             width=1280,
@@ -410,7 +413,7 @@ class TestPinholeMetadata:
         """Test metadata creation with all camera types."""
         intrinsics = PinholeIntrinsics(fx=500.0, fy=500.0, cx=320.0, cy=240.0)
 
-        for camera_id in PinholeCameraID:
+        for camera_id in CameraID:
             metadata = PinholeCameraMetadata(
                 camera_name="TestCamera",
                 camera_id=camera_id,
@@ -427,7 +430,7 @@ class TestPinholeMetadata:
         intrinsics = PinholeIntrinsics(fx=500.0, fy=500.0, cx=320.0, cy=240.0)
         metadata = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=None,
             width=640,
@@ -443,7 +446,7 @@ class TestPinholeMetadata:
         extrinsic = PoseSE3.from_list([0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0])
         original = PinholeCameraMetadata(
             camera_name="RoundtripCam",
-            camera_id=PinholeCameraID.PCAM_L0,
+            camera_id=CameraID.PCAM_L0,
             intrinsics=intrinsics,
             distortion=distortion,
             width=1280,
@@ -467,7 +470,7 @@ class TestPinholeMetadata:
         intrinsics = PinholeIntrinsics(fx=500.0, fy=500.0, cx=256.0, cy=256.0)
         metadata = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=None,
             width=512,
@@ -483,7 +486,7 @@ class TestPinholeMetadata:
         intrinsics = PinholeIntrinsics(fx=500.0, fy=600.0, cx=320.0, cy=240.0)
         metadata = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=None,
             width=640,
@@ -506,7 +509,7 @@ class TestCamera:
         intrinsics = PinholeIntrinsics(fx=500.0, fy=500.0, cx=320.0, cy=240.0)
         metadata = PinholeCameraMetadata(
             camera_name="TestCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=None,
             width=640,
@@ -528,7 +531,7 @@ class TestCamera:
         intrinsics = PinholeIntrinsics(fx=500.0, fy=500.0, cx=320.0, cy=240.0)
         metadata = PinholeCameraMetadata(
             camera_name="ColorCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=None,
             width=640,
@@ -549,7 +552,7 @@ class TestCamera:
         intrinsics = PinholeIntrinsics(fx=500.0, fy=500.0, cx=320.0, cy=240.0)
         metadata = PinholeCameraMetadata(
             camera_name="GrayCamera",
-            camera_id=PinholeCameraID.PCAM_L0,
+            camera_id=CameraID.PCAM_L0,
             intrinsics=intrinsics,
             distortion=None,
             width=640,
@@ -570,7 +573,7 @@ class TestCamera:
         distortion = PinholeDistortion(k1=0.1, k2=0.01, p1=0.001, p2=0.001, k3=0.001)
         metadata = PinholeCameraMetadata(
             camera_name="DistortedCamera",
-            camera_id=PinholeCameraID.PCAM_F0,
+            camera_id=CameraID.PCAM_F0,
             intrinsics=intrinsics,
             distortion=distortion,
             width=640,
@@ -593,10 +596,10 @@ class TestCamera:
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
         for camera_id in [
-            PinholeCameraID.PCAM_F0,
-            PinholeCameraID.PCAM_B0,
-            PinholeCameraID.PCAM_STEREO_L,
-            PinholeCameraID.PCAM_STEREO_R,
+            CameraID.PCAM_F0,
+            CameraID.PCAM_B0,
+            CameraID.PCAM_STEREO_L,
+            CameraID.PCAM_STEREO_R,
         ]:
             metadata = PinholeCameraMetadata(
                 camera_name="TestCamera",
@@ -620,7 +623,7 @@ class TestCamera:
             intrinsics = PinholeIntrinsics(fx=500.0, fy=500.0, cx=width / 2, cy=height / 2)
             metadata = PinholeCameraMetadata(
                 camera_name="TestCamera",
-                camera_id=PinholeCameraID.PCAM_F0,
+                camera_id=CameraID.PCAM_F0,
                 intrinsics=intrinsics,
                 distortion=None,
                 width=width,

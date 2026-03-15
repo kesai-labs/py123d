@@ -2,9 +2,8 @@ import numpy as np
 import pytest
 
 from py123d.datatypes.metadata.base_metadata import BaseMetadata
-from py123d.datatypes.sensors.base_camera import Camera
+from py123d.datatypes.sensors.base_camera import Camera, CameraID
 from py123d.datatypes.sensors.fisheye_mei_camera import (
-    FisheyeMEICameraID,
     FisheyeMEICameraMetadata,
     FisheyeMEIDistortion,
     FisheyeMEIDistortionIndex,
@@ -19,26 +18,26 @@ class TestFisheyeMEICameraType:
     """Test FisheyeMEICameraType enum functionality."""
 
     def test_camera_id_values(self):
-        """Test that camera type enum has expected values."""
-        assert FisheyeMEICameraID.FMCAM_L.value == 0
-        assert FisheyeMEICameraID.FMCAM_R.value == 1
+        """Test that fisheye camera IDs have expected values in the unified CameraID enum."""
+        assert CameraID.FMCAM_L.value == 10
+        assert CameraID.FMCAM_R.value == 11
 
     def test_camera_id_from_int(self):
-        """Test creating camera type from integer values."""
-        assert FisheyeMEICameraID(0) == FisheyeMEICameraID.FMCAM_L
-        assert FisheyeMEICameraID(1) == FisheyeMEICameraID.FMCAM_R
+        """Test creating fisheye camera IDs from integer values."""
+        assert CameraID(10) == CameraID.FMCAM_L
+        assert CameraID(11) == CameraID.FMCAM_R
 
     def test_camera_id_members(self):
-        """Test that all expected members exist."""
-        members = list(FisheyeMEICameraID)
-        assert len(members) == 2
-        assert FisheyeMEICameraID.FMCAM_L in members
-        assert FisheyeMEICameraID.FMCAM_R in members
+        """Test that fisheye members exist in the unified CameraID enum."""
+        members = list(CameraID)
+        assert len(members) == 12
+        assert CameraID.FMCAM_L in members
+        assert CameraID.FMCAM_R in members
 
     def test_camera_id_comparison(self):
         """Test comparison between camera types."""
-        assert FisheyeMEICameraID.FMCAM_L != FisheyeMEICameraID.FMCAM_R
-        assert FisheyeMEICameraID.FMCAM_L == FisheyeMEICameraID.FMCAM_L
+        assert CameraID.FMCAM_L != CameraID.FMCAM_R
+        assert CameraID.FMCAM_L == CameraID.FMCAM_L
 
 
 class TestFisheyeMEIDistortion:
@@ -150,7 +149,7 @@ class TestFisheyeMEICameraMetadata:
         projection = FisheyeMEIProjection(gamma1=1.0, gamma2=2.0, u0=3.0, v0=4.0)
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=distortion,
             projection=projection,
@@ -159,7 +158,7 @@ class TestFisheyeMEICameraMetadata:
             camera_to_imu_se3=PoseSE3.identity(),
         )
         assert metadata.camera_name == "TestCamera"
-        assert metadata.camera_id == FisheyeMEICameraID.FMCAM_L
+        assert metadata.camera_id == CameraID.FMCAM_L
         assert metadata.mirror_parameter == 0.5
         assert metadata.distortion == distortion
         assert metadata.projection == projection
@@ -170,7 +169,7 @@ class TestFisheyeMEICameraMetadata:
         """Test metadata initialization with None distortion and projection."""
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_R,
+            camera_id=CameraID.FMCAM_R,
             mirror_parameter=None,
             distortion=None,
             projection=None,
@@ -179,7 +178,7 @@ class TestFisheyeMEICameraMetadata:
             camera_to_imu_se3=None,
         )
         assert metadata.camera_name == "TestCamera"
-        assert metadata.camera_id == FisheyeMEICameraID.FMCAM_R
+        assert metadata.camera_id == CameraID.FMCAM_R
         assert metadata.mirror_parameter is None
         assert metadata.distortion is None
         assert metadata.projection is None
@@ -192,7 +191,7 @@ class TestFisheyeMEICameraMetadata:
         projection = FisheyeMEIProjection(gamma1=1.0, gamma2=2.0, u0=3.0, v0=4.0)
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=distortion,
             projection=projection,
@@ -203,7 +202,7 @@ class TestFisheyeMEICameraMetadata:
         result = metadata.to_dict()
 
         assert result["camera_name"] == "TestCamera"
-        assert result["camera_id"] == 0
+        assert result["camera_id"] == 10
         assert result["mirror_parameter"] == 0.5
         assert result["distortion"] == [0.1, 0.2, 0.3, 0.4]
         assert result["projection"] == [1.0, 2.0, 3.0, 4.0]
@@ -215,7 +214,7 @@ class TestFisheyeMEICameraMetadata:
         """Test creating metadata from dictionary."""
         data = {
             "camera_name": "TestCamera",
-            "camera_id": 0,
+            "camera_id": 10,
             "mirror_parameter": 0.5,
             "distortion": [0.1, 0.2, 0.3, 0.4],
             "projection": [1.0, 2.0, 3.0, 4.0],
@@ -224,7 +223,7 @@ class TestFisheyeMEICameraMetadata:
             "camera_to_imu_se3": [1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0],
         }
         metadata = FisheyeMEICameraMetadata.from_dict(data)
-        assert metadata.camera_id == FisheyeMEICameraID.FMCAM_L
+        assert metadata.camera_id == CameraID.FMCAM_L
         assert metadata.mirror_parameter == 0.5
         assert metadata.distortion is not None
         assert metadata.distortion.k1 == 0.1
@@ -237,7 +236,7 @@ class TestFisheyeMEICameraMetadata:
         """Test creating metadata from dictionary with None values."""
         data = {
             "camera_name": "TestCamera",
-            "camera_id": 1,
+            "camera_id": 11,
             "mirror_parameter": None,
             "distortion": None,
             "projection": None,
@@ -247,7 +246,7 @@ class TestFisheyeMEICameraMetadata:
         }
         metadata = FisheyeMEICameraMetadata.from_dict(data)
         assert metadata.camera_name == "TestCamera"
-        assert metadata.camera_id == FisheyeMEICameraID.FMCAM_R
+        assert metadata.camera_id == CameraID.FMCAM_R
         assert metadata.mirror_parameter is None
         assert metadata.distortion is None
         assert metadata.projection is None
@@ -259,7 +258,7 @@ class TestFisheyeMEICameraMetadata:
         projection = FisheyeMEIProjection(gamma1=1.0, gamma2=2.0, u0=3.0, v0=4.0)
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=distortion,
             projection=projection,
@@ -283,7 +282,7 @@ class TestFisheyeMEICameraMetadata:
         """FisheyeMEICameraMetadata is an instance of BaseMetadata."""
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=None,
             distortion=None,
             projection=None,
@@ -297,7 +296,7 @@ class TestFisheyeMEICameraMetadata:
         """Test aspect ratio calculation."""
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=None,
             projection=None,
@@ -316,7 +315,7 @@ class TestFisheyeMEICamera:
 
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=FisheyeMEIDistortion(k1=0.1, k2=0.2, p1=0.3, p2=0.4),
             projection=FisheyeMEIProjection(gamma1=1.0, gamma2=2.0, u0=3.0, v0=4.0),
@@ -344,7 +343,7 @@ class TestFisheyeMEICamera:
 
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_R,
+            camera_id=CameraID.FMCAM_R,
             mirror_parameter=0.8,
             distortion=None,
             projection=None,
@@ -363,7 +362,7 @@ class TestFisheyeMEICamera:
         )
 
         assert camera.metadata is metadata
-        assert camera.metadata.camera_id == FisheyeMEICameraID.FMCAM_R
+        assert camera.metadata.camera_id == CameraID.FMCAM_R
         assert camera.timestamp == Timestamp.from_s(0.0)
 
     def test_camera_image_property(self):
@@ -371,7 +370,7 @@ class TestFisheyeMEICamera:
 
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=None,
             projection=None,
@@ -397,7 +396,7 @@ class TestFisheyeMEICamera:
 
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=None,
             projection=None,
@@ -417,7 +416,7 @@ class TestFisheyeMEICamera:
 
         metadata = FisheyeMEICameraMetadata(
             camera_name="TestCamera",
-            camera_id=FisheyeMEICameraID.FMCAM_L,
+            camera_id=CameraID.FMCAM_L,
             mirror_parameter=0.5,
             distortion=None,
             projection=None,

@@ -15,12 +15,12 @@ from py123d.datatypes import (
     BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
+    CameraID,
     DynamicStateSE3,
     EgoStateSE3,
     LidarID,
     LidarMetadata,
     LogMetadata,
-    PinholeCameraID,
     PinholeCameraMetadata,
     PinholeDistortion,
     PinholeIntrinsics,
@@ -73,14 +73,14 @@ from nuplan.planning.simulation.observation.observation_type import CameraChanne
 
 # NOTE: Leaving this constant here, to avoid having a nuplan dependency in nuplan_constants.py
 NUPLAN_CAMERA_MAPPING = {
-    PinholeCameraID.PCAM_F0: CameraChannel.CAM_F0,
-    PinholeCameraID.PCAM_B0: CameraChannel.CAM_B0,
-    PinholeCameraID.PCAM_L0: CameraChannel.CAM_L0,
-    PinholeCameraID.PCAM_L1: CameraChannel.CAM_L1,
-    PinholeCameraID.PCAM_L2: CameraChannel.CAM_L2,
-    PinholeCameraID.PCAM_R0: CameraChannel.CAM_R0,
-    PinholeCameraID.PCAM_R1: CameraChannel.CAM_R1,
-    PinholeCameraID.PCAM_R2: CameraChannel.CAM_R2,
+    CameraID.PCAM_F0: CameraChannel.CAM_F0,
+    CameraID.PCAM_B0: CameraChannel.CAM_B0,
+    CameraID.PCAM_L0: CameraChannel.CAM_L0,
+    CameraID.PCAM_L1: CameraChannel.CAM_L1,
+    CameraID.PCAM_L2: CameraChannel.CAM_L2,
+    CameraID.PCAM_R0: CameraChannel.CAM_R0,
+    CameraID.PCAM_R1: CameraChannel.CAM_R1,
+    CameraID.PCAM_R2: CameraChannel.CAM_R2,
 }
 
 TARGET_DT: Final[float] = 0.1  # TODO: make configurable
@@ -427,10 +427,10 @@ class NuplanLogParser(BaseLogParser):
 def _get_nuplan_camera_metadata(
     source_log_path: Path,
     nuplan_sensor_root: Path,
-) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+) -> Dict[CameraID, PinholeCameraMetadata]:
     """Extracts the nuPlan camera metadata for a given log."""
 
-    def _get_camera_metadata(camera_id: PinholeCameraID) -> PinholeCameraMetadata:
+    def _get_camera_metadata(camera_id: CameraID) -> PinholeCameraMetadata:
         cam = list(get_cameras(str(source_log_path), [str(NUPLAN_CAMERA_MAPPING[camera_id].value)]))[0]
 
         # Load intrinsics
@@ -456,7 +456,7 @@ def _get_nuplan_camera_metadata(
             camera_to_imu_se3=extrinsic,
         )
 
-    camera_metadata: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    camera_metadata: Dict[CameraID, PinholeCameraMetadata] = {}
     log_name = source_log_path.stem
     for camera_id, nuplan_camera_type in NUPLAN_CAMERA_MAPPING.items():
         camera_folder = nuplan_sensor_root / log_name / f"{nuplan_camera_type.value}"
@@ -564,7 +564,7 @@ def _extract_nuplan_cameras(
     nuplan_lidar_pc: LidarPc,
     source_log_path: Path,
     nuplan_sensor_root: Path,
-    metadatas: Dict[PinholeCameraID, PinholeCameraMetadata],
+    metadatas: Dict[CameraID, PinholeCameraMetadata],
 ) -> List[ParsedCamera]:
     """Extracts the nuPlan camera data from a given LidarPc database object."""
     camera_data_list: List[ParsedCamera] = []

@@ -57,25 +57,21 @@ Available Modalities
    * - Traffic Lights
      - X
      - n/a
-   * - Pinhole Cameras
+   * - Cameras
      - ✓
      -
-      Includes 9 cameras, see :class:`~py123d.datatypes.sensors.PinholeCamera`:
+      Includes 9 cameras, see :class:`~py123d.datatypes.sensors.Camera`:
 
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_F0` (ring_front_center)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R0` (ring_front_right)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R1` (ring_side_right)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R2` (ring_rear_right)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L0` (ring_front_left)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L1` (ring_side_left)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L2` (ring_rear_left)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_STEREO_R` (stereo_front_right)
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_STEREO_L` (stereo_front_left)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_F0` (ring_front_center)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R0` (ring_front_right)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R1` (ring_side_right)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R2` (ring_rear_right)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L0` (ring_front_left)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L1` (ring_side_left)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L2` (ring_rear_left)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_STEREO_R` (stereo_front_right)
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_STEREO_L` (stereo_front_left)
 
-
-   * - Fisheye Cameras
-     - X
-     - n/a
    * - Lidars
      - ✓
      -

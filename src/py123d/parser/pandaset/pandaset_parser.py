@@ -10,9 +10,9 @@ from py123d.datatypes import (
     BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
+    CameraID,
     EgoStateSE3,
     LogMetadata,
-    PinholeCameraID,
     PinholeCameraMetadata,
     PinholeIntrinsics,
     Timestamp,
@@ -192,13 +192,13 @@ class PandasetLogParser(BaseLogParser):
         raise NotImplementedError("Pandaset parser only supports sync conversion via iter_modalities_sync().")
 
 
-def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[Dict[PinholeCameraID, PinholeCameraMetadata]]:
+def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[Dict[CameraID, PinholeCameraMetadata]]:
     """Extracts the pinhole camera metadata from a Pandaset log folder."""
     all_cameras_folder = source_log_path / "camera"
     if not all_cameras_folder.exists():
         return None
 
-    camera_metadata: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    camera_metadata: Dict[CameraID, PinholeCameraMetadata] = {}
     for camera_folder in all_cameras_folder.iterdir():
         camera_name = camera_folder.name
         assert camera_name in PANDASET_CAMERA_MAPPING.keys(), f"Camera name {camera_name} is not recognized."
@@ -347,7 +347,7 @@ def _extract_pandaset_pinhole_cameras(
     ego_state_se3: EgoStateSE3,
     camera_poses: Dict[str, List[Dict[str, Dict[str, float]]]],
     camera_timestamps_s: Dict[str, List[float]],
-    pinhole_cameras_metadata: Optional[Dict[PinholeCameraID, PinholeCameraMetadata]],
+    pinhole_cameras_metadata: Optional[Dict[CameraID, PinholeCameraMetadata]],
 ) -> List[ParsedCamera]:
     """Extracts the pinhole camera data from a Pandaset scene at a given iteration."""
     if pinhole_cameras_metadata is None:

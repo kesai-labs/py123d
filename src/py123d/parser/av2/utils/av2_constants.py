@@ -1,6 +1,6 @@
 from typing import Dict, Final, Set
 
-from py123d.datatypes import LaneType, PinholeCameraID, RoadLineType
+from py123d.datatypes import CameraID, LaneType, RoadLineType
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry.pose import PoseSE3
@@ -8,17 +8,17 @@ from py123d.parser.registry import AV2SensorBoxDetectionLabel
 
 AV2_SENSOR_SPLITS: Set[str] = {"av2-sensor_train", "av2-sensor_val", "av2-sensor_test"}
 
-# Mapping from AV2 camera names to PinholeCameraID enums.
-AV2_CAMERA_ID_MAPPING: Dict[str, PinholeCameraID] = {
-    "ring_front_center": PinholeCameraID.PCAM_F0,
-    "ring_front_left": PinholeCameraID.PCAM_L0,
-    "ring_front_right": PinholeCameraID.PCAM_R0,
-    "ring_side_left": PinholeCameraID.PCAM_L1,
-    "ring_side_right": PinholeCameraID.PCAM_R1,
-    "ring_rear_left": PinholeCameraID.PCAM_L2,
-    "ring_rear_right": PinholeCameraID.PCAM_R2,
-    "stereo_front_left": PinholeCameraID.PCAM_STEREO_L,
-    "stereo_front_right": PinholeCameraID.PCAM_STEREO_R,
+# Mapping from AV2 camera names to CameraID enums.
+AV2_CAMERA_ID_MAPPING: Dict[str, CameraID] = {
+    "ring_front_center": CameraID.PCAM_F0,
+    "ring_front_left": CameraID.PCAM_L0,
+    "ring_front_right": CameraID.PCAM_R0,
+    "ring_side_left": CameraID.PCAM_L1,
+    "ring_side_right": CameraID.PCAM_R1,
+    "ring_rear_left": CameraID.PCAM_L2,
+    "ring_rear_right": CameraID.PCAM_R2,
+    "stereo_front_left": CameraID.PCAM_STEREO_L,
+    "stereo_front_right": CameraID.PCAM_STEREO_R,
 }
 
 # Mapping from AV2 road line types to RoadLineType enums.

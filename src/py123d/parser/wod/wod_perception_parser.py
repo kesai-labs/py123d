@@ -10,11 +10,11 @@ from py123d.datatypes import (
     BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
+    CameraID,
     EgoStateSE3,
     LidarID,
     LidarMetadata,
     LogMetadata,
-    PinholeCameraID,
     PinholeCameraMetadata,
     PinholeDistortion,
     PinholeIntrinsics,
@@ -307,9 +307,9 @@ def _get_initial_frame_from_tfrecord(tf_record_path: Path) -> dataset_pb2.Frame:
 
 def _get_wod_perception_camera_metadata(
     initial_frame: dataset_pb2.Frame,
-) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+) -> Dict[CameraID, PinholeCameraMetadata]:
     """Get the WOD Perception camera metadata from the initial frame."""
-    camera_metadata_dict: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    camera_metadata_dict: Dict[CameraID, PinholeCameraMetadata] = {}
     for calibration in initial_frame.context.camera_calibrations:
         camera_type = WOD_PERCEPTION_CAMERA_IDS[calibration.name]
 
@@ -469,7 +469,7 @@ def _extract_wod_perception_box_detections(
 
 def _extract_wod_perception_cameras(
     frame: dataset_pb2.Frame,
-    camera_metadatas: Dict[PinholeCameraID, PinholeCameraMetadata],
+    camera_metadatas: Dict[CameraID, PinholeCameraMetadata],
 ) -> List[ParsedCamera]:
     """Extracts the camera data from a WOD Perception frame.
 
@@ -481,7 +481,7 @@ def _extract_wod_perception_cameras(
     camera_data_list: List[ParsedCamera] = []
 
     # Static calibration extrinsics (camera-to-vehicle, fixed per log)
-    camera_static_extrinsic: Dict[PinholeCameraID, PoseSE3] = {}
+    camera_static_extrinsic: Dict[CameraID, PoseSE3] = {}
     for calibration in frame.context.camera_calibrations:
         camera_type = WOD_PERCEPTION_CAMERA_IDS[calibration.name]
         camera_transform = np.array(calibration.extrinsic.transform, dtype=np.float64).reshape(4, 4)

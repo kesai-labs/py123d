@@ -28,11 +28,3 @@ Pinhole Distortion
    :exclude-members: __init__
    :no-inherited-members:
    :autoclasstoc:
-
-
-Pinhole Camera IDs
-------------------
-
-.. autoclass:: py123d.datatypes.sensors.PinholeCameraID
-   :no-inherited-members:
-   :exclude-members: __init__, __new__

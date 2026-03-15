@@ -22,7 +22,7 @@ from py123d.datatypes import (
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
+from py123d.datatypes.sensors.pinhole_camera import CameraID
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, PoseSE3, Vector3D, Vector3DIndex
 from py123d.geometry.transform import reframe_se3_array, rel_to_abs_se3_array
@@ -304,9 +304,9 @@ class Av2SensorLogParser(BaseLogParser):
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def _get_av2_pinhole_camera_metadatas(source_log_path: Path) -> Dict[PinholeCameraID, PinholeCameraMetadata]:
+def _get_av2_pinhole_camera_metadatas(source_log_path: Path) -> Dict[CameraID, PinholeCameraMetadata]:
     """Returns a list of pinhole camera metadata for AV2 sensor dataset (one per camera)."""
-    metadatas: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    metadatas: Dict[CameraID, PinholeCameraMetadata] = {}
     intrinsics_file = source_log_path / "calibration" / "intrinsics.feather"
     intrinsics_df = pd.read_feather(intrinsics_file)
 
@@ -449,7 +449,7 @@ def _extract_av2_sensor_pinhole_cameras(
     city_se3_egovehicle_df: pd.DataFrame,
     synchronization_df: pd.DataFrame,
     source_log_path: Path,
-    metadatas: Dict[PinholeCameraID, PinholeCameraMetadata],
+    metadatas: Dict[CameraID, PinholeCameraMetadata],
 ) -> List[ParsedCamera]:
     """Extract pinhole camera data from AV2 sensor dataset."""
     camera_data_list: List[ParsedCamera] = []

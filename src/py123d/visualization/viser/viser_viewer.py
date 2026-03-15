@@ -11,9 +11,8 @@ from viser.theme import TitlebarButton, TitlebarConfig, TitlebarImage
 
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.datatypes.map_objects.map_layer_types import MapLayer
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID
+from py123d.datatypes.sensors.base_camera import CameraID
 from py123d.datatypes.sensors.lidar import LidarID
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.visualization.viser.elements import (
     add_box_detections_to_viser_server,
@@ -378,9 +377,9 @@ class ViserViewer:
             "mesh": None,
             "lines": None,
         }
-        camera_frustum_handles: Dict[PinholeCameraID, viser.CameraFrustumHandle] = {}
-        fisheye_frustum_handles: Dict[FisheyeMEICameraID, viser.CameraFrustumHandle] = {}
-        camera_gui_handles: Dict[PinholeCameraID, viser.GuiImageHandle] = {}
+        camera_frustum_handles: Dict[CameraID, viser.CameraFrustumHandle] = {}
+        fisheye_frustum_handles: Dict[CameraID, viser.CameraFrustumHandle] = {}
+        camera_gui_handles: Dict[CameraID, viser.GuiImageHandle] = {}
         lidar_pc_handles: Dict[LidarID, Optional[viser.PointCloudHandle]] = {LidarID.LIDAR_MERGED: None}
         map_handles: Dict[MapLayer, viser.MeshHandle] = {}
 

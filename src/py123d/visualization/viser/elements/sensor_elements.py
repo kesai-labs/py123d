@@ -9,10 +9,9 @@ import viser
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.datatypes.sensors import (
     Camera,
-    FisheyeMEICameraID,
+    CameraID,
     FisheyeMEICameraMetadata,
     LidarID,
-    PinholeCameraID,
 )
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry import PoseSE3Index
@@ -27,14 +26,14 @@ def add_camera_frustums_to_viser_server(
     initial_ego_state: EgoStateSE3,
     viser_server: viser.ViserServer,
     viser_config: ViserConfig,
-    camera_frustum_handles: Dict[PinholeCameraID, viser.CameraFrustumHandle],
+    camera_frustum_handles: Dict[CameraID, viser.CameraFrustumHandle],
 ) -> None:
     if viser_config.camera_frustum_visible:
         scene_center_array = initial_ego_state.center_se3.point_3d.array
         ego_pose = scene.get_ego_state_se3_at_iteration(scene_interation).imu_se3.array
         ego_pose[PoseSE3Index.XYZ] -= scene_center_array
 
-        def _add_camera_frustums_to_viser_server(camera_type: PinholeCameraID) -> None:
+        def _add_camera_frustums_to_viser_server(camera_type: CameraID) -> None:
             camera = scene.get_camera_at_iteration(
                 scene_interation, camera_type, scaling_factor=viser_config.camera_frustum_image_scale
             )
@@ -73,14 +72,14 @@ def add_fisheye_frustums_to_viser_server(
     initial_ego_state: EgoStateSE3,
     viser_server: viser.ViserServer,
     viser_config: ViserConfig,
-    fisheye_frustum_handles: Dict[FisheyeMEICameraID, viser.CameraFrustumHandle],
+    fisheye_frustum_handles: Dict[CameraID, viser.CameraFrustumHandle],
 ) -> None:
     if viser_config.fisheye_frustum_visible:
         scene_center_array = initial_ego_state.center_se3.point_3d.array
         ego_pose = scene.get_ego_state_se3_at_iteration(scene_interation).imu_se3.array
         ego_pose[PoseSE3Index.XYZ] -= scene_center_array
 
-        def _add_fisheye_frustums_to_viser_server(fisheye_camera_type: FisheyeMEICameraID) -> None:
+        def _add_fisheye_frustums_to_viser_server(fisheye_camera_type: CameraID) -> None:
             camera = scene.get_camera_at_iteration(
                 scene_interation, fisheye_camera_type, scaling_factor=viser_config.fisheye_frustum_image_scale
             )
@@ -126,7 +125,7 @@ def add_camera_gui_to_viser_server(
     scene_interation: int,
     viser_server: viser.ViserServer,
     viser_config: ViserConfig,
-    camera_gui_handles: Dict[PinholeCameraID, viser.GuiImageHandle],
+    camera_gui_handles: Dict[CameraID, viser.GuiImageHandle],
 ) -> None:
     if viser_config.camera_gui_visible:
         for camera_type in viser_config.camera_gui_types:

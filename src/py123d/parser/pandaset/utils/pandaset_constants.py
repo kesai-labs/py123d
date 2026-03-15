@@ -2,7 +2,7 @@ from typing import Dict, List
 
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.sensors.lidar import LidarID, LidarMergedMetadata, LidarMetadata
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID, PinholeDistortion, PinholeIntrinsics
+from py123d.datatypes.sensors.pinhole_camera import CameraID, PinholeDistortion, PinholeIntrinsics
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import PoseSE3
 from py123d.parser.pandaset.utils.pandaset_utlis import extrinsic_to_imu
@@ -10,13 +10,13 @@ from py123d.parser.registry import PandasetBoxDetectionLabel
 
 PANDASET_SPLITS: List[str] = ["pandaset_train", "pandaset_val", "pandaset_test"]
 
-PANDASET_CAMERA_MAPPING: Dict[str, PinholeCameraID] = {
-    "front_camera": PinholeCameraID.PCAM_F0,
-    "back_camera": PinholeCameraID.PCAM_B0,
-    "front_left_camera": PinholeCameraID.PCAM_L0,
-    "front_right_camera": PinholeCameraID.PCAM_R0,
-    "left_camera": PinholeCameraID.PCAM_L1,
-    "right_camera": PinholeCameraID.PCAM_R1,
+PANDASET_CAMERA_MAPPING: Dict[str, CameraID] = {
+    "front_camera": CameraID.PCAM_F0,
+    "back_camera": CameraID.PCAM_B0,
+    "front_left_camera": CameraID.PCAM_L0,
+    "front_right_camera": CameraID.PCAM_R0,
+    "left_camera": CameraID.PCAM_L1,
+    "right_camera": CameraID.PCAM_R1,
 }
 
 PANDASET_LIDAR_MAPPING: Dict[str, LidarID] = {
