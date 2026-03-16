@@ -97,6 +97,7 @@ def _create_stop_zone_outline(
     avg_z = float(np.mean(all_z))
 
     # Extract exterior coords from merged polygon, add Z
+    merged = merged.buffer(0.01).simplify(0.01, preserve_topology=True).buffer(-0.01)
     xy = np.array(merged.exterior.coords)
     z = np.full((xy.shape[0], 1), avg_z)
     corners_3d = np.hstack([xy, z])
@@ -125,6 +126,9 @@ def create_stop_zones_from_signals(
             continue
 
         helpers = [lane_helper_dict[lid] for lid in signal_helper.lane_ids if lid in lane_helper_dict]
+        # Filter out lanes with zero-area rectangles. This can happen when a lane has
+        # near-zero width at the stop zone position (e.g. very short lanes or lane tapers).
+        helpers = [h for h in helpers if _lane_rectangle_2d(h) is not None]
         if not helpers:
             continue
 

@@ -4,7 +4,6 @@ from py123d.datatypes.detections.box_detection_label import (
     DefaultBoxDetectionLabel,
     register_box_detection_label,
 )
-from py123d.datatypes.detections.box_detection_label_metadata import BoxDetectionMetadata
 from py123d.datatypes.detections.box_detections import (
     BoxDetection,
     BoxDetectionAttributes,
@@ -13,8 +12,10 @@ from py123d.datatypes.detections.box_detections import (
     BoxDetectionsSE2,
     BoxDetectionsSE3,
 )
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.detections.traffic_light_detections import (
     TrafficLightDetection,
     TrafficLightDetections,
     TrafficLightStatus,
+    TrafficLightDetectionsMetadata,
 )

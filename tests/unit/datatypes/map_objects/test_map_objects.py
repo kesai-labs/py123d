@@ -250,7 +250,7 @@ class TestLane:
             assert lane.left_lane_id is None
 
         # Middle Lane 0
-        lane0: Lane = map_api.get_map_object(0, MapLayer.LANE)
+        lane0: Lane = map_api.get_map_object_in_layer(0, MapLayer.LANE)
         assert lane0 is not None
         assert lane0.left_lane is not None
         assert isinstance(lane0.left_lane, Lane)
@@ -258,11 +258,11 @@ class TestLane:
         assert lane0.left_lane.object_id == lane0.left_lane_id
 
         # Left Lane 1
-        lane1: Lane = map_api.get_map_object(1, MapLayer.LANE)
+        lane1: Lane = map_api.get_map_object_in_layer(1, MapLayer.LANE)
         _no_left_neighbor(lane1)
 
         # Right Lane 2
-        lane2: Lane = map_api.get_map_object(2, MapLayer.LANE)
+        lane2: Lane = map_api.get_map_object_in_layer(2, MapLayer.LANE)
         assert lane2 is not None
         assert lane2.left_lane is not None
         assert isinstance(lane2.left_lane, Lane)
@@ -270,11 +270,11 @@ class TestLane:
         assert lane2.left_lane.object_id == lane2.left_lane_id
 
         # Predecessor Lane 3
-        lane3: Lane = map_api.get_map_object(3, MapLayer.LANE)
+        lane3: Lane = map_api.get_map_object_in_layer(3, MapLayer.LANE)
         _no_left_neighbor(lane3)
 
         # Successor Lane 4
-        lane4: Lane = map_api.get_map_object(4, MapLayer.LANE)
+        lane4: Lane = map_api.get_map_object_in_layer(4, MapLayer.LANE)
         _no_left_neighbor(lane4)
 
     def test_right_links(self):
@@ -292,7 +292,7 @@ class TestLane:
             assert lane.right_lane_id is None
 
         # Middle Lane 0
-        lane0: Lane = map_api.get_map_object(0, MapLayer.LANE)
+        lane0: Lane = map_api.get_map_object_in_layer(0, MapLayer.LANE)
         assert lane0 is not None
         assert lane0.right_lane is not None
         assert isinstance(lane0.right_lane, Lane)
@@ -300,7 +300,7 @@ class TestLane:
         assert lane0.right_lane.object_id == lane0.right_lane_id
 
         # Left Lane 1
-        lane1: Lane = map_api.get_map_object(1, MapLayer.LANE)
+        lane1: Lane = map_api.get_map_object_in_layer(1, MapLayer.LANE)
         assert lane1 is not None
         assert lane1.right_lane is not None
         assert isinstance(lane1.right_lane, Lane)
@@ -308,15 +308,15 @@ class TestLane:
         assert lane1.right_lane.object_id == lane1.right_lane_id
 
         # Right Lane 2
-        lane2: Lane = map_api.get_map_object(2, MapLayer.LANE)
+        lane2: Lane = map_api.get_map_object_in_layer(2, MapLayer.LANE)
         _no_right_neighbor(lane2)
 
         # Predecessor Lane 3
-        lane3: Lane = map_api.get_map_object(3, MapLayer.LANE)
+        lane3: Lane = map_api.get_map_object_in_layer(3, MapLayer.LANE)
         _no_right_neighbor(lane3)
 
         # Successor Lane 4
-        lane4: Lane = map_api.get_map_object(4, MapLayer.LANE)
+        lane4: Lane = map_api.get_map_object_in_layer(4, MapLayer.LANE)
         _no_right_neighbor(lane4)
 
     def test_predecessor_links(self):
@@ -334,7 +334,7 @@ class TestLane:
             assert lane.predecessor_ids == []
 
         # Middle Lane 0
-        lane0: Lane = map_api.get_map_object(0, MapLayer.LANE)
+        lane0: Lane = map_api.get_map_object_in_layer(0, MapLayer.LANE)
         assert lane0 is not None
         assert lane0.predecessors is not None
         assert len(lane0.predecessors) == 1
@@ -343,19 +343,19 @@ class TestLane:
         assert lane0.predecessor_ids == [3]
 
         # Left Lane 1
-        lane1: Lane = map_api.get_map_object(1, MapLayer.LANE)
+        lane1: Lane = map_api.get_map_object_in_layer(1, MapLayer.LANE)
         _no_predecessors(lane1)
 
         # Right Lane 2
-        lane2: Lane = map_api.get_map_object(2, MapLayer.LANE)
+        lane2: Lane = map_api.get_map_object_in_layer(2, MapLayer.LANE)
         _no_predecessors(lane2)
 
         # Predecessor Lane 3
-        lane3: Lane = map_api.get_map_object(3, MapLayer.LANE)
+        lane3: Lane = map_api.get_map_object_in_layer(3, MapLayer.LANE)
         _no_predecessors(lane3)
 
         # Successor Lane 4
-        lane4: Lane = map_api.get_map_object(4, MapLayer.LANE)
+        lane4: Lane = map_api.get_map_object_in_layer(4, MapLayer.LANE)
         assert lane4 is not None
         assert lane4.predecessors is not None
         assert len(lane4.predecessors) == 1
@@ -378,7 +378,7 @@ class TestLane:
             assert lane.successor_ids == []
 
         # Middle Lane 0
-        lane0: Lane = map_api.get_map_object(0, MapLayer.LANE)
+        lane0: Lane = map_api.get_map_object_in_layer(0, MapLayer.LANE)
         assert lane0 is not None
         assert lane0.successors is not None
         assert len(lane0.successors) == 1
@@ -387,15 +387,15 @@ class TestLane:
         assert lane0.successor_ids == [4]
 
         # Left Lane 1
-        lane1: Lane = map_api.get_map_object(1, MapLayer.LANE)
+        lane1: Lane = map_api.get_map_object_in_layer(1, MapLayer.LANE)
         _no_successors(lane1)
 
         # Right Lane 2
-        lane2: Lane = map_api.get_map_object(2, MapLayer.LANE)
+        lane2: Lane = map_api.get_map_object_in_layer(2, MapLayer.LANE)
         _no_successors(lane2)
 
         # Predecessor Lane 3
-        lane3: Lane = map_api.get_map_object(3, MapLayer.LANE)
+        lane3: Lane = map_api.get_map_object_in_layer(3, MapLayer.LANE)
         assert lane3 is not None
         assert lane3.successors is not None
         assert len(lane3.successors) == 1
@@ -404,7 +404,7 @@ class TestLane:
         assert lane3.successor_ids == [0]
 
         # Successor Lane 4
-        lane4: Lane = map_api.get_map_object(4, MapLayer.LANE)
+        lane4: Lane = map_api.get_map_object_in_layer(4, MapLayer.LANE)
         _no_successors(lane4)
 
     def test_no_links(self):
@@ -415,7 +415,7 @@ class TestLane:
             add_map_api_links=False,
         )
         for lane in self.lanes:
-            lane_from_api: Lane = map_api.get_map_object(lane.object_id, MapLayer.LANE)
+            lane_from_api: Lane = map_api.get_map_object_in_layer(lane.object_id, MapLayer.LANE)
             assert lane_from_api is not None
             assert lane_from_api.left_lane is None
             assert lane_from_api.right_lane is None
@@ -432,7 +432,7 @@ class TestLane:
         )
 
         for lane in self.lanes:
-            lane_from_api: Lane = map_api.get_map_object(lane.object_id, MapLayer.LANE)
+            lane_from_api: Lane = map_api.get_map_object_in_layer(lane.object_id, MapLayer.LANE)
             assert lane_from_api is not None
             assert lane_from_api.lane_group is not None
             assert isinstance(lane_from_api.lane_group, LaneGroup)
@@ -477,7 +477,7 @@ class TestLaneGroup:
         )
 
         # Lane group 0 contains lanes 0, 1, 2
-        lane_group0: LaneGroup = map_api.get_map_object(0, MapLayer.LANE_GROUP)
+        lane_group0: LaneGroup = map_api.get_map_object_in_layer(0, MapLayer.LANE_GROUP)
         assert lane_group0 is not None
         assert lane_group0.lanes is not None
         assert len(lane_group0.lanes) == 3
@@ -486,7 +486,7 @@ class TestLaneGroup:
             assert lane.object_id == i
 
         # Lane group 1 contains lane 3
-        lane_group1: LaneGroup = map_api.get_map_object(1, MapLayer.LANE_GROUP)
+        lane_group1: LaneGroup = map_api.get_map_object_in_layer(1, MapLayer.LANE_GROUP)
         assert lane_group1 is not None
         assert lane_group1.lanes is not None
         assert len(lane_group1.lanes) == 1
@@ -494,7 +494,7 @@ class TestLaneGroup:
         assert lane_group1.lanes[0].object_id == 3
 
         # Lane group 2 contains lane 4
-        lane_group2: LaneGroup = map_api.get_map_object(2, MapLayer.LANE_GROUP)
+        lane_group2: LaneGroup = map_api.get_map_object_in_layer(2, MapLayer.LANE_GROUP)
         assert lane_group2 is not None
         assert lane_group2.lanes is not None
         assert len(lane_group2.lanes) == 1
@@ -516,7 +516,7 @@ class TestLaneGroup:
             assert lane_group.predecessor_ids == []
 
         # Lane group 0 has predecessor lane group 1
-        lane_group0: LaneGroup = map_api.get_map_object(0, MapLayer.LANE_GROUP)
+        lane_group0: LaneGroup = map_api.get_map_object_in_layer(0, MapLayer.LANE_GROUP)
         assert lane_group0 is not None
         assert lane_group0.predecessors is not None
         assert len(lane_group0.predecessors) == 1
@@ -525,11 +525,11 @@ class TestLaneGroup:
         assert lane_group0.predecessor_ids == [1]
 
         # Lane group 1 has no predecessors
-        lane_group1: LaneGroup = map_api.get_map_object(1, MapLayer.LANE_GROUP)
+        lane_group1: LaneGroup = map_api.get_map_object_in_layer(1, MapLayer.LANE_GROUP)
         _no_predecessors(lane_group1)
 
         # Lane group 2 has predecessor lane group 0
-        lane_group2: LaneGroup = map_api.get_map_object(2, MapLayer.LANE_GROUP)
+        lane_group2: LaneGroup = map_api.get_map_object_in_layer(2, MapLayer.LANE_GROUP)
         assert lane_group2 is not None
         assert lane_group2.predecessors is not None
         assert len(lane_group2.predecessors) == 1
@@ -552,7 +552,7 @@ class TestLaneGroup:
             assert lane_group.successor_ids == []
 
         # Lane group 0 has successor lane group 2
-        lane_group0: LaneGroup = map_api.get_map_object(0, MapLayer.LANE_GROUP)
+        lane_group0: LaneGroup = map_api.get_map_object_in_layer(0, MapLayer.LANE_GROUP)
         assert lane_group0 is not None
         assert lane_group0.successors is not None
         assert len(lane_group0.successors) == 1
@@ -561,7 +561,7 @@ class TestLaneGroup:
         assert lane_group0.successor_ids == [2]
 
         # Lane group 1 has successor lane group 0
-        lane_group1: LaneGroup = map_api.get_map_object(1, MapLayer.LANE_GROUP)
+        lane_group1: LaneGroup = map_api.get_map_object_in_layer(1, MapLayer.LANE_GROUP)
         assert lane_group1 is not None
         assert lane_group1.successors is not None
         assert len(lane_group1.successors) == 1
@@ -570,7 +570,7 @@ class TestLaneGroup:
         assert lane_group1.successor_ids == [0]
 
         # Lane group 2 has no successors
-        lane_group2: LaneGroup = map_api.get_map_object(2, MapLayer.LANE_GROUP)
+        lane_group2: LaneGroup = map_api.get_map_object_in_layer(2, MapLayer.LANE_GROUP)
         _no_successors(lane_group2)
 
     def test_intersection_links(self):
@@ -583,13 +583,13 @@ class TestLaneGroup:
         )
 
         # Lane group 0 has no intersection
-        lane_group0: LaneGroup = map_api.get_map_object(0, MapLayer.LANE_GROUP)
+        lane_group0: LaneGroup = map_api.get_map_object_in_layer(0, MapLayer.LANE_GROUP)
         assert lane_group0 is not None
         assert lane_group0.intersection_id is None
         assert lane_group0.intersection is None
 
         # Lane group 1 has intersection 0
-        lane_group1: LaneGroup = map_api.get_map_object(1, MapLayer.LANE_GROUP)
+        lane_group1: LaneGroup = map_api.get_map_object_in_layer(1, MapLayer.LANE_GROUP)
         assert lane_group1 is not None
         assert lane_group1.intersection_id == 0
         assert lane_group1.intersection is not None
@@ -597,7 +597,7 @@ class TestLaneGroup:
         assert lane_group1.intersection.object_id == 0
 
         # Lane group 2 has intersection 1
-        lane_group2: LaneGroup = map_api.get_map_object(2, MapLayer.LANE_GROUP)
+        lane_group2: LaneGroup = map_api.get_map_object_in_layer(2, MapLayer.LANE_GROUP)
         assert lane_group2 is not None
         assert lane_group2.intersection_id == 1
         assert lane_group2.intersection is not None
@@ -613,7 +613,7 @@ class TestLaneGroup:
             add_map_api_links=False,
         )
         for lane_group in self.lane_groups:
-            lg_from_api: LaneGroup = map_api.get_map_object(lane_group.object_id, MapLayer.LANE_GROUP)
+            lg_from_api: LaneGroup = map_api.get_map_object_in_layer(lane_group.object_id, MapLayer.LANE_GROUP)
             assert lg_from_api is not None
             assert lg_from_api.lanes == []
             assert lg_from_api.predecessors == []
@@ -654,7 +654,7 @@ class TestIntersection:
         )
 
         # Intersection 0 contains lane group 1
-        intersection0: Intersection = map_api.get_map_object(0, MapLayer.INTERSECTION)
+        intersection0: Intersection = map_api.get_map_object_in_layer(0, MapLayer.INTERSECTION)
         assert intersection0 is not None
         assert intersection0.lane_groups is not None
         assert len(intersection0.lane_groups) == 1
@@ -662,7 +662,7 @@ class TestIntersection:
         assert intersection0.lane_groups[0].object_id == 1
 
         # Intersection 1 contains lane group 2
-        intersection1: Intersection = map_api.get_map_object(1, MapLayer.INTERSECTION)
+        intersection1: Intersection = map_api.get_map_object_in_layer(1, MapLayer.INTERSECTION)
         assert intersection1 is not None
         assert intersection1.lane_groups is not None
         assert len(intersection1.lane_groups) == 1
@@ -678,7 +678,7 @@ class TestIntersection:
             add_map_api_links=False,
         )
         for intersection in self.intersections:
-            int_from_api: Intersection = map_api.get_map_object(intersection.object_id, MapLayer.INTERSECTION)
+            int_from_api: Intersection = map_api.get_map_object_in_layer(intersection.object_id, MapLayer.INTERSECTION)
             assert int_from_api is not None
             assert int_from_api.lane_groups == []
 

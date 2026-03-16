@@ -3,21 +3,13 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import py123d
-from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
+from py123d.datatypes.metadata.base_metadata import BaseMetadata
 
 
-class MapMetadata(AbstractMetadata):
+class MapMetadata(BaseMetadata):
     """Class to hold metadata information about a map."""
 
-    __slots__ = (
-        "_dataset",
-        "_split",
-        "_log_name",
-        "_location",
-        "_map_has_z",
-        "_map_is_per_log",
-        "_version",
-    )
+    __slots__ = ("_dataset", "_split", "_log_name", "_location", "_map_has_z", "_map_is_per_log", "_version")
 
     def __init__(
         self,

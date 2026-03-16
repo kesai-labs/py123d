@@ -21,8 +21,8 @@ class XODRObject:
     pitch: float
     orientation: str
     type: str
-    width: float
-    length: float
+    width: Optional[float]
+    length: Optional[float]
 
     outline: Optional[List[CornerLocal]]
 
@@ -43,8 +43,8 @@ class XODRObject:
         args["pitch"] = float(object_element.get("pitch"))
         args["orientation"] = object_element.get("orientation")
         args["type"] = object_element.get("type")
-        args["width"] = float(object_element.get("width"))
-        args["length"] = float(object_element.get("length"))
+        args["width"] = float(object_element.get("width")) if object_element.get("width") is not None else None
+        args["length"] = float(object_element.get("length")) if object_element.get("length") is not None else None
 
         outline: List[CornerLocal] = []
         if object_element.find("outline") is not None:

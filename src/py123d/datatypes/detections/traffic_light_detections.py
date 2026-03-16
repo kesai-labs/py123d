@@ -1,6 +1,9 @@
-from typing import List, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
 
 from py123d.common.utils.enums import SerialIntEnum
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
 from py123d.datatypes.time.timestamp import Timestamp
 
 
@@ -53,22 +56,46 @@ class TrafficLightDetection:
         return self._status
 
 
-class TrafficLightDetections:
+class TrafficLightDetectionsMetadata(BaseModalityMetadata):
+    @property
+    def modality_type(self) -> ModalityType:
+        """The modality name for this metadata, which is 'traffic_light_detections'."""
+        return ModalityType.TRAFFIC_LIGHT_DETECTIONS
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {}
+
+    @classmethod
+    def from_dict(cls, data_dict: Dict[str, Any]) -> TrafficLightDetectionsMetadata:
+        return cls()
+
+    def __repr__(self) -> str:
+        return f"TrafficLightDetectionsMetadata(modality_type={self.modality_type})"
+
+
+class TrafficLightDetections(BaseModality):
     """The TrafficLightDetections is a container for multiple traffic light detections.
     It provides methods to access individual detections as well as to retrieve a detection by lane id.
     The wrapper is used to read and write traffic light detections from/to logs.
     """
 
-    __slots__ = ("_detections", "_timestamp")
+    __slots__ = ("_detections", "_timestamp", "_metadata")
 
-    def __init__(self, detections: List[TrafficLightDetection], timestamp: Timestamp) -> None:
+    def __init__(
+        self,
+        detections: List[TrafficLightDetection],
+        timestamp: Timestamp,
+        metadata: TrafficLightDetectionsMetadata = TrafficLightDetectionsMetadata(),
+    ) -> None:
         """Initialize a TrafficLightDetections instance.
 
         :param detections: List of :class:`TrafficLightDetection`.
         :param timestamp: The :class:`~py123d.datatypes.time.Timestamp` of the traffic light detections.
+        :param metadata: The metadata for the traffic light detections.
         """
         self._detections = detections
         self._timestamp = timestamp
+        self._metadata = metadata
 
     @property
     def detections(self) -> List[TrafficLightDetection]:
@@ -79,6 +106,11 @@ class TrafficLightDetections:
     def timestamp(self) -> Timestamp:
         """The :class:`~py123d.datatypes.time.Timestamp` of the traffic light detections."""
         return self._timestamp
+
+    @property
+    def metadata(self) -> TrafficLightDetectionsMetadata:
+        """The metadata for the traffic light detections."""
+        return self._metadata
 
     def __getitem__(self, index: int) -> TrafficLightDetection:
         """Retrieve a traffic light detection by its index.

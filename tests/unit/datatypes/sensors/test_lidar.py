@@ -1,8 +1,12 @@
 import numpy as np
 
-from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
+from py123d.datatypes.metadata.base_metadata import BaseMetadata
 from py123d.datatypes.sensors.lidar import LIDAR_FEATURE_DTYPES, Lidar, LidarFeature, LidarID, LidarMetadata
+from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry import PoseSE3
+
+DUMMY_TIMESTAMP = Timestamp.from_s(0.0)
+DUMMY_TIMESTAMP_END = Timestamp.from_s(0.1)
 
 
 class TestLidarID:
@@ -141,9 +145,9 @@ class TestLidarMetadata:
         assert restored_metadata.lidar_to_imu_se3 == PoseSE3.identity()
 
     def test_is_instance_of_abstract_metadata(self):
-        """LidarMetadata is an instance of AbstractMetadata."""
+        """LidarMetadata is an instance of BaseMetadata."""
         metadata = LidarMetadata(lidar_name=self.lidar_name, lidar_id=self.lidar_id)
-        assert isinstance(metadata, AbstractMetadata)
+        assert isinstance(metadata, BaseMetadata)
 
 
 class TestLidar:
@@ -164,16 +168,20 @@ class TestLidar:
             LidarFeature.IDS.serialize(): np.arange(self.NUM_POINTS, dtype=np.uint8),
             LidarFeature.INTENSITY.serialize(): np.random.randint(0, 255, self.NUM_POINTS, dtype=np.uint8),
             LidarFeature.CHANNEL.serialize(): np.random.randint(0, 64, self.NUM_POINTS, dtype=np.uint8),
-            LidarFeature.TIMESTAMP.serialize(): np.arange(self.NUM_POINTS, dtype=np.int64),
+            LidarFeature.TIMESTAMPS.serialize(): np.arange(self.NUM_POINTS, dtype=np.int64),
             LidarFeature.RANGE.serialize(): np.random.rand(self.NUM_POINTS).astype(np.float32),
             LidarFeature.ELONGATION.serialize(): np.random.rand(self.NUM_POINTS).astype(np.float32),
         }
         self.lidar_with_features = Lidar(
+            timestamp=DUMMY_TIMESTAMP,
+            timestamp_end=DUMMY_TIMESTAMP_END,
             metadata=self.metadata,
             point_cloud_3d=self.point_cloud_3d,
             point_cloud_features=self.point_cloud_features,
         )
         self.lidar_without_features = Lidar(
+            timestamp=DUMMY_TIMESTAMP,
+            timestamp_end=DUMMY_TIMESTAMP_END,
             metadata=self.metadata,
             point_cloud_3d=self.point_cloud_3d,
         )
@@ -232,15 +240,15 @@ class TestLidar:
         assert self.lidar_without_features.channel is None
 
     def test_lidar_timestamp_when_available(self):
-        """Test timestamp property when feature is present."""
-        timestamp = self.lidar_with_features.timestamp
-        assert timestamp is not None
-        assert timestamp.shape == (self.NUM_POINTS,)
-        assert timestamp.dtype == np.int64
+        """Test timestamps property when feature is present."""
+        timestamps = self.lidar_with_features.timestamps
+        assert timestamps is not None
+        assert timestamps.shape == (self.NUM_POINTS,)
+        assert timestamps.dtype == np.int64
 
     def test_lidar_timestamp_when_not_available(self):
-        """Test timestamp property returns None when features are absent."""
-        assert self.lidar_without_features.timestamp is None
+        """Test timestamps property returns None when features are absent."""
+        assert self.lidar_without_features.timestamps is None
 
     def test_lidar_range_when_available(self):
         """Test range property when feature is present."""
@@ -272,14 +280,24 @@ class TestLidar:
     def test_lidar_with_empty_point_cloud(self):
         """Test Lidar with empty point cloud."""
         empty_point_cloud = np.empty((0, 3), dtype=np.float32)
-        lidar = Lidar(metadata=self.metadata, point_cloud_3d=empty_point_cloud)
+        lidar = Lidar(
+            timestamp=DUMMY_TIMESTAMP,
+            timestamp_end=DUMMY_TIMESTAMP_END,
+            metadata=self.metadata,
+            point_cloud_3d=empty_point_cloud,
+        )
         assert lidar.xyz.shape == (0, 3)
         assert lidar.xy.shape == (0, 2)
 
     def test_lidar_with_single_point(self):
         """Test Lidar with single point."""
         single_point_cloud = np.random.rand(1, 3).astype(np.float32)
-        lidar = Lidar(metadata=self.metadata, point_cloud_3d=single_point_cloud)
+        lidar = Lidar(
+            timestamp=DUMMY_TIMESTAMP,
+            timestamp_end=DUMMY_TIMESTAMP_END,
+            metadata=self.metadata,
+            point_cloud_3d=single_point_cloud,
+        )
         assert lidar.xyz.shape == (1, 3)
         assert lidar.xy.shape == (1, 2)
 
@@ -295,6 +313,8 @@ class TestLidar:
             key = feature.serialize()
             if key in self.point_cloud_features:
                 prop_name = feature.name.lower()
+                if prop_name == "timestamp":
+                    prop_name = "timestamps"
                 value = getattr(self.lidar_with_features, prop_name)
                 assert value is not None, f"Feature {prop_name} should not be None"
                 assert value.dtype == expected_dtype, f"Feature {prop_name} dtype mismatch"
@@ -304,10 +324,16 @@ class TestLidar:
         partial_features = {
             LidarFeature.INTENSITY.serialize(): np.random.randint(0, 255, self.NUM_POINTS, dtype=np.uint8),
         }
-        lidar = Lidar(metadata=self.metadata, point_cloud_3d=self.point_cloud_3d, point_cloud_features=partial_features)
+        lidar = Lidar(
+            timestamp=DUMMY_TIMESTAMP,
+            timestamp_end=DUMMY_TIMESTAMP_END,
+            metadata=self.metadata,
+            point_cloud_3d=self.point_cloud_3d,
+            point_cloud_features=partial_features,
+        )
         assert lidar.intensity is not None
         assert lidar.range is None
         assert lidar.elongation is None
         assert lidar.channel is None
         assert lidar.ids is None
-        assert lidar.timestamp is None
+        assert lidar.timestamps is None

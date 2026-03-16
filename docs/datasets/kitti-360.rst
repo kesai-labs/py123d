@@ -49,19 +49,15 @@ Available Modalities
    * - Traffic Lights
      - X
      - n/a
-   * - Pinhole Cameras
+   * - Cameras
      - ✓
-     - The dataset has two :class:`~py123d.datatypes.sensors.PinholeCamera` in a stereo setup:
+     - The dataset has four :class:`~py123d.datatypes.sensors.Camera` in a stereo and side-ways setup:
 
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_STEREO_L` (image_00)
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_STEREO_R` (image_01)
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_STEREO_L` (image_00)
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_STEREO_R` (image_01)
+       - :class:`~py123d.datatypes.sensors.CameraID.FMCAM_L` (image_02)
+       - :class:`~py123d.datatypes.sensors.CameraID.FMCAM_R` (image_03)
 
-   * - Fisheye Cameras
-     - ✓
-     - The dataset has two :class:`~py123d.datatypes.sensors.FisheyeMEICamera`:
-
-       - :class:`~py123d.datatypes.sensors.FisheyeMEICameraType.FCAM_L` (image_02)
-       - :class:`~py123d.datatypes.sensors.FisheyeMEICameraType.FCAM_R` (image_03)
    * - Lidars
      - ✓
      - The dataset has :class:`~py123d.datatypes.sensors.Lidar` mounted on the roof:

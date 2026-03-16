@@ -27,8 +27,8 @@ from py123d.datatypes import (
     RoadLine,
 )
 from py123d.geometry import OccupancyMap2D, Point3DIndex, Polyline2D, Polyline3D
-from py123d.parser.abstract_dataset_parser import MapParser
 from py123d.parser.av2.utils.av2_constants import AV2_LANE_TYPE_MAPPING, AV2_ROAD_LINE_TYPE_MAPPING
+from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-class Av2MapParser(MapParser):
+class Av2MapParser(BaseMapParser):
     """Lightweight, picklable handle to one AV2 map.
 
     Shared across AV2 dataset variants (sensor, motion, etc.) since they use the same map format.

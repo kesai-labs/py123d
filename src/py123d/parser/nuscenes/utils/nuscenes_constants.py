@@ -1,7 +1,10 @@
 from typing import Dict, Final, List, Set
 
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.map_objects.map_layer_types import LaneType
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
+from py123d.datatypes.sensors.pinhole_camera import CameraID
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
+from py123d.geometry import PoseSE3
 from py123d.parser.registry import NuScenesBoxDetectionLabel
 
 NUSCENES_MAP_LOCATIONS: Set[str] = {
@@ -29,6 +32,7 @@ NUSCENES_INTERPOLATED_DATA_SPLITS: Final[List[str]] = [
 
 TARGET_DT: Final[float] = 0.1
 NUSCENES_DT: Final[float] = 0.5
+NUSCENES_LIDAR_SWEEP_DURATION_US: Final[int] = 50_000  # 1/20s = 50ms, one full lidar rotation
 SORT_BY_TIMESTAMP: Final[bool] = True
 NUSCENES_DETECTION_NAME_DICT = {
     # Vehicles (4+ wheels)
@@ -79,11 +83,27 @@ NUSCENES_LANE_TYPE_MAPPING: Dict[str, LaneType] = {
     "CAR": LaneType.SURFACE_STREET,
 }
 
+# NOTE: The parameters in nuScenes are estimates, and partially taken from the Renault Zoe model [1].
+# [1] https://en.wikipedia.org/wiki/Renault_Zoe
+NUSCENES_EGO_STATE_SE3_METADATA = EgoStateSE3Metadata(
+    vehicle_name="nuscenes_renault_zoe",
+    width=1.730,
+    length=4.084,
+    height=1.562,
+    wheel_base=2.588,
+    center_to_imu_se3=PoseSE3(x=1.385, y=0.0, z=1.562 / 2, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+    rear_axle_to_imu_se3=PoseSE3.identity(),
+)
+
+NUSCENES_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(
+    box_detection_label_class=NuScenesBoxDetectionLabel,
+)
+
 NUSCENES_CAMERA_IDS = {
-    PinholeCameraID.PCAM_F0: "CAM_FRONT",
-    PinholeCameraID.PCAM_B0: "CAM_BACK",
-    PinholeCameraID.PCAM_L0: "CAM_FRONT_LEFT",
-    PinholeCameraID.PCAM_L1: "CAM_BACK_LEFT",
-    PinholeCameraID.PCAM_R0: "CAM_FRONT_RIGHT",
-    PinholeCameraID.PCAM_R1: "CAM_BACK_RIGHT",
+    CameraID.PCAM_F0: "CAM_FRONT",
+    CameraID.PCAM_B0: "CAM_BACK",
+    CameraID.PCAM_L0: "CAM_FRONT_LEFT",
+    CameraID.PCAM_L1: "CAM_BACK_LEFT",
+    CameraID.PCAM_R0: "CAM_FRONT_RIGHT",
+    CameraID.PCAM_R1: "CAM_BACK_RIGHT",
 }

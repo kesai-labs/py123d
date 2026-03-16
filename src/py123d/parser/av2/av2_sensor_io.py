@@ -41,6 +41,6 @@ def load_av2_sensor_point_cloud_data_from_path(
         LidarFeature.IDS.serialize(): lidar_id.astype(np.uint8),
         LidarFeature.INTENSITY.serialize(): all_lidar_df["intensity"].to_numpy(dtype=np.uint8),
         LidarFeature.CHANNEL.serialize(): lidar_channel.astype(np.uint8),
-        LidarFeature.TIMESTAMP.serialize(): lidar_timestamps.astype(np.int64),
+        LidarFeature.TIMESTAMPS.serialize(): lidar_timestamps.astype(np.int64),
     }
     return lidar_xyz, lidar_features

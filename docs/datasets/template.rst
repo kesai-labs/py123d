@@ -45,12 +45,9 @@ Available Modalities
    * - Traffic Lights
      - ✓ / (✓) / X
      - ..., see :class:`~py123d.datatypes.detections.TrafficLightDetections`.
-   * - Pinhole Cameras
+   * - Cameras
      - ✓ / (✓) / X
-     - ..., see :class:`~py123d.datatypes.sensors.PinholeCamera`.
-   * - Fisheye Cameras
-     - ✓ / (✓) / X
-     - ..., see :class:`~py123d.datatypes.sensors.FisheyeCamera`.
+     - ..., see :class:`~py123d.datatypes.sensors.Camera`.
    * - Lidars
      - ✓ / (✓) / X
      - ..., see :class:`~py123d.datatypes.sensors.Lidar`.

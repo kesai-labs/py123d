@@ -193,55 +193,67 @@ class XODRSpiral(XODRGeometry):
     def _compute_spiral_position_batch(
         self, s: npt.NDArray[np.float64], gamma: float
     ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        sqrt_2gamma = (2 * abs(gamma)) ** 0.5
-        if gamma > 0:
-            u_start = self.curvature_start / sqrt_2gamma
-            u_end = u_start + sqrt_2gamma * s
-        else:
-            u_start = self.curvature_start / sqrt_2gamma
-            u_end = u_start - sqrt_2gamma * s
-        S_start, C_start = fresnel(u_start)
-        S_end, C_end = fresnel(u_end)
-        scale_factor = 1.0 / sqrt_2gamma if gamma > 0 else -1.0 / sqrt_2gamma
+        abs_gamma = abs(gamma)
+        sqrt_gamma_pi = np.sqrt(abs_gamma / np.pi)
+        scale = np.sqrt(np.pi / abs_gamma)
+
+        v_start = self.curvature_start / gamma
+        v_end = s + v_start
+
+        w_start = v_start * sqrt_gamma_pi
+        w_end = v_end * sqrt_gamma_pi
+
+        S_start, C_start = fresnel(w_start)
+        S_end, C_end = fresnel(w_end)
         dC = C_end - C_start
         dS = S_end - S_start
+
+        phase = -(self.curvature_start**2) / (2 * gamma)
+        cos_p = np.cos(phase)
+        sin_p = np.sin(phase)
+
+        if gamma > 0:
+            dx_local = scale * (cos_p * dC - sin_p * dS)
+            dy_local = scale * (cos_p * dS + sin_p * dC)
+        else:
+            dx_local = scale * (cos_p * dC + sin_p * dS)
+            dy_local = scale * (-cos_p * dS + sin_p * dC)
+
         cos_hdg = np.cos(self.hdg)
         sin_hdg = np.sin(self.hdg)
-        dx = scale_factor * (dC * cos_hdg - dS * sin_hdg)
-        dy = scale_factor * (dC * sin_hdg + dS * cos_hdg)
+        dx = cos_hdg * dx_local - sin_hdg * dy_local
+        dy = sin_hdg * dx_local + cos_hdg * dy_local
         return dx, dy
 
     def _compute_spiral_position(self, s: float, gamma: float) -> Tuple[float, float]:
-        # Transform to normalized Fresnel spiral parameter
-        # Standard Fresnel spiral has κ(u) = u, so we need to scale
-        # Our spiral: κ(s) = κ₀ + γs
-        # Standard: κ(u) = u
+        abs_gamma = abs(gamma)
+        sqrt_gamma_pi = np.sqrt(abs_gamma / np.pi)
+        scale = np.sqrt(np.pi / abs_gamma)
 
-        # Use transformation: u = sqrt(2γ) * s + κ₀/sqrt(2γ)
-        sqrt_2gamma = (2 * abs(gamma)) ** 0.5
+        v_start = self.curvature_start / gamma
+        v_end = s + v_start
 
-        if gamma > 0:
-            u_start = self.curvature_start / sqrt_2gamma
-            u_end = u_start + sqrt_2gamma * s
-        else:
-            u_start = self.curvature_start / sqrt_2gamma
-            u_end = u_start - sqrt_2gamma * s
+        w_start = v_start * sqrt_gamma_pi
+        w_end = v_end * sqrt_gamma_pi
 
-        # Compute Fresnel integrals
-        S_start, C_start = fresnel(u_start)
-        S_end, C_end = fresnel(u_end)
-
-        # Scale and rotate to our coordinate system
-        scale_factor = 1.0 / sqrt_2gamma if gamma > 0 else -1.0 / sqrt_2gamma
-
+        S_start, C_start = fresnel(w_start)
+        S_end, C_end = fresnel(w_end)
         dC = C_end - C_start
         dS = S_end - S_start
 
-        # Apply rotation by initial heading
+        phase = -(self.curvature_start**2) / (2 * gamma)
+        cos_p = np.cos(phase)
+        sin_p = np.sin(phase)
+
+        if gamma > 0:
+            dx_local = scale * (cos_p * dC - sin_p * dS)
+            dy_local = scale * (cos_p * dS + sin_p * dC)
+        else:
+            dx_local = scale * (cos_p * dC + sin_p * dS)
+            dy_local = scale * (-cos_p * dS + sin_p * dC)
+
         cos_hdg = np.cos(self.hdg)
         sin_hdg = np.sin(self.hdg)
-
-        dx = scale_factor * (dC * cos_hdg - dS * sin_hdg)
-        dy = scale_factor * (dC * sin_hdg + dS * cos_hdg)
-
+        dx = cos_hdg * dx_local - sin_hdg * dy_local
+        dy = sin_hdg * dx_local + cos_hdg * dy_local
         return dx, dy

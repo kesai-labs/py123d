@@ -2,23 +2,9 @@ from dataclasses import dataclass, field
 from typing import List, Literal, Optional, Tuple, Union
 
 from py123d.common.utils.enums import SerialIntEnum
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID
+from py123d.datatypes.sensors.base_camera import ALL_FISHEYE_MEI_CAMERA_IDS, ALL_PINHOLE_CAMERA_IDS, CameraID
 from py123d.datatypes.sensors.lidar import LidarID
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
 from py123d.visualization.color.color import ELLIS_5
-
-all_camera_ids: List[PinholeCameraID] = [
-    PinholeCameraID.PCAM_F0,
-    PinholeCameraID.PCAM_B0,
-    PinholeCameraID.PCAM_L0,
-    PinholeCameraID.PCAM_L1,
-    PinholeCameraID.PCAM_L2,
-    PinholeCameraID.PCAM_R0,
-    PinholeCameraID.PCAM_R1,
-    PinholeCameraID.PCAM_R2,
-    PinholeCameraID.PCAM_STEREO_L,
-    PinholeCameraID.PCAM_STEREO_R,
-]
 
 
 @dataclass
@@ -55,31 +41,29 @@ class ViserConfig:
     # Pinhole Cameras
     # -> Frustum
     camera_frustum_visible: bool = True
-    camera_frustum_types: List[PinholeCameraID] = field(default_factory=lambda: all_camera_ids.copy())
+    camera_frustum_types: List[CameraID] = field(default_factory=lambda: ALL_PINHOLE_CAMERA_IDS.copy())
     camera_frustum_scale: float = 1.0
-    camera_frustum_image_scale: float = 0.25  # Resize factor for the camera image shown on the frustum (<1.0 for speed)
+    camera_frustum_image_scale: int = 4  # Downscale denominator for the camera image
 
     # -> GUI
     camera_gui_visible: bool = True
-    camera_gui_types: List[PinholeCameraID] = field(default_factory=lambda: [PinholeCameraID.PCAM_F0].copy())
-    camera_gui_image_scale: float = 0.25  # Resize factor for the camera image shown in the GUI (<1.0 for speed)
+    camera_gui_types: List[CameraID] = field(default_factory=lambda: [CameraID.PCAM_F0].copy())
+    camera_gui_image_scale: int = 4  # Downscale denominator for the camera image shown in the GUI
 
     # Fisheye MEI Cameras
     # -> Frustum
     fisheye_frustum_visible: bool = True
     fisheye_mei_camera_frustum_visible: bool = True
-    fisheye_mei_camera_frustum_types: List[FisheyeMEICameraID] = field(
-        default_factory=lambda: [fcam for fcam in FisheyeMEICameraID]
-    )
+    fisheye_mei_camera_frustum_types: List[CameraID] = field(default_factory=lambda: ALL_FISHEYE_MEI_CAMERA_IDS.copy())
     fisheye_frustum_scale: float = 1.0
-    fisheye_frustum_image_scale: float = 0.25  # Resize factor for the camera image shown on the frustum
+    fisheye_frustum_image_scale: int = 4  # Downscale denominator for the camera image shown on the frustum
 
     # Lidar
     lidar_visible: bool = True
     lidar_ids: List[LidarID] = field(default_factory=lambda: [LidarID.LIDAR_MERGED])
     lidar_point_size: float = 0.05
     lidar_point_shape: Literal["square", "diamond", "circle", "rounded", "sparkle"] = "circle"
-    lidar_point_color: Literal["none", "distance", "intensity", "channel", "timestamp", "range", "elongation"] = "none"
+    lidar_point_color: Literal["none", "distance", "intensity", "channel", "timestamps", "range", "elongation"] = "none"
 
     # internal use
     _force_map_update: bool = False
@@ -94,18 +78,22 @@ class ViserConfig:
             return [serial_enum_cls.from_arbitrary(value) for value in input]
 
         self.camera_frustum_types = _resolve_enum_arguments(
-            PinholeCameraID,
+            CameraID,
             self.camera_frustum_types,
         )
         self.camera_gui_types = _resolve_enum_arguments(
-            PinholeCameraID,
+            CameraID,
             self.camera_gui_types,
         )
         self.fisheye_mei_camera_frustum_types = _resolve_enum_arguments(
-            FisheyeMEICameraID,
+            CameraID,
             self.fisheye_mei_camera_frustum_types,
         )
         self.lidar_ids = _resolve_enum_arguments(
             LidarID,
             self.lidar_ids,
         )
+
+        self.camera_gui_image_scale = int(self.camera_gui_image_scale)
+        self.camera_frustum_image_scale = int(self.camera_frustum_image_scale)
+        self.fisheye_frustum_image_scale = int(self.fisheye_frustum_image_scale)

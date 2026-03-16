@@ -114,34 +114,36 @@ parser:
   val_log_names: []
   test_log_names: []
 
-dataset_converter_config:
-  _target_: py123d.parser.dataset_converter_config.DatasetConverterConfig
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
   _convert_: 'all'
 
   force_log_conversion: ${force_log_conversion}
   force_map_conversion: ${force_map_conversion}
 
-  # Map
-  include_map: false
+  camera_store_option: "path" # "path", "jpeg_binary", "png_binary"
 
-  # Ego
-  include_ego: true
-
-  # Box Detections
-  include_box_detections: true
-
-  # Pinhole Cameras
-  include_pinhole_cameras: true
-  pinhole_camera_store_option: "path" # "path", "jpeg_binary", "png_binary", "mp4"
-
-  # Lidars
-  include_lidars: true
   lidar_store_option: "path" #  "path", "binary"
-  lidar_point_cloud_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
-  lidar_point_feature_codec: null # None or "ipc_zstd", "ipc_lz4", "ipc"
+  lidar_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
 
-  # Not available:
-  include_traffic_lights: false
-  include_scenario_tags: false
-  include_route: false
-  include_fisheye_mei_cameras: false
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: lidar.lidar_merged.timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

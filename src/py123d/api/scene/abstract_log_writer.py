@@ -1,182 +1,41 @@
 from __future__ import annotations
 
 import abc
-import uuid
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Optional, Union
 
-import numpy as np
-import numpy.typing as npt
-
-from py123d.datatypes import (
-    BoxDetectionMetadata,
-    BoxDetectionsSE3,
-    CustomModality,
-    EgoMetadata,
-    EgoStateSE3,
-    FisheyeMEICameraID,
-    FisheyeMEICameraMetadatas,
-    LidarID,
-    LidarMetadatas,
-    LogMetadata,
-    PinholeCameraID,
-    PinholeCameraMetadatas,
-    Timestamp,
-    TrafficLightDetections,
-)
-from py123d.geometry import PoseSE3
+from py123d.datatypes import LogMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality
+from py123d.parser.base_dataset_parser import ModalitiesSync
 
 
 class AbstractLogWriter(abc.ABC):
     """Abstract base class for log writers.
 
-    A log writer is responsible specifying the output format of a converted log.
+    A log writer is responsible for specifying the output format of a converted log.
     This includes how data is organized, how it is serialized, and how it is stored.
     """
 
     @abc.abstractmethod
-    def reset(
-        self,
-        log_metadata: LogMetadata,
-        ego_metadata: Optional[EgoMetadata] = None,
-        box_detection_metadata: Optional[BoxDetectionMetadata] = None,
-        pinhole_camera_metadatas: Optional[PinholeCameraMetadatas] = None,
-        fisheye_mei_camera_metadatas: Optional[FisheyeMEICameraMetadatas] = None,
-        lidar_metadatas: Optional[LidarMetadatas] = None,
-    ) -> bool:
-        """Resets the log writer to start writing a new log according to the provided configuration and metadata."""
+    def reset(self, log_metadata: LogMetadata) -> bool:
+        """Prepare the writer for a new log. Returns True if the log needs writing."""
 
-    def write(
-        self,
-        timestamp: Timestamp,
-        uuid: Optional[uuid.UUID] = None,
-        ego_state_se3: Optional[EgoStateSE3] = None,
-        box_detections_se3: Optional[BoxDetectionsSE3] = None,
-        traffic_lights: Optional[TrafficLightDetections] = None,
-        pinhole_cameras: Optional[List[CameraData]] = None,
-        fisheye_mei_cameras: Optional[List[CameraData]] = None,
-        lidar: Optional[LidarData] = None,
-        custom_modalities: Optional[Dict[str, CustomModality]] = None,
-    ) -> None:
-        """Writes a single iteration of data to the log.
+    @abc.abstractmethod
+    def write_sync(self, modalities_sync: ModalitiesSync) -> None:
+        """Write one synchronized frame — all modalities plus one sync-table row.
 
-        :param timestamp: Required, the timestamp of the iteration.
-        :param ego_state_se3: Optional, the ego state of the vehicle, defaults to None.
-        :param box_detections_se3: Optional, the box detections, defaults to None
-        :param traffic_lights: Optional, the traffic light detections, defaults to None
-        :param pinhole_cameras: Optional, the pinhole camera data, defaults to None
-        :param fisheye_mei_cameras: Optional, the fisheye MEI camera data, defaults to None
-        :param lidar: Optional, the Lidar data, defaults to None
-        :param custom_modalities: Optional, the custom modalities, defaults to None
+        :param timestamp: The timestamp of the frame.
+        :param uuid: Optional UUID for the frame. If None, a deterministic UUID is generated.
+        :param kwargs: Modality name -> data pairs to write.
         """
-        pass
 
     @abc.abstractmethod
-    def write_ego_state_se3(self, ego_state_se3: EgoStateSE3) -> None:
-        pass
+    def write_async(self, modality: BaseModality) -> None:
+        """Write a single async modality observation.
 
-    @abc.abstractmethod
-    def write_box_detections_se3(self, box_detections_se3: BoxDetectionsSE3) -> None:
-        pass
-
-    @abc.abstractmethod
-    def write_traffic_lights(self, traffic_lights: TrafficLightDetections) -> None:
-        pass
-
-    @abc.abstractmethod
-    def write_pinhole_camera(self, camera_data: CameraData) -> None:
-        pass
-
-    @abc.abstractmethod
-    def write_fisheye_mei_camera(self, camera_data: CameraData) -> None:
-        pass
-
-    @abc.abstractmethod
-    def write_lidar(self, lidar_data: LidarData) -> None:
-        pass
-
-    @abc.abstractmethod
-    def write_custom_modalities(self, custom_modalities: Dict[str, CustomModality]) -> None:
-        pass
+        :param timestamp: The timestamp of the observation.
+        :param modality_key: The modality name identifying the writer.
+        :param data: The modality data to write.
+        """
 
     @abc.abstractmethod
     def close(self) -> None:
         """Closes the log writer and finalizes the log io operations."""
-
-
-@dataclass
-class LidarData:
-    """Helper dataclass to pass Lidar data to log writers."""
-
-    lidar_name: str
-    lidar_type: LidarID
-    start_timestamp: Timestamp
-    end_timestamp: Timestamp
-
-    iteration: Optional[int] = None
-    dataset_root: Optional[Union[str, Path]] = None
-    relative_path: Optional[Union[str, Path]] = None
-    point_cloud_3d: Optional[npt.NDArray] = None
-    point_cloud_features: Optional[Dict[str, npt.NDArray]] = None
-
-    def __post_init__(self):
-        assert self.has_file_path or self.has_point_cloud_3d, (
-            "Either file path (dataset_root and relative_path) or point_cloud must be provided for LidarData."
-        )
-
-    @property
-    def has_file_path(self) -> bool:
-        return self.dataset_root is not None and self.relative_path is not None
-
-    @property
-    def has_point_cloud_3d(self) -> bool:
-        return self.point_cloud_3d is not None
-
-    @property
-    def has_point_cloud_features(self) -> bool:
-        return self.point_cloud_features is not None
-
-
-@dataclass
-class CameraData:
-    """Helper dataclass to pass Camera data to log writers."""
-
-    camera_name: str
-    camera_id: Union[PinholeCameraID, FisheyeMEICameraID]
-    extrinsic: PoseSE3
-    timestamp: Timestamp
-
-    jpeg_binary: Optional[bytes] = None
-    numpy_image: Optional[npt.NDArray[np.uint8]] = None
-    dataset_root: Optional[Union[str, Path]] = None
-    relative_path: Optional[Union[str, Path]] = None
-
-    def __post_init__(self):
-        assert self.has_file_path or self.has_jpeg_binary or self.has_numpy_image, (
-            "Either file path (dataset_root and relative_path) or jpeg_binary or numpy_image must be provided for CameraData."
-        )
-
-        if self.has_file_path:
-            absolute_path = Path(self.dataset_root) / self.relative_path  # type: ignore
-            assert absolute_path.exists(), f"Camera file not found: {absolute_path}"
-
-    @property
-    def has_file_path(self) -> bool:
-        return self.dataset_root is not None and self.relative_path is not None
-
-    @property
-    def has_jpeg_file_path(self) -> bool:
-        return self.has_file_path and str(self.relative_path).lower().endswith((".jpg", ".jpeg"))
-
-    @property
-    def has_png_file_path(self) -> bool:
-        return self.has_file_path and str(self.relative_path).lower().endswith((".png",))
-
-    @property
-    def has_jpeg_binary(self) -> bool:
-        return self.jpeg_binary is not None
-
-    @property
-    def has_numpy_image(self) -> bool:
-        return self.numpy_image is not None

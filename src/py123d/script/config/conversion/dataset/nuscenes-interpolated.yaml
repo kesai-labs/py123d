@@ -6,36 +6,36 @@ parser:
   nuscenes_data_root: ${dataset_paths.nuscenes_data_root}
   nuscenes_map_root: ${dataset_paths.nuscenes_map_root}
 
-dataset_converter_config:
-  _target_: py123d.parser.dataset_converter_config.DatasetConverterConfig
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
   _convert_: 'all'
 
   force_log_conversion: ${force_log_conversion}
   force_map_conversion: ${force_map_conversion}
 
-  # Map
-  include_map: true
+  camera_store_option: "path" # "path", "jpeg_binary", "png_binary"
 
-  # Ego
-  include_ego: true
-
-  # Box Detections
-  include_box_detections: true
-
-  # Traffic Lights
-  include_traffic_lights: false
-
-  # Pinhole Cameras
-  include_pinhole_cameras: true
-  pinhole_camera_store_option: "path" # "path", "jpeg_binary", "png_binary", "mp4"
-
-  # Lidars
-  include_lidars: true
   lidar_store_option: "path" #  "path", "binary"
-  lidar_point_cloud_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
-  lidar_point_feature_codec: null # None or "ipc_zstd", "ipc_lz4", "ipc"
+  lidar_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
 
-  # Not available:
-  include_scenario_tags: false
-  include_route: false
-  include_fisheye_mei_cameras: false
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: box_detections_se3.timestamp_us
+    direction: "backward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

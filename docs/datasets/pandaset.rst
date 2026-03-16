@@ -82,21 +82,18 @@ Available Modalities
    * - Traffic Lights
      - X
      - n/a
-   * - Pinhole Cameras
+   * - Cameras
      - ✓
      -
-       Pandaset has 6x :class:`~py123d.datatypes.sensors.PinholeCamera`:
+       Pandaset has 6x :class:`~py123d.datatypes.sensors.Camera`:
 
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_F0`: front_camera
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L0`: front_left_camera
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R0`: front_right_camera
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L1`: left_camera
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R1`: right_camera
-       - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_B0`: back_camera
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_F0`: front_camera
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L0`: front_left_camera
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R0`: front_right_camera
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L1`: left_camera
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R1`: right_camera
+       - :class:`~py123d.datatypes.sensors.CameraID.PCAM_B0`: back_camera
 
-   * - Fisheye Cameras
-     - X
-     - n/a
    * - Lidars
      - ✓
      -

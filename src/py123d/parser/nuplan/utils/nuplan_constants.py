@@ -1,10 +1,13 @@
 from typing import Dict, Final, List, Set
 
 from py123d.datatypes.detections import TrafficLightStatus
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.map_objects import RoadLineType
 from py123d.datatypes.map_objects.map_layer_types import IntersectionType, LaneType, StopZoneType
 from py123d.datatypes.sensors import LidarID
 from py123d.datatypes.time import Timestamp
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
+from py123d.geometry.pose import PoseSE3
 from py123d.parser.registry import NuPlanBoxDetectionLabel
 
 NUPLAN_DEFAULT_DT: Final[float] = 0.05
@@ -114,3 +117,18 @@ NUPLAN_STOP_ZONE_TYPE_CONVERSION: Final[Dict[int, StopZoneType]] = {
 }
 
 NUPLAN_ROLLING_SHUTTER_S: Final[Timestamp] = Timestamp.from_s(1 / 60)
+
+# NOTE: These parameters are mostly available in nuPlan, except for the rear_axle_to_center_vertical.
+# The value is estimated based the Lidar point cloud.
+# [1] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
+NUPLAN_EGO_STATE_SE3_METADATA = EgoStateSE3Metadata(
+    vehicle_name="nuplan_chrysler_pacifica",
+    width=2.297,
+    length=5.176,
+    height=1.777,
+    wheel_base=3.089,
+    center_to_imu_se3=PoseSE3(x=1.461, y=0.0, z=0.45, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+    rear_axle_to_imu_se3=PoseSE3.identity(),
+)
+
+NUPLAN_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(box_detection_label_class=NuPlanBoxDetectionLabel)

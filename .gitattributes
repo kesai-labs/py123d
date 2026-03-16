@@ -1,0 +1,12 @@
+# Normalize line endings for text files
+* text=auto
+
+# Binary files — don't diff or merge
+*.xodr.gz binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.mp4 binary
+*.arrow binary
+*.pkl binary
+*.laz binary

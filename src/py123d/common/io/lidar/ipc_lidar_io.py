@@ -1,9 +1,13 @@
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional, Tuple
 
 import numpy as np
+import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.geometry.geometry_index import Point3DIndex
+
+# Column name prefix used to distinguish xyz columns from feature columns in unified encoding.
+_XYZ_COLUMNS = ("x", "y", "z")
 
 
 def is_ipc_binary(blob: bytes) -> bool:
@@ -16,68 +20,63 @@ def is_ipc_binary(blob: bytes) -> bool:
     return blob.startswith(IPC_STREAM_CONTINUATION)
 
 
-def encode_point_cloud_3d_as_ipc_binary(
-    point_cloud: np.ndarray, codec: Optional[Literal["zstd", "lz4"]] = "zstd"
+def encode_point_cloud_as_ipc_binary(
+    point_cloud_3d: npt.NDArray[np.float32],
+    point_cloud_features: Optional[Dict[str, npt.NDArray]] = None,
+    codec: Optional[Literal["zstd", "lz4"]] = "zstd",
 ) -> bytes:
-    """Compresses a Lidar point cloud (as a numpy array) into an Arrow IPC binary blob, using the specified codec.
+    """Encode a point cloud (xyz + optional features) into a single Arrow IPC binary blob.
 
-    :param point_cloud: The Lidar point cloud data to compress, as a numpy array of shape (N, 3).
+    :param point_cloud_3d: The Lidar point cloud data, as a numpy array of shape (N, 3).
+    :param point_cloud_features: Optional dictionary of per-point features.
     :param codec: The compression codec to use, either "zstd" or "lz4", defaults to "zstd".
     :return: The compressed Arrow IPC binary data.
     """
-    assert point_cloud.ndim == 2 and point_cloud.shape[1] == len(Point3DIndex), (
+    assert point_cloud_3d.ndim == 2 and point_cloud_3d.shape[1] == len(Point3DIndex), (
         "Lidar point cloud must be a 2-dim array of shape (N, 3)."
     )
-    # NOTE @DanielDauner: Here we just used the features function, for simplicity.
-    pc_dict = {
-        "x": point_cloud[:, Point3DIndex.X],
-        "y": point_cloud[:, Point3DIndex.Y],
-        "z": point_cloud[:, Point3DIndex.Z],
+    data: Dict[str, npt.NDArray] = {
+        "x": point_cloud_3d[:, Point3DIndex.X],
+        "y": point_cloud_3d[:, Point3DIndex.Y],
+        "z": point_cloud_3d[:, Point3DIndex.Z],
     }
-    return encode_point_cloud_features_as_ipc_binary(pc_dict, codec=codec)
+    if point_cloud_features:
+        data.update(point_cloud_features)
+    return _encode_dict_as_ipc_binary(data, codec=codec)
 
 
-def load_point_cloud_3d_from_ipc_binary(blob: bytes) -> np.ndarray:
-    """Decompresses an Arrow IPC binary blob back into a Lidar point cloud numpy array of shape (N, 3).
+def load_point_cloud_from_ipc_binary(blob: bytes) -> Tuple[npt.NDArray[np.float32], Optional[Dict[str, npt.NDArray]]]:
+    """Decode an Arrow IPC binary blob back into a point cloud (xyz) and optional features.
 
-    :param blob: The compressed Arrow IPC binary data containing the Lidar point cloud features.
-    :return: The decompressed Lidar point cloud data as a numpy array of shape (N, 3).
+    :param blob: The compressed Arrow IPC binary data.
+    :return: Tuple of (point_cloud_3d as Nx3 array, features dict or None).
     """
-    feature_dict = load_point_cloud_features_from_ipc_binary(blob)
-    point_cloud = np.stack((feature_dict["x"], feature_dict["y"], feature_dict["z"]), axis=-1)
-    assert point_cloud.ndim == 2 and point_cloud.shape[1] == len(Point3DIndex), (
-        f"Decoded Lidar point cloud must be a 2-dim array of shape (N, 3). Got shape {point_cloud.shape}"
+    all_columns = _load_dict_from_ipc_binary(blob)
+    point_cloud_3d = np.stack((all_columns.pop("x"), all_columns.pop("y"), all_columns.pop("z")), axis=-1)
+    assert point_cloud_3d.ndim == 2 and point_cloud_3d.shape[1] == len(Point3DIndex), (
+        f"Decoded Lidar point cloud must be a 2-dim array of shape (N, 3). Got shape {point_cloud_3d.shape}"
     )
-    return point_cloud
+    point_cloud_features = all_columns if all_columns else None
+    return point_cloud_3d, point_cloud_features
 
 
-def encode_point_cloud_features_as_ipc_binary(
-    feature_dict: dict[str, np.ndarray], codec: Optional[Literal["zstd", "lz4"]] = "zstd"
-) -> bytes:
-    """Compresses a dictionary of Lidar point cloud features (as numpy arrays) into an Arrow IPC binary blob, \
-        using the specified codec.
+# ------------------------------------------------------------------------------------------------------------------
+# Internal helpers
+# ------------------------------------------------------------------------------------------------------------------
 
-    :param feature_dict: The dictionary of Lidar point cloud features to compress.
-    :param codec: The compression codec to use, either "zstd" or "lz4", defaults to "zstd".
-    :return: The compressed Arrow IPC binary data.
-    """
-    batch = pa.RecordBatch.from_pydict(feature_dict)
+
+def _encode_dict_as_ipc_binary(data: dict[str, np.ndarray], codec: Optional[Literal["zstd", "lz4"]] = "zstd") -> bytes:
+    """Encode a dictionary of numpy arrays into an Arrow IPC binary blob."""
+    batch = pa.RecordBatch.from_pydict(data)
     sink = pa.BufferOutputStream()
-
-    # NOTE @DanielDauner: The IPC writer options could be further tuned.
     options = pa.ipc.IpcWriteOptions(compression=codec)
     with pa.ipc.new_stream(sink, batch.schema, options=options) as writer:
         writer.write_batch(batch)
-
     return sink.getvalue().to_pybytes()
 
 
-def load_point_cloud_features_from_ipc_binary(blob: bytes) -> dict[str, np.ndarray]:
-    """Decompresses an Arrow IPC binary blob back into a dictionary of Lidar point cloud features as numpy arrays.
-
-    :param blob: The compressed Arrow IPC binary data containing the Lidar point cloud features.
-    :return: The decompressed Lidar point cloud features as a dictionary of numpy arrays.
-    """
+def _load_dict_from_ipc_binary(blob: bytes) -> dict[str, np.ndarray]:
+    """Decode an Arrow IPC binary blob into a dictionary of numpy arrays."""
     buffer = pa.BufferReader(blob)
     with pa.ipc.open_stream(buffer) as reader:
         batch = reader.read_next_batch()

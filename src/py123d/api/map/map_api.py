@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import Dict, Iterable, List, Literal, Optional, Union
+from typing import Dict, Iterable, Iterator, List, Literal, Optional, Union
 
 import shapely.geometry as geom
 
@@ -33,13 +33,30 @@ class MapAPI(abc.ABC):
         """
 
     @abc.abstractmethod
-    def get_map_object(self, object_id: MapObjectIDType, layer: MapLayer) -> Optional[BaseMapObject]:
+    def get_map_object_in_layer(self, object_id: MapObjectIDType, layer: MapLayer) -> Optional[BaseMapObject]:
         """Returns a :class:`~p123d.datatypes.map_objects.base_map_object.BaseMapObject` by its ID
             and :class:`~p123d.datatypes.map_objects.map_layer_types.MapLayer`.
 
         :param object_id: The ID of the map object.
         :param layer: The layer the map object belongs to.
         :return: The map object if found, None otherwise.
+        """
+
+    @abc.abstractmethod
+    def get_all_map_object_ids_in_layer(self, layer: MapLayer) -> List[MapObjectIDType]:
+        """Returns a list of all map object IDs in a given layer.
+
+        :param layer: The layer to retrieve object IDs from.
+        :return: A list of map object IDs in the specified layer.
+        """
+
+    @abc.abstractmethod
+    def get_all_map_objects_in_layer(self, layer: MapLayer) -> Iterator[BaseMapObject]:
+        """Returns an iterator of all :class:`~p123d.datatypes.map_objects.base_map_object.BaseMapObject` in a given
+            :class:`~p123d.datatypes.map_objects.map_layer_types.MapLayer`.
+
+        :param layer: The map layer to retrieve objects from.
+        :return: An iterator of all map objects in the specified layer.
         """
 
     @abc.abstractmethod
@@ -178,3 +195,8 @@ class MapAPI(abc.ABC):
     def version(self) -> str:
         """The version of the py123d library used to create this map metadata."""
         return self.map_metadata.version
+
+    @property
+    def available_map_layers(self) -> List[MapLayer]:
+        """The available :class:`~p123d.datatypes.map_objects.map_layer_types.MapLayer` in the map."""
+        return self.get_available_map_layers()

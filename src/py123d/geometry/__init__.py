@@ -21,5 +21,5 @@ from py123d.geometry.vector import Vector2D, Vector3D
 from py123d.geometry.rotation import EulerAngles, Quaternion
 from py123d.geometry.pose import PoseSE2, PoseSE3
 from py123d.geometry.bounding_box import BoundingBoxSE2, BoundingBoxSE3
-from py123d.geometry.polyline import Polyline2D, Polyline3D, PolylineSE2
+from py123d.geometry.polyline import Polyline2D, Polyline3D, PolylineSE2, PolylineSE3
 from py123d.geometry.occupancy_map import OccupancyMap2D

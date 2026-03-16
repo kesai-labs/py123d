@@ -24,7 +24,7 @@ from py123d.datatypes import (
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.geometry.geometry_index import Point3DIndex
 from py123d.geometry.polyline import Polyline3D
-from py123d.parser.abstract_dataset_parser import MapParser
+from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.opendrive.utils.collection import collect_element_helpers
 from py123d.parser.opendrive.utils.id_system import lane_section_id_from_lane_group_id
 from py123d.parser.opendrive.utils.lane_helper import OpenDriveLaneGroupHelper, OpenDriveLaneHelper
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0  # [m]
 
 
-class OpenDriveMapParser(MapParser):
+class OpenDriveMapParser(BaseMapParser):
     """Lightweight, picklable handle to one OpenDRIVE map."""
 
     def __init__(
@@ -152,7 +152,7 @@ def _extract_lanes(lane_group_helper_dict: Dict[str, OpenDriveLaneGroupHelper]) 
             lanes.append(
                 Lane(
                     object_id=lane_helper.lane_id,
-                    lane_type=LaneType.UNDEFINED,
+                    lane_type=LaneType.SURFACE_STREET,
                     lane_group_id=lane_group_id,
                     left_boundary=lane_helper.inner_polyline_3d,
                     right_boundary=lane_helper.outer_polyline_3d,

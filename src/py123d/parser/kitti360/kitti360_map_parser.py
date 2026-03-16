@@ -7,7 +7,7 @@ import shapely.geometry as geom
 
 from py123d.datatypes import BaseMapObject, Carpark, GenericDrivable, MapMetadata, RoadEdge, RoadEdgeType, Walkway
 from py123d.geometry import Polyline3D
-from py123d.parser.abstract_dataset_parser import MapParser
+from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.kitti360.utils.kitti360_helper import KITTI360_MAP_Bbox3D
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
@@ -25,7 +25,7 @@ KITTI360_MAP_BBOX = [
 ]
 
 
-class Kitti360MapParser(MapParser):
+class Kitti360MapParser(BaseMapParser):
     """Lightweight, picklable handle to one KITTI-360 map."""
 
     def __init__(self, log_name: str, split: str, bbox_root: Path) -> None:

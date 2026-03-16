@@ -2,9 +2,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Union
 
 from py123d.common.utils.enums import SerialIntEnum
-from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraID
+from py123d.datatypes.sensors import CameraID
 from py123d.datatypes.sensors.lidar import LidarID
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID
 
 # TODO: Add more filter options (e.g. scene tags, ego movement, or whatever appropriate)
 
@@ -40,11 +39,8 @@ class SceneFilter:
     history_s: Optional[float] = None
     """History duration of each scene in seconds."""
 
-    pinhole_camera_ids: Optional[List[PinholeCameraID]] = None
-    """List of :class:`PinholeCameraID` to include in the scenes."""
-
-    fisheye_mei_camera_ids: Optional[List[FisheyeMEICameraID]] = None
-    """List of :class:`FisheyeMEICameraType` to include in the scenes."""
+    camera_ids: Optional[List[CameraID]] = None
+    """List of camera IDs to include in the scenes."""
 
     lidar_ids: Optional[List[LidarID]] = None
     """List of :class:`LidarID` to include in the scenes."""
@@ -67,6 +63,4 @@ class SceneFilter:
                 return None
             return [serial_enum_cls.from_arbitrary(value) for value in input]
 
-        self.pinhole_camera_ids = _resolve_enum_arguments(PinholeCameraID, self.pinhole_camera_ids)  # type: ignore
-        self.fisheye_mei_camera_ids = _resolve_enum_arguments(FisheyeMEICameraID, self.fisheye_mei_camera_ids)  # type: ignore
         self.lidar_ids = _resolve_enum_arguments(LidarID, self.lidar_ids)  # type: ignore

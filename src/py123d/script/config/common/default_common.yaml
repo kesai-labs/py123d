@@ -1,4 +1,9 @@
 # Default common configs
+hydra:
+  job:
+    env_set:
+      HYDRA_FULL_ERROR: 1
+
 defaults:
   - execution: ray_executor
   - scene_filter: all_scenes

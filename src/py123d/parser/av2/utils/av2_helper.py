@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 import pandas as pd
 
+from py123d.geometry.pose import PoseSE3
 from py123d.parser.av2.utils.av2_constants import (
     AV2_CAMERA_ID_MAPPING,
     AV2_SENSOR_CAM_SHUTTER_INTERVAL_MS,
@@ -195,3 +196,16 @@ def find_closest_target_fpath(
     else:
         target_path = sensor_dir / target_sensor_name / f"{timestamp_ns_str}.feather"
     return target_path
+
+
+def av2_row_dict_to_pose_se3(row_dict: Dict[str, float]) -> PoseSE3:
+    """Helper function to convert a row dictionary to a PoseSE3 object."""
+    return PoseSE3(
+        x=row_dict["tx_m"],
+        y=row_dict["ty_m"],
+        z=row_dict["tz_m"],
+        qw=row_dict["qw"],
+        qx=row_dict["qx"],
+        qy=row_dict["qy"],
+        qz=row_dict["qz"],
+    )

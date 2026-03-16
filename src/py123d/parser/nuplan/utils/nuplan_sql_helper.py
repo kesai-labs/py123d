@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Iterator, List, Tuple
 
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE3
@@ -57,7 +57,7 @@ def get_box_detections_for_lidarpc_token_from_db(log_file: str, token: str) -> L
             height=row["height"],
         )
         box_detection = BoxDetectionSE3(
-            metadata=BoxDetectionAttributes(
+            attributes=BoxDetectionAttributes(
                 label=NUPLAN_DETECTION_NAME_DICT[row["category_name"]],
                 track_token=row["track_token"].hex(),
             ),
@@ -135,3 +135,76 @@ def get_nearest_ego_pose_for_timestamp_from_db(
         )
         times.append(abs(row["timestamp"] - timestamp))
     return poses, times
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Native-rate iterators for async conversion
+# ------------------------------------------------------------------------------------------------------------------
+
+
+def iter_all_ego_poses_from_db(log_file: str) -> Iterator:
+    """Yields all ego pose rows sorted by timestamp."""
+    query = """
+        SELECT ep.x, ep.y, ep.z, ep.qw, ep.qx, ep.qy, ep.qz,
+               ep.vx, ep.vy, ep.vz,
+               ep.acceleration_x, ep.acceleration_y, ep.acceleration_z,
+               ep.angular_rate_x, ep.angular_rate_y, ep.angular_rate_z,
+               ep.timestamp
+        FROM ego_pose AS ep
+        ORDER BY ep.timestamp
+    """
+    yield from execute_many(query, (), log_file)
+
+
+def iter_all_lidar_pc_from_db(log_file: str) -> Iterator:
+    """Yields all lidar_pc rows (token, filename, timestamp) sorted by timestamp."""
+    query = """
+        SELECT lpc.token, lpc.filename, lpc.timestamp
+        FROM lidar_pc AS lpc
+        ORDER BY lpc.timestamp
+    """
+    yield from execute_many(query, (), log_file)
+
+
+def iter_all_images_from_db(log_file: str) -> Iterator:
+    """Yields all image rows with camera channel, sorted by timestamp."""
+    query = """
+        SELECT i.filename_jpg, i.timestamp, c.channel
+        FROM image AS i
+        INNER JOIN camera AS c ON c.token = i.camera_token
+        ORDER BY i.timestamp
+    """
+    yield from execute_many(query, (), log_file)
+
+
+def iter_all_box_detections_from_db(log_file: str) -> Iterator:
+    """Yields all box detection rows with lidar_pc timestamp, sorted by timestamp."""
+    query = """
+        SELECT c.name AS category_name,
+               lb.x, lb.y, lb.z, lb.yaw,
+               lb.width, lb.length, lb.height,
+               lb.vx, lb.vy, lb.vz,
+               lb.token, lb.track_token,
+               lp.timestamp
+        FROM lidar_box AS lb
+        INNER JOIN track AS t
+            ON t.token = lb.track_token
+        INNER JOIN category AS c
+            ON c.token = t.category_token
+        INNER JOIN lidar_pc AS lp
+            ON lp.token = lb.lidar_pc_token
+        ORDER BY lp.timestamp
+    """
+    yield from execute_many(query, (), log_file)
+
+
+def iter_all_traffic_lights_from_db(log_file: str) -> Iterator:
+    """Yields all traffic light status rows with lidar_pc timestamp, sorted by timestamp."""
+    query = """
+        SELECT tls.lane_connector_id, tls.status, lpc.timestamp
+        FROM traffic_light_status AS tls
+        INNER JOIN lidar_pc AS lpc
+            ON lpc.token = tls.lidar_pc_token
+        ORDER BY lpc.timestamp
+    """
+    yield from execute_many(query, (), log_file)

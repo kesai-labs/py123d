@@ -6,6 +6,8 @@ from typing import List, Optional, Union
 import shapely
 
 from py123d.datatypes.detections.box_detection_label import BoxDetectionLabel, DefaultBoxDetectionLabel
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
+from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.time import Timestamp
 from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, OccupancyMap2D, PoseSE2, PoseSE3, Vector2D, Vector3D
 
@@ -57,29 +59,29 @@ class BoxDetectionAttributes:
 class BoxDetectionSE2:
     """Detected, tracked, and oriented bounding box 2D space."""
 
-    __slots__ = ("_metadata", "_bounding_box_se2", "_velocity_2d")
+    __slots__ = ("_attributes", "_bounding_box_se2", "_velocity_2d")
 
     def __init__(
         self,
-        metadata: BoxDetectionAttributes,
+        attributes: BoxDetectionAttributes,
         bounding_box_se2: BoundingBoxSE2,
         velocity_2d: Optional[Vector2D] = None,
     ) -> None:
         """Initialize a BoxDetectionSE2 instance.
 
-        :param metadata: The :class:`BoxDetectionAttributes` of the detection.
+        :param attributes: The :class:`BoxDetectionAttributes` of the detection.
         :param bounding_box_se2: The :class:`~py123d.datatypes.geometry.BoundingBoxSE2` of the detection.
         :param velocity: Optionally, a :class:`~py123d.geometry.Vector2D` representing the velocity.
         """
 
-        self._metadata = metadata
+        self._attributes = attributes
         self._bounding_box_se2 = bounding_box_se2
         self._velocity_2d = velocity_2d
 
     @property
-    def metadata(self) -> BoxDetectionAttributes:
+    def attributes(self) -> BoxDetectionAttributes:
         """The :class:`BoxDetectionAttributes` of the detection."""
-        return self._metadata
+        return self._attributes
 
     @property
     def bounding_box_se2(self) -> BoundingBoxSE2:
@@ -110,28 +112,28 @@ class BoxDetectionSE2:
 class BoxDetectionSE3:
     """Detected, tracked, and oriented bounding box 3D space."""
 
-    __slots__ = ("_metadata", "_bounding_box_se3", "_velocity")
+    __slots__ = ("_attributes", "_bounding_box_se3", "_velocity")
 
     def __init__(
         self,
-        metadata: BoxDetectionAttributes,
+        attributes: BoxDetectionAttributes,
         bounding_box_se3: BoundingBoxSE3,
         velocity_3d: Optional[Vector3D] = None,
     ) -> None:
         """Initialize a BoxDetectionSE3 instance.
 
-        :param metadata: The :class:`BoxDetectionAttributes` of the detection.
+        :param attributes: The :class:`BoxDetectionAttributes` of the detection.
         :param bounding_box_se3: The :class:`~py123d.datatypes.geometry.BoundingBoxSE3` of the detection.
         :param velocity_3d: Optionally, a :class:`~py123d.geometry.Vector3D` representing the velocity.
         """
-        self._metadata = metadata
+        self._attributes = attributes
         self._bounding_box_se3 = bounding_box_se3
         self._velocity = velocity_3d
 
     @property
-    def metadata(self) -> BoxDetectionAttributes:
+    def attributes(self) -> BoxDetectionAttributes:
         """The :class:`BoxDetectionAttributes` of the detection."""
-        return self._metadata
+        return self._attributes
 
     @property
     def bounding_box_se3(self) -> BoundingBoxSE3:
@@ -167,7 +169,7 @@ class BoxDetectionSE3:
     def box_detection_se2(self) -> BoxDetectionSE2:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE2` projection of this SE3 box detection."""
         return BoxDetectionSE2(
-            metadata=self.metadata,
+            attributes=self.attributes,
             bounding_box_se2=self.bounding_box_se2,
             velocity_2d=Vector2D(self.velocity_3d.x, self.velocity_3d.y) if self.velocity_3d else None,
         )
@@ -186,6 +188,8 @@ class BoxDetectionsSE2:
 
     Provides indexed access, iteration, lookup by track token, and a 2D occupancy map.
     """
+
+    __slot__ = ("_box_detections", "_timestamp")
 
     def __init__(self, box_detections: List[BoxDetectionSE2], timestamp: Timestamp) -> None:
         """Initialize a BoxDetectionsSE2 instance.
@@ -229,32 +233,38 @@ class BoxDetectionsSE2:
         :return: The :class:`BoxDetectionSE2` with the given track token, or None if not found.
         """
         for detection in self._box_detections:
-            if detection.metadata.track_token == track_token:
+            if detection.attributes.track_token == track_token:
                 return detection
         return None
 
     @cached_property
     def occupancy_map_2d(self) -> OccupancyMap2D:
         """The :class:`~py123d.geometry.OccupancyMap2D` representing the 2D occupancy of all box detections."""
-        ids = [detection.metadata.track_token for detection in self._box_detections]
+        ids = [detection.attributes.track_token for detection in self._box_detections]
         geometries = [detection.shapely_polygon for detection in self._box_detections]
         return OccupancyMap2D(geometries=geometries, ids=ids)
 
 
-class BoxDetectionsSE3:
+class BoxDetectionsSE3(BaseModality):
     """Container for a list of SE3 box detections.
 
     Provides indexed access, iteration, lookup by track token, and a 2D occupancy map.
     """
 
-    def __init__(self, box_detections: List[BoxDetectionSE3], timestamp: Timestamp) -> None:
+    __slot__ = ("_box_detections", "_timestamp", "_metadata")
+
+    def __init__(
+        self, box_detections: List[BoxDetectionSE3], timestamp: Timestamp, metadata: BoxDetectionsSE3Metadata
+    ) -> None:
         """Initialize a BoxDetectionsSE3 instance.
 
         :param box_detections: A list of :class:`BoxDetectionSE3` instances.
         :param timestamp: The :class:`~py123d.datatypes.time.Timestamp` of the box detections.
+        :param metadata: The metadata for the box detections.
         """
         self._box_detections = box_detections
         self._timestamp = timestamp
+        self._metadata = metadata
 
     @property
     def box_detections(self) -> List[BoxDetectionSE3]:
@@ -265,6 +275,11 @@ class BoxDetectionsSE3:
     def timestamp(self) -> Timestamp:
         """The :class:`~py123d.datatypes.time.Timestamp` of the box detections."""
         return self._timestamp
+
+    @property
+    def metadata(self) -> BoxDetectionsSE3Metadata:
+        """The metadata for the box detections modality."""
+        return self._metadata
 
     def __getitem__(self, index: int) -> BoxDetectionSE3:
         """Retrieve a box detection by its index.
@@ -289,13 +304,13 @@ class BoxDetectionsSE3:
         :return: The :class:`BoxDetectionSE3` with the given track token, or None if not found.
         """
         for detection in self._box_detections:
-            if detection.metadata.track_token == track_token:
+            if detection.attributes.track_token == track_token:
                 return detection
         return None
 
     @cached_property
     def occupancy_map_2d(self) -> OccupancyMap2D:
         """The :class:`~py123d.geometry.OccupancyMap2D` representing the 2D occupancy of all box detections."""
-        ids = [detection.metadata.track_token for detection in self._box_detections]
+        ids = [detection.attributes.track_token for detection in self._box_detections]
         geometries = [detection.shapely_polygon for detection in self._box_detections]
         return OccupancyMap2D(geometries=geometries, ids=ids)

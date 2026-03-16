@@ -132,7 +132,7 @@ class Lane(BaseMapSurfaceObject):
         """The :class:`LaneGroup` this lane belongs to."""
         lane_group: Optional[LaneGroup] = None
         if self._map_api is not None and self.lane_group_id is not None:
-            lane_group_ = self._map_api.get_map_object(self.lane_group_id, MapLayer.LANE_GROUP)
+            lane_group_ = self._map_api.get_map_object_in_layer(self.lane_group_id, MapLayer.LANE_GROUP)
             if isinstance(lane_group_, LaneGroup):
                 lane_group = lane_group_
         return lane_group
@@ -207,7 +207,7 @@ class Lane(BaseMapSurfaceObject):
         """The left neighboring :class:`Lane`, if available."""
         left_lane: Optional[Lane] = None
         if self._map_api is not None and self.left_lane_id is not None:
-            left_lane_ = self._map_api.get_map_object(self.left_lane_id, self.layer)
+            left_lane_ = self._map_api.get_map_object_in_layer(self.left_lane_id, self.layer)
             if isinstance(left_lane_, Lane):
                 left_lane = left_lane_
         return left_lane
@@ -222,7 +222,7 @@ class Lane(BaseMapSurfaceObject):
         """The right neighboring :class:`Lane`, if available."""
         right_lane: Optional[Lane] = None
         if self._map_api is not None and self.right_lane_id is not None:
-            right_lane_ = self._map_api.get_map_object(self.right_lane_id, self.layer)
+            right_lane_ = self._map_api.get_map_object_in_layer(self.right_lane_id, self.layer)
             if isinstance(right_lane_, Lane):
                 right_lane = right_lane_
         return right_lane
@@ -238,7 +238,7 @@ class Lane(BaseMapSurfaceObject):
         predecessors: List[Lane] = []
         if self._map_api is not None:
             for lane_id in self.predecessor_ids:
-                predecessor_ = self._map_api.get_map_object(lane_id, self.layer)
+                predecessor_ = self._map_api.get_map_object_in_layer(lane_id, self.layer)
                 if predecessor_ is not None and isinstance(predecessor_, Lane):
                     predecessors.append(predecessor_)
         return predecessors
@@ -254,7 +254,7 @@ class Lane(BaseMapSurfaceObject):
         successors: List[Lane] = []
         if self._map_api is not None:
             for lane_id in self.successor_ids:
-                successor_ = self._map_api.get_map_object(lane_id, self.layer)
+                successor_ = self._map_api.get_map_object_in_layer(lane_id, self.layer)
                 if successor_ is not None and isinstance(successor_, Lane):
                     successors.append(successor_)
         return successors
@@ -360,7 +360,7 @@ class LaneGroup(BaseMapSurfaceObject):
         lanes: List[Lane] = []
         if self._map_api is not None:
             for lane_id in self.lane_ids:
-                lane = self._map_api.get_map_object(lane_id, MapLayer.LANE)
+                lane = self._map_api.get_map_object_in_layer(lane_id, MapLayer.LANE)
                 if lane is not None and isinstance(lane, Lane):
                     lanes.append(lane)
         return lanes
@@ -415,7 +415,7 @@ class LaneGroup(BaseMapSurfaceObject):
         """The :class:`Intersection` the lane group belongs to, if available."""
         intersection: Optional[Intersection] = None
         if self._map_api is not None and self.intersection_id is not None:
-            intersection = self._map_api.get_map_object(self.intersection_id, MapLayer.INTERSECTION)  # type: ignore
+            intersection = self._map_api.get_map_object_in_layer(self.intersection_id, MapLayer.INTERSECTION)  # type: ignore
         return intersection
 
     @property
@@ -429,7 +429,7 @@ class LaneGroup(BaseMapSurfaceObject):
         predecessors: List[LaneGroup] = []
         if self._map_api is not None:
             for lane_group_id in self.predecessor_ids:
-                predecessor = self._map_api.get_map_object(lane_group_id, self.layer)
+                predecessor = self._map_api.get_map_object_in_layer(lane_group_id, self.layer)
                 if predecessor is not None and isinstance(predecessor, LaneGroup):
                     predecessors.append(predecessor)
         return predecessors
@@ -445,7 +445,7 @@ class LaneGroup(BaseMapSurfaceObject):
         successors: List[LaneGroup] = []
         if self._map_api is not None:
             for lane_group_id in self.successor_ids:
-                successor = self._map_api.get_map_object(lane_group_id, self.layer)
+                successor = self._map_api.get_map_object_in_layer(lane_group_id, self.layer)
                 if successor is not None and isinstance(successor, LaneGroup):
                     successors.append(successor)
         return successors
@@ -511,7 +511,7 @@ class Intersection(BaseMapSurfaceObject):
         lane_groups: List[LaneGroup] = []
         if self._map_api is not None:
             for lane_group_id in self.lane_group_ids:
-                lane_group = self._map_api.get_map_object(lane_group_id, MapLayer.LANE_GROUP)
+                lane_group = self._map_api.get_map_object_in_layer(lane_group_id, MapLayer.LANE_GROUP)
                 if lane_group is not None and isinstance(lane_group, LaneGroup):
                     lane_groups.append(lane_group)
         return lane_groups

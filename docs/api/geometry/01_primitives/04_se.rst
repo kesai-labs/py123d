@@ -2,9 +2,7 @@ Special Euclidean Groups
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. autoclass:: py123d.geometry.PoseSE2
-   :members:
    :autoclasstoc:
 
 .. autoclass:: py123d.geometry.PoseSE3
-   :members:
    :autoclasstoc:

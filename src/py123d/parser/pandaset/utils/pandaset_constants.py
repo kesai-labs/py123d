@@ -1,19 +1,22 @@
 from typing import Dict, List
 
-from py123d.datatypes.sensors.lidar import LidarID
-from py123d.datatypes.sensors.pinhole_camera import PinholeCameraID, PinholeDistortion, PinholeIntrinsics
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
+from py123d.datatypes.sensors.lidar import LidarID, LidarMergedMetadata, LidarMetadata
+from py123d.datatypes.sensors.pinhole_camera import CameraID, PinholeDistortion, PinholeIntrinsics
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import PoseSE3
+from py123d.parser.pandaset.utils.pandaset_utlis import extrinsic_to_imu
 from py123d.parser.registry import PandasetBoxDetectionLabel
 
 PANDASET_SPLITS: List[str] = ["pandaset_train", "pandaset_val", "pandaset_test"]
 
-PANDASET_CAMERA_MAPPING: Dict[str, PinholeCameraID] = {
-    "front_camera": PinholeCameraID.PCAM_F0,
-    "back_camera": PinholeCameraID.PCAM_B0,
-    "front_left_camera": PinholeCameraID.PCAM_L0,
-    "front_right_camera": PinholeCameraID.PCAM_R0,
-    "left_camera": PinholeCameraID.PCAM_L1,
-    "right_camera": PinholeCameraID.PCAM_R1,
+PANDASET_CAMERA_MAPPING: Dict[str, CameraID] = {
+    "front_camera": CameraID.PCAM_F0,
+    "back_camera": CameraID.PCAM_B0,
+    "front_left_camera": CameraID.PCAM_L0,
+    "front_right_camera": CameraID.PCAM_R0,
+    "left_camera": CameraID.PCAM_L1,
+    "right_camera": CameraID.PCAM_R1,
 }
 
 PANDASET_LIDAR_MAPPING: Dict[str, LidarID] = {
@@ -251,3 +254,34 @@ PANDASET_LOG_NAMES: List[str] = [
     "149",
     "158",
 ]
+
+
+# NOTE: Some parameters are available in PandaSet [1], others are estimated based on the vehicle model [2].
+# [1] https://arxiv.org/pdf/2112.12610 (Figure 3 (a))
+# [2] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
+PANDASET_EGO_STATE_SE3_METADATA = EgoStateSE3Metadata(
+    vehicle_name="pandaset_chrysler_pacifica",
+    width=2.297,
+    length=5.176,
+    height=1.777,
+    wheel_base=3.089,
+    center_to_imu_se3=PoseSE3(x=1.461, y=0.0, z=0.45, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+    rear_axle_to_imu_se3=PoseSE3.identity(),
+)
+
+PANDASET_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(box_detection_label_class=PandasetBoxDetectionLabel)
+
+
+def _build_pandaset_lidar_merged_metadata() -> LidarMergedMetadata:
+    """Helper to build Pandaset lidar merged metadata."""
+    lidar_metadata: Dict[LidarID, LidarMetadata] = {}
+    for lidar_name, lidar_type in PANDASET_LIDAR_MAPPING.items():
+        lidar_metadata[lidar_type] = LidarMetadata(
+            lidar_name=lidar_name,
+            lidar_id=lidar_type,
+            lidar_to_imu_se3=extrinsic_to_imu(PANDASET_LIDAR_EXTRINSICS[lidar_name]),
+        )
+    return LidarMergedMetadata(lidar_metadata)
+
+
+PANDASET_LIDAR_MERGED_METADATA = _build_pandaset_lidar_merged_metadata()

@@ -447,6 +447,70 @@ def multiply_quaternion_arrays(q1: npt.NDArray[np.float64], q2: npt.NDArray[np.f
     return result
 
 
+def slerp_quaternion_arrays(
+    q1: npt.NDArray[np.float64],
+    q2: npt.NDArray[np.float64],
+    t: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Spherical linear interpolation (SLERP) between two arrays of quaternions.
+
+    Interpolates along the shortest path on the unit quaternion hypersphere with constant angular velocity.
+
+    :param q1: Start quaternions of shape (..., 4), indexed by :class:`~py123d.geometry.QuaternionIndex`.
+    :param q2: End quaternions of shape (..., 4), indexed by :class:`~py123d.geometry.QuaternionIndex`.
+    :param t: Interpolation parameter(s) in [0, 1], shape (...).
+    :return: Interpolated quaternions of shape (..., 4), indexed by :class:`~py123d.geometry.QuaternionIndex`.
+    """
+    assert q1.shape[-1] == q2.shape[-1] == len(QuaternionIndex)
+
+    dot = np.sum(q1 * q2, axis=-1, keepdims=True)
+
+    # Ensure shortest path by flipping q2 where dot product is negative
+    q2 = np.where(dot < 0, -q2, q2)
+    dot = np.abs(dot)
+
+    t_expanded = t[..., np.newaxis]
+    theta = np.arccos(np.clip(dot, -1.0, 1.0))
+    sin_theta = np.sin(theta)
+
+    # SLERP weights (suppress expected division-by-zero for near-identical quaternions)
+    near = sin_theta < 1e-6
+    safe_sin_theta = np.where(near, 1.0, sin_theta)
+    w1 = np.sin((1.0 - t_expanded) * theta) / safe_sin_theta
+    w2 = np.sin(t_expanded * theta) / safe_sin_theta
+
+    # Fall back to NLERP for nearly-identical quaternions
+    w1 = np.where(near, 1.0 - t_expanded, w1)
+    w2 = np.where(near, t_expanded, w2)
+
+    return normalize_quaternion_array(w1 * q1 + w2 * q2)
+
+
+def nlerp_quaternion_arrays(
+    q1: npt.NDArray[np.float64],
+    q2: npt.NDArray[np.float64],
+    t: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Normalized linear interpolation (NLERP) between two arrays of quaternions.
+
+    Faster than SLERP but does not maintain constant angular velocity.
+
+    :param q1: Start quaternions of shape (..., 4), indexed by :class:`~py123d.geometry.QuaternionIndex`.
+    :param q2: End quaternions of shape (..., 4), indexed by :class:`~py123d.geometry.QuaternionIndex`.
+    :param t: Interpolation parameter(s) in [0, 1], shape (...).
+    :return: Interpolated quaternions of shape (..., 4), indexed by :class:`~py123d.geometry.QuaternionIndex`.
+    """
+    assert q1.shape[-1] == q2.shape[-1] == len(QuaternionIndex)
+
+    dot = np.sum(q1 * q2, axis=-1, keepdims=True)
+
+    # Ensure shortest path
+    q2 = np.where(dot < 0, -q2, q2)
+
+    t_expanded = t[..., np.newaxis]
+    return normalize_quaternion_array((1.0 - t_expanded) * q1 + t_expanded * q2)
+
+
 def get_q_matrices(quaternion_array: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Computes the Q matrices for an array of quaternions.
 

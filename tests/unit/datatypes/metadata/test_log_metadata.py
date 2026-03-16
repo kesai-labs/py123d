@@ -1,4 +1,4 @@
-from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
+from py123d.datatypes.metadata.base_metadata import BaseMetadata
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 
@@ -71,11 +71,11 @@ class TestLogMetadata:
         assert original.timestep_seconds == reconstructed.timestep_seconds
 
     def test_is_instance_of_abstract_metadata(self):
-        """LogMetadata is an instance of AbstractMetadata."""
+        """LogMetadata is an instance of BaseMetadata."""
         log_metadata = LogMetadata(
             dataset="test_dataset", split="train", log_name="log_001", location="test_location", timestep_seconds=0.1
         )
-        assert isinstance(log_metadata, AbstractMetadata)
+        assert isinstance(log_metadata, BaseMetadata)
 
     def test_repr(self):
         """Test __repr__ returns a meaningful string."""

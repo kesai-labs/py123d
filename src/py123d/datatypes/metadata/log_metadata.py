@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 import py123d
-from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
+from py123d.datatypes.metadata.base_metadata import BaseMetadata
+from py123d.datatypes.metadata.map_metadata import MapMetadata
 
 
-class LogMetadata(AbstractMetadata):
+class LogMetadata(BaseMetadata):
     """Class to hold metadata information about a log."""
 
-    __slots__ = ("_dataset", "_split", "_log_name", "_location", "_timestep_seconds", "_version")
+    __slots__ = ("_dataset", "_split", "_log_name", "_location", "_timestep_seconds", "_map_metadata", "_version")
 
     def __init__(
         self,
@@ -18,6 +19,7 @@ class LogMetadata(AbstractMetadata):
         log_name: str,
         location: Optional[str],
         timestep_seconds: float,
+        map_metadata: Optional[MapMetadata] = None,
         version: str = str(py123d.__version__),
     ):
         """Create a :class:`LogMetadata` instance from a dictionary.
@@ -28,11 +30,18 @@ class LogMetadata(AbstractMetadata):
         :param location: Location of the log data.
         :param timestep_seconds: The time interval between consecutive frames in seconds.
         """
+
+        # Basic log info
         self._dataset = dataset
         self._split = split
         self._log_name = log_name
         self._location = location
         self._timestep_seconds = timestep_seconds
+
+        # Map metadata
+        self._map_metadata: Optional[MapMetadata] = map_metadata
+
+        # Currently not used, but can be helpful for tracking library version used to create the log metadata
         self._version = version
 
     @property
@@ -65,24 +74,49 @@ class LogMetadata(AbstractMetadata):
         """Version of the py123d library used to create this log metadata (not used currently)."""
         return self._version
 
+    @property
+    def map_metadata(self) -> Optional[MapMetadata]:
+        """Map metadata for this log, if available."""
+        return self._map_metadata
+
     @classmethod
     def from_dict(cls, data_dict: Dict) -> LogMetadata:
         """Create a :class:`LogMetadata` instance from a Python dictionary.
 
+        Deserializes both basic log fields and modality metadata (if present).
+        Older dictionaries that only contain basic fields are handled gracefully.
+
         :param data_dict: Dictionary containing log metadata.
-        :raises ValueError: If the dictionary is missing required fields.
         :return: A :class:`LogMetadata` instance.
         """
+        # Map metadata
+        map_meta_raw = data_dict.get("map_metadata")
+        map_metadata = MapMetadata.from_dict(map_meta_raw) if map_meta_raw is not None else None
 
-        return LogMetadata(**data_dict)
+        return LogMetadata(
+            dataset=data_dict["dataset"],
+            split=data_dict["split"],
+            log_name=data_dict["log_name"],
+            location=data_dict.get("location"),
+            timestep_seconds=data_dict["timestep_seconds"],
+            version=data_dict.get("version", "unknown"),
+            map_metadata=map_metadata,
+        )
 
     def to_dict(self) -> Dict:
-        """Convert the :class:`LogMetadata` instance to a Python dictionary.
+        """Convert the :class:`LogMetadata` instance to a JSON-serializable dictionary.
 
         :return: A dictionary representation of the log metadata.
         """
-        data_dict = {slot.lstrip("_"): getattr(self, slot) for slot in self.__slots__}
-        return data_dict
+        return {
+            "dataset": self._dataset,
+            "split": self._split,
+            "log_name": self._log_name,
+            "location": self._location,
+            "timestep_seconds": self._timestep_seconds,
+            "version": self._version,
+            "map_metadata": self._map_metadata.to_dict() if self._map_metadata is not None else None,
+        }
 
     def __repr__(self) -> str:
         return (

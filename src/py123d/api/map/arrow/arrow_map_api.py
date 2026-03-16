@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable, Dict, Final, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Callable, Dict, Final, Iterable, Iterator, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pyarrow as pa
@@ -11,8 +11,8 @@ import shapely
 import shapely.geometry as geom
 
 from py123d.api.map.map_api import MapAPI
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
+from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.common.utils.msgpack_utils import msgpack_decode_with_numpy
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject, MapObjectIDType
 from py123d.datatypes.map_objects.map_layer_types import (
@@ -35,8 +35,10 @@ from py123d.datatypes.map_objects.map_objects import (
     StopZone,
     Walkway,
 )
+from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.geometry import OccupancyMap2D, Point2D, Point3D, Polyline3D
+from py123d.script.utils.dataset_path_utils import get_dataset_paths
 
 # TODO: add to some configs
 MAX_LRU_CACHED_MAPS: Final[int] = 128
@@ -109,9 +111,25 @@ class ArrowMapAPI(MapAPI):
         """Inherited, see superclass."""
         return list(self._occupancy_maps.keys())
 
-    def get_map_object(self, object_id: MapObjectIDType, layer: MapLayer) -> Optional[BaseMapObject]:
+    def get_map_object_in_layer(self, object_id: MapObjectIDType, layer: MapLayer) -> Optional[BaseMapObject]:
         """Inherited, see superclass."""
         return self._map_object_getter[layer](object_id)
+
+    def get_all_map_object_ids_in_layer(self, layer: MapLayer) -> List[MapObjectIDType]:
+        """Inherited, see superclass."""
+        map_object_ids: List[MapObjectIDType] = []
+        if layer in self._object_ids_to_row_idx.keys():
+            map_object_ids = list(self._object_ids_to_row_idx[layer].keys())
+        return map_object_ids
+
+    def get_all_map_objects_in_layer(self, layer: MapLayer) -> Iterator[BaseMapObject]:
+        """Inherited, see superclass."""
+        for map_object_id in self.get_all_map_object_ids_in_layer(layer):
+            map_object = self.get_map_object_in_layer(map_object_id, layer)
+            assert map_object is not None, (
+                f"Queried map object should exist. Cannot find object {map_object_id} in layer {layer.name}"
+            )
+            yield map_object
 
     def get_map_objects_in_radius(
         self,
@@ -197,7 +215,7 @@ class ArrowMapAPI(MapAPI):
             query_dict: Dict[int, List[BaseMapObject]] = defaultdict(list)
             for geometry_idx, occ_idx in zip(query_result[0], query_result[1]):
                 map_object_id = occupancy_map.ids[occ_idx]
-                map_object = self.get_map_object(map_object_id, layer)
+                map_object = self.get_map_object_in_layer(map_object_id, layer)
                 assert map_object is not None, (
                     f"Queried map object should exist. Cannot find object {map_object_id} in layer {layer.name}"
                 )
@@ -437,4 +455,30 @@ def get_lru_cached_map_api(arrow_file_path: Union[Path, str]) -> ArrowMapAPI:
     arrow_file_path = Path(arrow_file_path)
     assert arrow_file_path.exists(), f"Arrow file of map not found: {arrow_file_path}"
     map_api = ArrowMapAPI(arrow_file_path)
+    return map_api
+
+
+def get_map_api_for_log(log_dir: Path, log_metadata: LogMetadata) -> Optional[ArrowMapAPI]:
+    """Get the map API for a given log metadata, if map metadata is available."""
+
+    def _resolve_map_file() -> Optional[Path]:
+        """Find the map file: first check per-log, then global maps directory."""
+        # 1. Per-log map
+        map_file = log_dir / "map.arrow"
+        if map_file.exists():
+            return map_file
+        # 2. Global map
+        dataset, location = log_metadata.dataset, log_metadata.location
+        if dataset is not None and location is not None:
+            maps_root = get_dataset_paths().py123d_maps_root
+            if maps_root is not None:
+                map_file = maps_root / dataset / f"{dataset}_{location}.arrow"
+                if map_file.exists():
+                    return map_file
+        return None
+
+    map_api: Optional[ArrowMapAPI] = None
+    map_file = _resolve_map_file()
+    if map_file is not None:
+        map_api = get_lru_cached_map_api(map_file)
     return map_api

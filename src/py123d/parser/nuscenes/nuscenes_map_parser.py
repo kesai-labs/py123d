@@ -27,7 +27,7 @@ from py123d.datatypes import (
 )
 from py123d.geometry import OccupancyMap2D, Point2D, Polyline2D, Polyline3D
 from py123d.geometry.utils.polyline_utils import offset_points_perpendicular
-from py123d.parser.abstract_dataset_parser import MapParser
+from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.nuscenes.utils.nuscenes_constants import NUSCENES_LANE_TYPE_MAPPING, NUSCENES_MAP_LOCATIONS
 from py123d.parser.nuscenes.utils.nuscenes_map_utils import (
     extract_lane_and_boundaries,
@@ -49,7 +49,7 @@ MAX_LANE_WIDTH: Final[float] = 4.0  # [m]
 MIN_LANE_WIDTH: Final[float] = 1.0  # [m]
 
 
-class NuScenesMapParser(MapParser):
+class NuScenesMapParser(BaseMapParser):
     """Map parser for nuScenes maps, using the nuscenes-devkit's NuScenesMap API."""
 
     def __init__(self, nuscenes_maps_root: Path, location: str) -> None:

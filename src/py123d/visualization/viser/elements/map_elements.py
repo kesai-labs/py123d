@@ -118,18 +118,18 @@ def _get_map_trimesh_dict(
                 trimesh_mesh.vertices -= scene_center_array
 
                 # Adjust height of non-road surfaces to avoid z-fighting in the visualization.
-                if map_layer in [
+                if map_layer in {
                     MapLayer.WALKWAY,
                     MapLayer.CROSSWALK,
                     MapLayer.CARPARK,
                     MapLayer.STOP_ZONE,
-                ]:
+                }:
                     trimesh_mesh.vertices[..., Point3DIndex.Z] += viser_config.map_non_road_z_offset
 
                 # If the map does not have z-values, we place the surfaces on the ground level of the ego vehicle.
-                if not scene.map_metadata.map_has_z:
+                if not map_api.map_metadata.map_has_z:
                     trimesh_mesh.vertices[..., Point3DIndex.Z] += (
-                        scene_query_position.z - initial_ego_state.ego_metadata.height / 2
+                        scene_query_position.z - initial_ego_state.metadata.height / 2
                     )
 
                 # Color the mesh based on the map layer type.

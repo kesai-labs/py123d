@@ -59,20 +59,18 @@ Available Modalities
    * - Traffic Lights
      - X
      -
-   * - Pinhole Cameras
+   * - Cameras
      - ✓
      -
-      nuScenes includes 6x :class:`~py123d.datatypes.sensors.PinholeCamera`:
+      nuScenes includes 6x :class:`~py123d.datatypes.sensors.Camera`:
 
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_F0`: CAM_FRONT
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R0`: CAM_FRONT_RIGHT
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R1`: CAM_BACK_RIGHT
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L0`: CAM_FRONT_LEFT
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L1`: CAM_BACK_LEFT
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_B0`: CAM_BACK
-   * - Fisheye Cameras
-     - X
-     -
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_F0`: CAM_FRONT
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R0`: CAM_FRONT_RIGHT
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R1`: CAM_BACK_RIGHT
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L0`: CAM_FRONT_LEFT
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L1`: CAM_BACK_LEFT
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_B0`: CAM_BACK
+
    * - Lidars
      - ✓
      - nuScenes has one :class:`~py123d.datatypes.sensors.Lidar` of type :class:`~py123d.datatypes.sensors.LidarID.LIDAR_TOP`.

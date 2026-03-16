@@ -58,22 +58,20 @@ Available Modalities
    * - Traffic Lights
      - ✓
      - Traffic lights include the status and the lane id they are associated with, see :class:`~py123d.datatypes.detections.TrafficLightDetections`.
-   * - Pinhole Cameras
+   * - Cameras
      - (✓)
      -
-      Subset of nuPlan includes 8x :class:`~py123d.datatypes.sensors.PinholeCamera`:
+      Subset of nuPlan includes 8x :class:`~py123d.datatypes.sensors.Camera`:
 
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_F0`: Front camera
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R0`: Right front camera
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R1`: Right middle camera
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_R2`: Right rear camera
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L0`: Left front camera
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L1`: Left middle camera
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_L2`: Left rear camera
-      - :class:`~py123d.datatypes.sensors.PinholeCameraID.PCAM_B0`: Back camera
-   * - Fisheye Cameras
-     - X
-     -
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_F0`: Front camera
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R0`: Right front camera
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R1`: Right middle camera
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_R2`: Right rear camera
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L0`: Left front camera
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L1`: Left middle camera
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_L2`: Left rear camera
+      - :class:`~py123d.datatypes.sensors.CameraID.PCAM_B0`: Back camera
+
    * - Lidars
      - (✓)
      -

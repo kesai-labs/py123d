@@ -1,4 +1,11 @@
-from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
-from py123d.datatypes.metadata.log_metadata import LogMetadata
+from py123d.datatypes.metadata.base_metadata import BaseMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
-from py123d.datatypes.metadata.sensor_metadata import FisheyeMEICameraMetadatas, LidarMetadatas, PinholeCameraMetadatas
+
+
+def __getattr__(name: str):
+    """Lazy import for LogMetadata to avoid circular dependency with custom_modality."""
+    if name == "LogMetadata":
+        from py123d.datatypes.metadata.log_metadata import LogMetadata
+
+        return LogMetadata
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

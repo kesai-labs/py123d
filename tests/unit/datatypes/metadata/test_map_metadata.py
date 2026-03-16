@@ -1,6 +1,6 @@
 import pytest
 
-from py123d.datatypes.metadata.abstract_metadata import AbstractMetadata
+from py123d.datatypes.metadata.base_metadata import BaseMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 
 
@@ -107,14 +107,14 @@ class TestMapMetadata:
         assert restored.version == original.version
 
     def test_is_instance_of_abstract_metadata(self):
-        """MapMetadata is an instance of AbstractMetadata."""
+        """MapMetadata is an instance of BaseMetadata."""
         metadata = MapMetadata(
             dataset="test_dataset",
             location="test_location",
             map_has_z=True,
             map_is_per_log=False,
         )
-        assert isinstance(metadata, AbstractMetadata)
+        assert isinstance(metadata, BaseMetadata)
 
     def test_per_log_map_requires_split_and_log_name(self):
         """Test that per-log maps raise AssertionError when split or log_name is missing."""

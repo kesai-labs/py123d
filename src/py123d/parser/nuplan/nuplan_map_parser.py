@@ -26,7 +26,7 @@ from py123d.datatypes.map_objects.map_objects import (
 )
 from py123d.datatypes.metadata import MapMetadata
 from py123d.geometry import Polyline2D, Polyline3D
-from py123d.parser.abstract_dataset_parser import MapParser
+from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.nuplan.utils.nuplan_constants import (
     NUPLAN_INTERSECTION_TYPE_CONVERSION,
     NUPLAN_LANE_TYPE_CONVERSION,
@@ -45,7 +45,7 @@ from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
 MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0  # TODO: Add to config
 
 
-class NuplanMapParser(MapParser):
+class NuplanMapParser(BaseMapParser):
     def __init__(self, nuplan_maps_root: Path, location: str) -> None:
         self._nuplan_maps_root = nuplan_maps_root
         self._location = location

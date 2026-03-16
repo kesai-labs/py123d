@@ -1,8 +1,8 @@
-import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import msgpack
 import numpy as np
 import pyarrow as pa
 
@@ -322,7 +322,9 @@ class ArrowMapWriter(AbstractMapWriter):
                 names=["object_id", "map_layer", "features", "wkb"],
             )
             # Add metadata to the table and write to file
-            table = table.replace_schema_metadata({"metadata": json.dumps(self._map_metadata.to_dict())})
+            table = table.replace_schema_metadata(
+                {b"metadata": msgpack.packb(self._map_metadata.to_dict(), use_bin_type=True)}
+            )
             write_arrow_table(table, self._map_file)
 
         del self._map_file, self._map_data, self._map_metadata

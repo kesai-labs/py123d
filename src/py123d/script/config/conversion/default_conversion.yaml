@@ -6,15 +6,11 @@ hydra:
     - pkg://py123d.script.config
     - pkg://py123d.script.config.common
   job:
-    env_set:
-      HYDRA_FULL_ERROR: 1
     chdir: False
 
 defaults:
   - default_common
   - default_dataset_paths
-  - log_writer: arrow_log_writer
-  - map_writer: arrow_map_writer
   - dataset: av2-sensor
   - _self_
 
@@ -25,3 +21,4 @@ terminate_on_exception: True
 
 force_map_conversion: True
 force_log_conversion: True
+async_conversion: False

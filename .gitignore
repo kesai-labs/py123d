@@ -27,9 +27,16 @@
 exp/
 .coverage
 
+# Secrets / credentials
+.env
+.env.*
+*.pem
+*.key
+
 # internal
 benchmarks/*
 notebooks/*
+notes/*
 
 # Sphinx documentation
 docs/_build/

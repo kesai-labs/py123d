@@ -48,10 +48,12 @@ dependencies = [
     "omegaconf",
     "typing-extensions",
     "requests",
+    "cachetools", # Should be remove again, if functools are use
 ]
 
 [project.scripts]
 py123d-viser = "py123d.script.run_viser:main"
+py123d-bokeh = "py123d.script.run_bokeh:main"
 py123d-conversion = "py123d.script.run_conversion:main"
 
 [project.optional-dependencies]
@@ -135,6 +137,7 @@ lint.ignore = [
     "PLR0917",  # Checks for function definitions that include too many positional arguments.
     "PLR0914",  # Checks for functions that include too many local variables.
     "PLR6301",  # Checks for the presence of unused self parameter in methods definitions.
+    "PLC0206",  # Checks for dictionary iterations that extract the dictionary value via explicit indexing, instead of using .items().
 ]
 
 exclude = [

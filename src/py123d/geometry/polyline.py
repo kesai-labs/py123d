@@ -9,12 +9,12 @@ import shapely.geometry as geom
 from scipy.interpolate import interp1d
 
 from py123d.common.utils.mixin import ArrayMixin
-from py123d.geometry.geometry_index import Point2DIndex, Point3DIndex, PoseSE2Index
+from py123d.geometry.geometry_index import Point2DIndex, Point3DIndex, PoseSE2Index, PoseSE3Index
 from py123d.geometry.point import Point2D, Point3D
-from py123d.geometry.pose import PoseSE2
+from py123d.geometry.pose import PoseSE2, PoseSE3
 from py123d.geometry.utils.constants import DEFAULT_Z
 from py123d.geometry.utils.polyline_utils import get_linestring_yaws, get_path_progress_2d, get_path_progress_3d
-from py123d.geometry.utils.rotation_utils import normalize_angle
+from py123d.geometry.utils.rotation_utils import nlerp_quaternion_arrays, normalize_angle, slerp_quaternion_arrays
 
 
 class Polyline2D(ArrayMixin):
@@ -271,6 +271,132 @@ class PolylineSE2(ArrayMixin):
         else:
             point_ = geom.Point(np.array(point, dtype=np.float64))
         return self.linestring.project(point_, normalized=normalized)  # type: ignore
+
+
+class PolylineSE3(ArrayMixin):
+    """Represents an interpolatable SE3 polyline (3D position + quaternion rotation).
+
+    Supports pluggable rotation interpolation strategies: SLERP (default) and NLERP.
+
+    Example:
+        >>> import numpy as np
+        >>> from py123d.geometry import PolylineSE3
+        >>> poses = np.array([
+        ...     [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        ...     [2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        ... ])
+        >>> polyline = PolylineSE3.from_array(poses)
+        >>> polyline.length
+        2.0
+        >>> polyline.interpolate(1.0)
+        PoseSE3(array=[1. 0. 0. 1. 0. 0. 0.])
+
+    """
+
+    __slots__ = ("_array", "_progress", "_translation_interpolator", "_rotation_interpolation")
+
+    def __init__(
+        self,
+        array: npt.NDArray[np.float64],
+        rotation_interpolation: str = "slerp",
+    ):
+        """Initializes :class:`PolylineSE3` with a numpy array of SE3 poses.
+
+        :param array: A numpy array of shape (N, 7) representing SE3 poses, indexed by \
+            :class:`~py123d.geometry.PoseSE3Index`.
+        :param rotation_interpolation: Rotation interpolation strategy, either ``"slerp"`` or ``"nlerp"``.
+        """
+        assert array.ndim == 2 and array.shape[1] == len(PoseSE3Index)
+        assert rotation_interpolation in ("slerp", "nlerp"), (
+            f"Unknown rotation interpolation: {rotation_interpolation!r}. Expected 'slerp' or 'nlerp'."
+        )
+
+        self._array = array
+        self._rotation_interpolation = rotation_interpolation
+        self._progress = get_path_progress_3d(array[:, PoseSE3Index.XYZ])
+        self._translation_interpolator = interp1d(
+            self._progress,
+            array[:, PoseSE3Index.XYZ],
+            axis=0,
+            bounds_error=False,
+            fill_value="extrapolate",  # pyright: ignore[reportArgumentType]
+        )
+
+    @classmethod
+    def from_array(
+        cls,
+        array: npt.NDArray[np.float64],
+        copy: bool = True,
+        rotation_interpolation: str = "slerp",
+    ) -> "PolylineSE3":
+        """Creates a :class:`PolylineSE3` from a numpy array.
+
+        :param array: A numpy array of shape (N, 7) representing SE3 poses, indexed by \
+            :class:`~py123d.geometry.PoseSE3Index`.
+        :param copy: Whether to copy the input array. Defaults to True.
+        :param rotation_interpolation: Rotation interpolation strategy, either ``"slerp"`` or ``"nlerp"``.
+        :return: A :class:`PolylineSE3` instance.
+        """
+        assert array.ndim == 2 and array.shape[1] == len(PoseSE3Index)
+        return cls(array.copy() if copy else array, rotation_interpolation=rotation_interpolation)
+
+    @property
+    def array(self) -> npt.NDArray[np.float64]:
+        """The numpy array representation of shape (N, 7), indexed by :class:`~py123d.geometry.PoseSE3Index`."""
+        return self._array
+
+    @property
+    def length(self) -> float:
+        """Returns the translational path length of the SE3 polyline."""
+        return float(self._progress[-1])
+
+    @property
+    def rotation_interpolation(self) -> str:
+        """The rotation interpolation strategy used by this polyline."""
+        return self._rotation_interpolation
+
+    def interpolate(
+        self,
+        distances: Union[float, npt.NDArray[np.float64]],
+        normalized: bool = False,
+    ) -> Union[PoseSE3, npt.NDArray[np.float64]]:
+        """Interpolates the SE3 polyline at the given distances.
+
+        Translation is interpolated linearly; rotation is interpolated using the configured strategy.
+
+        :param distances: A float or numpy array of distances along the polyline.
+        :param normalized: Whether to interpret the distances as fractions of the length.
+        :return: A :class:`PoseSE3` instance for scalar input, or a numpy array of shape (N, 7).
+        """
+        distances_ = np.asarray(distances * self.length if normalized else distances, dtype=np.float64)
+        clipped = np.clip(distances_, 1e-8, self.length)
+
+        # Interpolate translation via scipy
+        translations = self._translation_interpolator(clipped)
+
+        # Find surrounding keyframe indices and compute local interpolation parameter t
+        indices = np.searchsorted(self._progress, clipped, side="right") - 1
+        indices = np.clip(indices, 0, len(self._progress) - 2)
+        segment_length = self._progress[indices + 1] - self._progress[indices]
+        t = np.where(segment_length > 0, (clipped - self._progress[indices]) / segment_length, 0.0)
+
+        # Interpolate rotation
+        q1 = self._array[indices, PoseSE3Index.QUATERNION]
+        q2 = self._array[indices + 1, PoseSE3Index.QUATERNION]
+
+        if self._rotation_interpolation == "slerp":
+            rotations = slerp_quaternion_arrays(q1, q2, t)
+        else:
+            rotations = nlerp_quaternion_arrays(q1, q2, t)
+
+        # Combine translation and rotation
+        result = np.empty(translations.shape[:-1] + (len(PoseSE3Index),), dtype=np.float64)
+        result[..., PoseSE3Index.XYZ] = translations
+        result[..., PoseSE3Index.QUATERNION] = rotations
+
+        if clipped.ndim == 0:
+            return PoseSE3(*result)
+        return result
 
 
 class Polyline3D(ArrayMixin):

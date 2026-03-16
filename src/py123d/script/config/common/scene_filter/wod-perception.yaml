@@ -14,7 +14,7 @@ timestamp_threshold_s: null
 duration_s: null
 history_s: null
 
-pinhole_camera_ids: null
+camera_ids: null
 
 max_num_scenes: null
 shuffle: False

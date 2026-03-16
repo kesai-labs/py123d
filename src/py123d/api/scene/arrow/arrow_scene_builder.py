@@ -5,16 +5,16 @@ from functools import partial
 from pathlib import Path
 from typing import List, Optional, Union
 
+from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
+
 logger = logging.getLogger(__name__)
 
 from py123d.api.scene.arrow.arrow_scene_api import ArrowSceneAPI
-from py123d.api.scene.arrow.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_builder import SceneBuilder
 from py123d.api.scene.scene_filter import SceneFilter
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import open_arrow_table
-from py123d.api.utils.arrow_schema import FISHEYE_MEI, LIDAR, PINHOLE_CAMERA, SYNC
 from py123d.common.dataset_paths import get_dataset_paths
 from py123d.common.execution import Executor, executor_map_chunked_list
 from py123d.common.utils.uuid_utils import convert_to_str_uuid
@@ -91,7 +91,7 @@ def _discover_log_paths(logs_root: Path, split_names: List[str], log_names: Opti
         if not split_dir.exists():
             continue
         for log_path in split_dir.iterdir():
-            if log_path.is_dir() and (log_path / f"{SYNC.prefix()}.arrow").exists():
+            if log_path.is_dir() and (log_path / "sync.arrow").exists():
                 if log_names is None or log_path.name in log_names:
                     log_paths.append(log_path)
     return log_paths
@@ -125,7 +125,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     """
 
     log_dir = Path(log_dir)
-    sync_path = log_dir / f"{SYNC.prefix()}.arrow"
+    sync_path = log_dir / "sync.arrow"
 
     scene_metadatas: List[SceneMetadata] = []
     sync_table = open_arrow_table(str(sync_path))
@@ -152,9 +152,11 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     elif filter.duration_s is None:
         scene_metadatas.append(
             SceneMetadata(
-                initial_uuid=convert_to_str_uuid(sync_table[SYNC.col("uuid")][start_idx].as_py()),
+                dataset=log_metadata.dataset,
+                split=log_metadata.split,
+                initial_uuid=convert_to_str_uuid(sync_table["sync.uuid"][start_idx].as_py()),
                 initial_idx=start_idx,
-                duration_s=(end_idx - start_idx) * log_metadata.timestep_seconds,
+                duration_s=(end_idx - start_idx - 1) * log_metadata.timestep_seconds,
                 history_s=filter.history_s if filter.history_s is not None else 0.0,
                 iteration_duration_s=log_metadata.timestep_seconds,
             )
@@ -162,7 +164,7 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     else:
         scene_uuid_set = set(filter.scene_uuids) if filter.scene_uuids is not None else None
         step_idx = int(filter.duration_s / log_metadata.timestep_seconds)
-        all_row_uuids = sync_table[SYNC.col("uuid")].to_pylist()
+        all_row_uuids = sync_table["sync.uuid"].to_pylist()
         history_s = filter.history_s if filter.history_s is not None else 0.0
 
         for idx in range(start_idx, end_idx, step_idx):
@@ -171,6 +173,8 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
 
             if scene_uuid_set is None:
                 scene_extraction_metadata = SceneMetadata(
+                    dataset=log_metadata.dataset,
+                    split=log_metadata.split,
                     initial_uuid=current_uuid,
                     initial_idx=idx,
                     duration_s=filter.duration_s,
@@ -179,6 +183,8 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
                 )
             elif current_uuid in scene_uuid_set:
                 scene_extraction_metadata = SceneMetadata(
+                    dataset=log_metadata.dataset,
+                    split=log_metadata.split,
                     initial_uuid=current_uuid,
                     initial_idx=idx,
                     duration_s=filter.duration_s,
@@ -199,19 +205,14 @@ def _get_scene_extraction_metadatas(log_dir: Union[str, Path], filter: SceneFilt
     for scene_extraction_metadata in scene_metadatas:
         add_scene = True
         start_idx = scene_extraction_metadata.initial_idx
-        if filter.pinhole_camera_ids is not None:
-            cam_file = log_dir / f"{PINHOLE_CAMERA.prefix()}.arrow"
-            if not cam_file.exists():
-                add_scene = False
-
-        if filter.fisheye_mei_camera_ids is not None:
-            cam_file = log_dir / f"{FISHEYE_MEI.prefix()}.arrow"
-            if not cam_file.exists():
+        if filter.camera_ids is not None:
+            has_camera = any(log_dir.glob("camera.*.arrow"))
+            if not has_camera:
                 add_scene = False
 
         if filter.lidar_ids is not None:
-            lidar_file = log_dir / f"{LIDAR.prefix()}.arrow"
-            if not lidar_file.exists():
+            has_lidar = any(log_dir.glob("lidar.*.arrow"))
+            if not has_lidar:
                 add_scene = False
         if add_scene:
             scene_extraction_metadatas_.append(scene_extraction_metadata)

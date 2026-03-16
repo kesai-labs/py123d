@@ -1,0 +1,36 @@
+from functools import lru_cache
+from pathlib import Path
+from typing import Final, Union
+
+from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table, open_arrow_schema
+from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
+from py123d.common.utils.uuid_utils import convert_to_str_uuid
+from py123d.datatypes import LogMetadata
+
+# TODO: Refactor
+MAX_LRU_CACHED_LOG_METADATA: Final[int] = 1_000
+
+
+def _get_complete_log_scene_metadata(log_dir: Union[Path, str], log_metadata: LogMetadata) -> SceneMetadata:
+    """Helper function to get the scene metadata for a complete log from a log directory."""
+    sync_path = Path(log_dir) / "sync.arrow"
+    table = get_lru_cached_arrow_table(sync_path)
+    initial_uuid = convert_to_str_uuid(table["sync.uuid"][0].as_py())
+    num_rows = table.num_rows
+    return SceneMetadata(
+        dataset=log_metadata.dataset,
+        split=log_metadata.split,
+        initial_uuid=initial_uuid,
+        initial_idx=0,
+        duration_s=log_metadata.timestep_seconds * (num_rows - 1),
+        history_s=0.0,
+        iteration_duration_s=log_metadata.timestep_seconds,
+    )
+
+
+@lru_cache(maxsize=MAX_LRU_CACHED_LOG_METADATA)
+def _get_lru_cached_log_metadata(log_dir: Union[Path, str]) -> LogMetadata:
+    """Helper function to get the log metadata for a log directory."""
+    sync_schema = open_arrow_schema(Path(log_dir) / "sync.arrow")
+    return get_metadata_from_arrow_schema(sync_schema, LogMetadata)

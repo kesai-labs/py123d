@@ -50,7 +50,7 @@ def get_lidar_pc_color(
         "ids",
         "intensity",
         "channel",
-        "timestamp",
+        "timestamps",
         "range",
         "elongation",
     ] = "none",
@@ -74,12 +74,12 @@ def get_lidar_pc_color(
 
     # Features that require point_cloud_features to be present
     discrete_features = {"ids", "channel"}
-    continuous_features = {"intensity", "timestamp", "range", "elongation"}
+    continuous_features = {"intensity", "timestamps", "range", "elongation"}
     feature_accessor = {
         "ids": lidar.ids,
         "intensity": lidar.intensity,
         "channel": lidar.channel,
-        "timestamp": lidar.timestamp,
+        "timestamps": lidar.timestamps,
         "range": lidar.range,
         "elongation": lidar.elongation,
     }

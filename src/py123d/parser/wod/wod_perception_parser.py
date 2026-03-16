@@ -8,23 +8,22 @@ import numpy as np
 
 from py123d.datatypes import (
     BoxDetectionAttributes,
-    BoxDetectionMetadata,
     BoxDetectionSE3,
     BoxDetectionsSE3,
-    EgoMetadata,
+    CameraID,
     EgoStateSE3,
-    FisheyeMEICameraMetadatas,
     LidarID,
     LidarMetadata,
-    LidarMetadatas,
     LogMetadata,
-    PinholeCameraID,
     PinholeCameraMetadata,
-    PinholeCameraMetadatas,
     PinholeDistortion,
     PinholeIntrinsics,
     Timestamp,
 )
+from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
+from py123d.datatypes.modalities.base_modality import BaseModality
+from py123d.datatypes.sensors.lidar import LidarMergedMetadata
+from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import (
     BoundingBoxSE3,
     BoundingBoxSE3Index,
@@ -35,19 +34,19 @@ from py123d.geometry import (
     Vector3D,
     Vector3DIndex,
 )
-from py123d.geometry.transform import rel_to_abs_se3_array
+from py123d.geometry.transform import reframe_se3_array, rel_to_abs_se3_array
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
 from py123d.geometry.utils.rotation_utils import (
     get_euler_array_from_quaternion_array,
     get_quaternion_array_from_euler_array,
 )
-from py123d.parser.abstract_dataset_parser import (
-    CameraData,
-    DatasetParser,
-    FrameData,
-    LidarData,
-    LogParser,
-    MapParser,
+from py123d.parser.base_dataset_parser import (
+    BaseDatasetParser,
+    BaseLogParser,
+    BaseMapParser,
+    ModalitiesSync,
+    ParsedCamera,
+    ParsedLidar,
 )
 from py123d.parser.registry import WODPerceptionBoxDetectionLabel
 from py123d.parser.utils.sensor_utils.camera_conventions import CameraConvention, convert_camera_convention
@@ -62,6 +61,31 @@ if TYPE_CHECKING:
     from py123d.parser.wod.waymo_open_dataset.protos import dataset_pb2
 
 logger = logging.getLogger(__name__)
+
+# WOD Perception lidar operates at 10Hz → one full 360° sweep takes ~100ms.
+# frame.timestamp_micros marks the START of the TOP lidar spin.
+# frame.pose corresponds to the vehicle pose near the MIDDLE of the lidar spin (~50ms later).
+# [1] https://github.com/waymo-research/waymo-open-dataset/issues/464
+# [2] https://github.com/waymo-research/waymo-open-dataset/issues/70#issuecomment-552548486
+WOD_PERCEPTION_LIDAR_SWEEP_DURATION_US = 100_000
+WOD_PERCEPTION_LIDAR_HALF_SWEEP_US = WOD_PERCEPTION_LIDAR_SWEEP_DURATION_US // 2
+
+# NOTE: These parameters are estimates based on the vehicle model used in the WOD Perception dataset.
+# The vehicle should be the same (or a similar) vehicle model to nuPlan and PandaSet [1].
+# [1] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
+WOD_PERCEPTION_EGO_STATE_SE3_METADATA = EgoStateSE3Metadata(
+    vehicle_name="wod-perception_chrysler_pacifica",
+    width=2.297,
+    length=5.176,
+    height=1.777,
+    wheel_base=3.089,
+    center_to_imu_se3=PoseSE3(x=1.461, y=0.0, z=1.777 / 2, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+    rear_axle_to_imu_se3=PoseSE3.identity(),
+)
+
+WOD_PERCEPTION_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(
+    box_detection_label_class=WODPerceptionBoxDetectionLabel,
+)
 
 
 def _lazy_import_tf_and_pb2():
@@ -87,7 +111,7 @@ def _lazy_import_tf_and_pb2():
     return tf, dataset_pb2
 
 
-class WODPerceptionParser(DatasetParser):
+class WODPerceptionParser(BaseDatasetParser):
     """Dataset parser for the Waymo Open Dataset - Perception."""
 
     def __init__(
@@ -141,9 +165,9 @@ class WODPerceptionParser(DatasetParser):
 
         return split_tf_record_pairs
 
-    def get_map_parsers(self) -> List[MapParser]:
+    def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
-        map_parsers: List[MapParser] = []
+        map_parsers: List[BaseMapParser] = []
         for split, source_tf_record_path in self._split_tf_record_pairs:
             initial_frame = _get_initial_frame_from_tfrecord(source_tf_record_path)
             map_parsers.append(
@@ -157,7 +181,7 @@ class WODPerceptionParser(DatasetParser):
             )
         return map_parsers
 
-    def get_log_parsers(self) -> List[LogParser]:
+    def get_log_parsers(self) -> List[BaseLogParser]:
         """Inherited, see superclass."""
         return [
             WODPerceptionLogParser(
@@ -172,7 +196,7 @@ class WODPerceptionParser(DatasetParser):
         ]
 
 
-class WODPerceptionLogParser(LogParser):
+class WODPerceptionLogParser(BaseLogParser):
     """Lightweight, picklable handle to one WOD Perception log."""
 
     def __init__(
@@ -202,46 +226,14 @@ class WODPerceptionLogParser(LogParser):
             timestep_seconds=0.1,
         )
 
-    def get_ego_metadata(self) -> Optional[EgoMetadata]:
-        """Inherited, see superclass."""
-        # NOTE: These parameters are estimates based on the vehicle model used in the WOD Perception dataset.
-        # The vehicle should be the same (or a similar) vehicle model to nuPlan and PandaSet [1].
-        # [1] https://en.wikipedia.org/wiki/Chrysler_Pacifica_(minivan)
-        return EgoMetadata(
-            vehicle_name="wod-perception_chrysler_pacifica",
-            width=2.297,
-            length=5.176,
-            height=1.777,
-            wheel_base=3.089,
-            center_to_imu_se3=PoseSE3(x=1.461, y=0.0, z=1.777 / 2, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
-            rear_axle_to_imu_se3=PoseSE3.identity(),
-        )
-
-    def get_box_detection_metadata(self) -> Optional[BoxDetectionMetadata]:
-        """Inherited, see superclass."""
-        return BoxDetectionMetadata(box_detection_label_class=WODPerceptionBoxDetectionLabel)
-
-    def get_pinhole_camera_metadatas(self) -> Optional[PinholeCameraMetadatas]:
+    def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Inherited, see superclass."""
         initial_frame = _get_initial_frame_from_tfrecord(self._source_tf_record_path)
-        return _get_wod_perception_camera_metadata(initial_frame)
+        pinhole_cameras_metadata = _get_wod_perception_camera_metadata(initial_frame)
+        lidar_merged_metadata = _get_wod_perception_lidar_merged_metadata(initial_frame)
 
-    def get_fisheye_mei_camera_metadatas(self) -> Optional[FisheyeMEICameraMetadatas]:
-        """Inherited, see superclass."""
-        return None
-
-    def get_lidar_metadatas(self) -> Optional[LidarMetadatas]:
-        """Inherited, see superclass."""
-        initial_frame = _get_initial_frame_from_tfrecord(self._source_tf_record_path)
-        return _get_wod_perception_lidar_metadata(initial_frame, self._keep_polar_features)
-
-    def iter_frames(self) -> Iterator[FrameData]:
-        """Yields one FrameData per frame in the TFRecord."""
         tf, dataset_pb2 = _lazy_import_tf_and_pb2()
-
         dataset = tf.data.TFRecordDataset(self._source_tf_record_path, compression_type="")
-        ego_metadata = self.get_ego_metadata()
-        assert ego_metadata is not None, "Ego metadata must be available to iterate frames."
 
         for frame_idx, data in enumerate(dataset):
             frame = dataset_pb2.Frame()
@@ -255,26 +247,43 @@ class WODPerceptionLogParser(LogParser):
                     z=frame.map_pose_offset.z,
                 )
 
-            timestamp = Timestamp.from_us(frame.timestamp_micros)
+            # frame.timestamp_micros is the start of the lidar spin.
+            # frame.pose is the vehicle pose near the middle of the spin (~50ms later).
+            frame_timestamp = Timestamp.from_us(frame.timestamp_micros)
+            ego_pose_timestamp = Timestamp.from_us(frame.timestamp_micros + WOD_PERCEPTION_LIDAR_HALF_SWEEP_US)
 
-            yield FrameData(
-                timestamp=timestamp,
-                ego_state_se3=_extract_wod_perception_ego_state(
-                    frame, map_pose_offset, ego_metadata, timestamp=timestamp
-                ),
-                box_detections_se3=_extract_wod_perception_box_detections(
-                    frame, map_pose_offset, self._zero_roll_pitch, timestamp
-                ),
-                pinhole_cameras=_extract_wod_perception_cameras(frame),
-                lidar=_extract_wod_perception_lidars(
-                    frame,
-                    self._keep_polar_features,
-                    frame_idx,
-                    self._source_tf_record_path,
-                    self._wod_perception_data_root,
-                    timestamp,
-                ),
+            ego_state_se3 = _extract_wod_perception_ego_state(
+                frame, map_pose_offset, WOD_PERCEPTION_EGO_STATE_SE3_METADATA, timestamp=ego_pose_timestamp
             )
+            box_detections_se3 = _extract_wod_perception_box_detections(
+                frame,
+                map_pose_offset,
+                WOD_PERCEPTION_BOX_DETECTIONS_SE3_METADATA,
+                self._zero_roll_pitch,
+                ego_pose_timestamp,
+            )
+            parsed_pinhole_cameras = _extract_wod_perception_cameras(frame, pinhole_cameras_metadata)
+            parsed_lidar = _extract_wod_perception_lidar(
+                frame,
+                frame_idx,
+                self._source_tf_record_path,
+                self._wod_perception_data_root,
+                lidar_merged_metadata,
+            )
+
+            yield ModalitiesSync(
+                timestamp=frame_timestamp,
+                modalities=[
+                    ego_state_se3,
+                    box_detections_se3,
+                    parsed_lidar,
+                    *parsed_pinhole_cameras,
+                ],
+            )
+
+    def iter_modalities_async(self) -> Iterator[BaseModality]:
+        """Inherited, see superclass."""
+        raise NotImplementedError("Async per-modality iteration is not implemented for WOD Perception.")
 
 
 def _get_initial_frame_from_tfrecord(tf_record_path: Path) -> dataset_pb2.Frame:
@@ -291,9 +300,16 @@ def _get_initial_frame_from_tfrecord(tf_record_path: Path) -> dataset_pb2.Frame:
     return initial_frame
 
 
-def _get_wod_perception_camera_metadata(initial_frame: dataset_pb2.Frame) -> Optional[PinholeCameraMetadatas]:
+# ------------------------------------------------------------------------------------------------------------------
+# Metadata helpers
+# ------------------------------------------------------------------------------------------------------------------
+
+
+def _get_wod_perception_camera_metadata(
+    initial_frame: dataset_pb2.Frame,
+) -> Dict[CameraID, PinholeCameraMetadata]:
     """Get the WOD Perception camera metadata from the initial frame."""
-    camera_metadata_dict: Dict[PinholeCameraID, PinholeCameraMetadata] = {}
+    camera_metadata_dict: Dict[CameraID, PinholeCameraMetadata] = {}
     for calibration in initial_frame.context.camera_calibrations:
         camera_type = WOD_PERCEPTION_CAMERA_IDS[calibration.name]
 
@@ -324,14 +340,17 @@ def _get_wod_perception_camera_metadata(initial_frame: dataset_pb2.Frame) -> Opt
                 camera_to_imu_se3=camera_to_imu_se3,
             )
 
-    return PinholeCameraMetadatas(camera_metadata_dict) if camera_metadata_dict else None
+    return camera_metadata_dict
 
 
-def _get_wod_perception_lidar_metadata(
+def _get_wod_perception_lidar_merged_metadata(
     initial_frame: dataset_pb2.Frame,
-    keep_polar_features: bool,
-) -> Optional[LidarMetadatas]:
-    """Get the WOD Perception Lidar metadata from the initial frame."""
+) -> LidarMergedMetadata:
+    """Get the WOD Perception Lidar merged metadata from the initial frame.
+
+    WOD provides individual calibrations for 5 lidars (TOP, FRONT, SIDE_LEFT, SIDE_RIGHT, REAR)
+    but the point cloud data is stored as a single merged sweep per frame.
+    """
     laser_metadatas: Dict[LidarID, LidarMetadata] = {}
     for laser_calibration in initial_frame.context.laser_calibrations:
         lidar_type = WOD_PERCEPTION_LIDAR_IDS[laser_calibration.name]
@@ -346,7 +365,12 @@ def _get_wod_perception_lidar_metadata(
             lidar_to_imu_se3=extrinsic,
         )
 
-    return LidarMetadatas(laser_metadatas) if laser_metadatas else None
+    return LidarMergedMetadata(laser_metadatas)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Sensor extraction helpers
+# ------------------------------------------------------------------------------------------------------------------
 
 
 def _get_ego_pose_se3(frame: dataset_pb2.Frame, map_pose_offset: Vector3D) -> PoseSE3:
@@ -358,15 +382,18 @@ def _get_ego_pose_se3(frame: dataset_pb2.Frame, map_pose_offset: Vector3D) -> Po
 
 
 def _extract_wod_perception_ego_state(
-    frame: dataset_pb2.Frame, map_pose_offset: Vector3D, ego_metadata: EgoMetadata, timestamp: Timestamp
+    frame: dataset_pb2.Frame, map_pose_offset: Vector3D, ego_metadata: EgoStateSE3Metadata, timestamp: Timestamp
 ) -> EgoStateSE3:
-    """Extracts the ego state from a WOD Perception frame."""
+    """Extracts the ego state from a WOD Perception frame.
+
+    ``frame.pose`` is the vehicle pose near the middle of the TOP lidar spin (~50ms after
+    ``frame.timestamp_micros``). The caller should pass the mid-sweep timestamp.
+    """
     imu_se3 = _get_ego_pose_se3(frame, map_pose_offset)
-    dynamic_state_se3 = None
     return EgoStateSE3.from_imu(
         imu_se3=imu_se3,
-        dynamic_state_se3=dynamic_state_se3,
-        ego_metadata=ego_metadata,
+        dynamic_state_se3=None,
+        metadata=ego_metadata,
         timestamp=timestamp,
     )
 
@@ -374,11 +401,15 @@ def _extract_wod_perception_ego_state(
 def _extract_wod_perception_box_detections(
     frame: dataset_pb2.Frame,
     map_pose_offset: Vector3D,
+    box_detections_metadata: BoxDetectionsSE3Metadata,
     zero_roll_pitch: bool = True,
     timestamp: Optional[Timestamp] = None,
 ) -> BoxDetectionsSE3:
-    """Extracts the box detections from a WOD Perception frame."""
+    """Extracts the box detections from a WOD Perception frame.
 
+    ``laser_labels`` are defined w.r.t. the ``frame.pose`` coordinate system, which
+    corresponds to the mid-sweep vehicle pose. The caller should pass the mid-sweep timestamp.
+    """
     ego_pose_se3 = _get_ego_pose_se3(frame, map_pose_offset)
 
     num_detections = len(frame.laser_labels)
@@ -394,7 +425,6 @@ def _extract_wod_perception_box_detections(
             yaw=detection.box.heading,
         ).quaternion
 
-        # 2. Fill SE3 Bounding Box
         detections_state[detection_idx, BoundingBoxSE3Index.X] = detection.box.center_x
         detections_state[detection_idx, BoundingBoxSE3Index.Y] = detection.box.center_y
         detections_state[detection_idx, BoundingBoxSE3Index.Z] = detection.box.center_z
@@ -403,14 +433,13 @@ def _extract_wod_perception_box_detections(
         detections_state[detection_idx, BoundingBoxSE3Index.WIDTH] = detection.box.width
         detections_state[detection_idx, BoundingBoxSE3Index.HEIGHT] = detection.box.height
 
-        # 2. Velocity TODO: check if velocity needs to be rotated
+        # TODO: check if velocity needs to be rotated
         detections_velocity[detection_idx] = Vector3D(
             x=detection.metadata.speed_x,
             y=detection.metadata.speed_y,
             z=detection.metadata.speed_z,
         ).array
 
-        # 3. Type and track token
         detections_types.append(WODPerceptionBoxDetectionLabel(detection.type))
         detections_token.append(str(detection.id))
 
@@ -427,7 +456,7 @@ def _extract_wod_perception_box_detections(
     for detection_idx in range(num_detections):
         box_detections.append(
             BoxDetectionSE3(
-                metadata=BoxDetectionAttributes(
+                attributes=BoxDetectionAttributes(
                     label=detections_types[detection_idx],
                     track_token=detections_token[detection_idx],
                 ),
@@ -435,16 +464,24 @@ def _extract_wod_perception_box_detections(
                 velocity_3d=Vector3D.from_array(detections_velocity[detection_idx]),
             )
         )
-    return BoxDetectionsSE3(box_detections=box_detections, timestamp=timestamp)
+    return BoxDetectionsSE3(box_detections=box_detections, timestamp=timestamp, metadata=box_detections_metadata)
 
 
-def _extract_wod_perception_cameras(frame: dataset_pb2.Frame) -> List[CameraData]:
-    """Extracts the camera data from a WOD Perception frame."""
-    camera_data_list: List[CameraData] = []
+def _extract_wod_perception_cameras(
+    frame: dataset_pb2.Frame,
+    camera_metadatas: Dict[CameraID, PinholeCameraMetadata],
+) -> List[ParsedCamera]:
+    """Extracts the camera data from a WOD Perception frame.
 
-    # NOTE @DanielDauner: The extrinsic matrix in frame.context.camera_calibration is fixed to model the ego to camera transformation.
-    # The poses in frame.images[idx] are the motion compensated ego poses when the camera triggers.
-    camera_extrinsic: Dict[PinholeCameraID, PoseSE3] = {}
+    Each camera has its own ``pose_timestamp`` (seconds since epoch) from the proto,
+    which is the time of the ego pose when the camera triggers. The static calibration
+    extrinsic is motion-compensated from the per-camera ego pose to the frame ego pose
+    (``frame.pose``), consistent with how AV2 handles camera extrinsics in sync mode.
+    """
+    camera_data_list: List[ParsedCamera] = []
+
+    # Static calibration extrinsics (camera-to-vehicle, fixed per log)
+    camera_static_extrinsic: Dict[CameraID, PoseSE3] = {}
     for calibration in frame.context.camera_calibrations:
         camera_type = WOD_PERCEPTION_CAMERA_IDS[calibration.name]
         camera_transform = np.array(calibration.extrinsic.transform, dtype=np.float64).reshape(4, 4)
@@ -456,42 +493,64 @@ def _extract_wod_perception_cameras(frame: dataset_pb2.Frame) -> List[CameraData
             from_convention=CameraConvention.pXpZmY,
             to_convention=CameraConvention.pZmYpX,
         )
-        camera_extrinsic[camera_type] = camera_pose
+        camera_static_extrinsic[camera_type] = camera_pose
+
+    # frame.pose is the ego pose at mid-sweep (the reference frame for this ModalitiesSync)
+    frame_ego_pose = PoseSE3.from_transformation_matrix(np.array(frame.pose.transform, dtype=np.float64).reshape(4, 4))
 
     for image_proto in frame.images:
         camera_type = WOD_PERCEPTION_CAMERA_IDS[image_proto.name]
+        static_extrinsic = camera_static_extrinsic[camera_type]
 
-        # NOTE @DanielDauner: We store the pose_timestamp of each camera. WOD-Perception also provides:
-        # {shutter, camera_trigger_time, camera_readout_done_time}
+        # image_proto.pose is the ego pose at the camera trigger time.
+        # Compensate the static extrinsic from the camera's ego frame to the frame's ego frame,
+        # so that lidar-to-camera projection is consistent within this frame.
+        camera_ego_pose = PoseSE3.from_transformation_matrix(
+            np.array(image_proto.pose.transform, dtype=np.float64).reshape(4, 4)
+        )
+        compensated_extrinsic = PoseSE3.from_array(
+            reframe_se3_array(
+                from_origin=camera_ego_pose,
+                to_origin=frame_ego_pose,
+                pose_se3_array=static_extrinsic.array,
+            )
+        )
+
+        # NOTE: WOD also provides {shutter, camera_trigger_time, camera_readout_done_time}
         camera_data_list.append(
-            CameraData(
-                camera_name=str(image_proto.name),
-                camera_id=camera_type,
-                extrinsic=camera_extrinsic[camera_type],
-                jpeg_binary=image_proto.image,
+            ParsedCamera(
+                metadata=camera_metadatas[camera_type],
                 timestamp=Timestamp.from_s(image_proto.pose_timestamp),
+                extrinsic=compensated_extrinsic,
+                byte_string=image_proto.image,
             )
         )
 
     return camera_data_list
 
 
-def _extract_wod_perception_lidars(
+def _extract_wod_perception_lidar(
     frame: dataset_pb2.Frame,
-    keep_polar_features: bool,
     frame_idx: int,
     absolute_tf_record_path: Path,
     wod_perception_data_root: Path,
-    timestamp: Timestamp,
-) -> Optional[LidarData]:
-    """Extracts the Lidar data from a WOD Perception frame."""
+    lidar_merged_metadata: LidarMergedMetadata,
+) -> ParsedLidar:
+    """Extracts the merged Lidar data from a WOD Perception frame.
+
+    WOD lidar operates at 10Hz (one full 360° rotation per frame, ~100ms).
+    ``frame.timestamp_micros`` marks the start of the TOP lidar spin [1].
+
+    [1] https://github.com/waymo-research/waymo-open-dataset/issues/464
+    """
     relative_path = absolute_tf_record_path.relative_to(wod_perception_data_root)
-    return LidarData(
-        lidar_name=LidarID.LIDAR_MERGED.serialize(),
-        lidar_type=LidarID.LIDAR_MERGED,
-        start_timestamp=timestamp,
-        end_timestamp=timestamp,
-        iteration=frame_idx,
+    start_timestamp = Timestamp.from_us(frame.timestamp_micros)
+    end_timestamp = Timestamp.from_us(frame.timestamp_micros + WOD_PERCEPTION_LIDAR_SWEEP_DURATION_US)
+    return ParsedLidar(
+        metadata=lidar_merged_metadata,
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
         dataset_root=wod_perception_data_root,
         relative_path=relative_path,
+        iteration=frame_idx,
     )

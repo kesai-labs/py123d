@@ -4,6 +4,7 @@ Sensors
 .. toctree::
    :maxdepth: 1
 
-   01_pinhole_camera
-   02_fisheye_mei_camera
-   03_lidar
+   01_camera
+   02_pinhole_camera
+   03_fisheye_mei_camera
+   04_lidar
