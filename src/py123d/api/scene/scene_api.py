@@ -364,21 +364,20 @@ class SceneAPI(abc.ABC):
         self,
         iteration: int,
         camera_id: CameraID,
-        scaling_factor: Optional[tuple[int, int]] = None,
+        scale: Optional[int] = None,
     ) -> Optional[Camera]:
         """Returns a :class:`~py123d.datatypes.sensors.Camera` at a given iteration, if available.
 
         :param iteration: The iteration to get the camera for.
         :param camera_id: The camera ID.
-        :param scaling_factor: Optional (numerator, denominator) tuple for downscaling images during decode,
-            e.g. (1, 2) for half size. Requires the ``turbojpeg`` package.
+        :param scale: Optional downscale denominator, e.g. 2 for half size, 4 for quarter size.
         :return: The camera, or None if not available.
         """
         camera = self.get_modality_at_iteration(
             iteration,
             modality_type=ModalityType.CAMERA,
             modality_id=camera_id,
-            scaling_factor=scaling_factor,
+            scale=scale,
         )
         return checked_optional_cast(camera, Camera)
 
@@ -387,7 +386,7 @@ class SceneAPI(abc.ABC):
         timestamp: Union[Timestamp, int],
         camera_id: CameraID,
         criteria: Literal["exact", "nearest", "forward", "backward"] = "exact",
-        scaling_factor: Optional[tuple[int, int]] = None,
+        scale: Optional[int] = None,
     ) -> Optional[Camera]:
         """Returns a :class:`~py123d.datatypes.sensors.Camera` at a given timestamp, if available.
 
@@ -398,8 +397,7 @@ class SceneAPI(abc.ABC):
             - "nearest": Return data from the nearest timestamp.
             - "forward": Return data from the nearest timestamp that is greater than or equal to the requested timestamp.
             - "backward": Return data from the nearest timestamp that is less than or equal to the requested timestamp.
-        :param scaling_factor: Optional (numerator, denominator) tuple for downscaling images during decode,
-            e.g. (1, 2) for half size. Requires the ``turbojpeg`` package.
+        :param scale: Optional downscale denominator, e.g. 2 for half size, 4 for quarter size.
         :return: The camera, or None if not available.
         """
         camera = self.get_modality_at_timestamp(
@@ -407,7 +405,7 @@ class SceneAPI(abc.ABC):
             modality_type=ModalityType.CAMERA,
             modality_id=camera_id,
             criteria=criteria,
-            scaling_factor=scaling_factor,
+            scale=scale,
         )
         return checked_optional_cast(camera, Camera)
 
@@ -611,11 +609,9 @@ class SceneAPI(abc.ABC):
     @property
     def available_lidar_ids(self) -> List[LidarID]:
         """List of available :class:`~py123d.datatypes.sensors.LidarID`."""
-        available_lidar_ids: List[LidarID] = []
+        available_lidar_ids = list(self.get_lidar_metadatas().keys())
         if self.get_modality_metadata(ModalityType.LIDAR, LidarID.LIDAR_MERGED) is not None:
-            available_lidar_ids = [lidar_id for lidar_id in LidarID if lidar_id != LidarID.LIDAR_MERGED]
-        else:
-            available_lidar_ids = list(self.get_lidar_metadatas().keys())
+            available_lidar_ids += [LidarID.LIDAR_MERGED]
         return available_lidar_ids
 
     @property

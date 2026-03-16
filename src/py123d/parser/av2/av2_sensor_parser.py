@@ -24,8 +24,9 @@ from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 from py123d.datatypes.sensors.pinhole_camera import CameraID
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
-from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, PoseSE3, Vector3D, Vector3DIndex
-from py123d.geometry.transform import reframe_se3_array, rel_to_abs_se3_array
+from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, Vector3D, Vector3DIndex
+from py123d.geometry.transform import rel_to_abs_se3_array
+from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
 from py123d.parser.av2.av2_map_parser import Av2MapParser, get_av2_map_metadata
 from py123d.parser.av2.utils.av2_constants import (
     AV2_CAMERA_ID_MAPPING,
@@ -248,6 +249,7 @@ class Av2SensorLogParser(BaseLogParser):
         egovehicle_se3_sensor_df = pd.read_feather(
             self._source_log_path / "calibration" / "egovehicle_SE3_sensor.feather"
         )
+        city_se3_egovehicle_df = pd.read_feather(self._source_log_path / "city_SE3_egovehicle.feather")
         av2_sensor_data_root = self._source_log_path.parent.parent
         split_type = self._source_log_path.parent.name
         log_name = self._source_log_path.name
@@ -257,23 +259,27 @@ class Av2SensorLogParser(BaseLogParser):
         if camera_row.empty:
             return
 
-        camera_to_imu_se3 = av2_row_dict_to_pose_se3(camera_row.iloc[0].to_dict())
         camera_dir = self._source_log_path / "sensors" / "cameras" / target_camera_name
+        if camera_dir.exists():
+            image_files = sorted(camera_dir.glob("*.jpg"))
+            for image_file in image_files:
+                timestamp_ns = int(image_file.stem)
+                relative_path = f"{split_type}/{log_name}/sensors/cameras/{target_camera_name}/{image_file.name}"
 
-        if not camera_dir.exists():
-            return
+                nearest_pose = get_slice_with_timestamp_ns(city_se3_egovehicle_df, timestamp_ns).iloc[0].to_dict()
+                nearest_pose_se3 = av2_row_dict_to_pose_se3(nearest_pose)
+                camera_to_global_se3 = rel_to_abs_se3(
+                    origin=nearest_pose_se3,
+                    pose_se3=pinhole_camera_metadata.camera_to_imu_se3,
+                )
 
-        image_files = sorted(camera_dir.glob("*.jpg"))
-        for image_file in image_files:
-            timestamp_ns = int(image_file.stem)
-            relative_path = f"{split_type}/{log_name}/sensors/cameras/{target_camera_name}/{image_file.name}"
-            yield ParsedCamera(
-                metadata=pinhole_camera_metadata,
-                timestamp=Timestamp.from_ns(timestamp_ns),
-                extrinsic=camera_to_imu_se3,
-                dataset_root=av2_sensor_data_root,
-                relative_path=relative_path,
-            )
+                yield ParsedCamera(
+                    metadata=pinhole_camera_metadata,
+                    timestamp=Timestamp.from_ns(timestamp_ns),
+                    camera_to_global_se3=camera_to_global_se3,
+                    dataset_root=av2_sensor_data_root,
+                    relative_path=relative_path,
+                )
 
     def _iter_lidar_merged(self, modality_metadata: LidarMergedMetadata) -> Iterator[ParsedLidar]:
         """Yields all lidar sweeps at native rate (~10Hz)."""
@@ -460,15 +466,14 @@ def _extract_av2_sensor_pinhole_cameras(
 
     current_ego_pose_slice = get_slice_with_timestamp_ns(city_se3_egovehicle_df, lidar_timestamp_ns)
     assert len(current_ego_pose_slice) == 1
-    current_ego_pose_se3 = av2_row_dict_to_pose_se3(current_ego_pose_slice.iloc[0].to_dict())
 
     for _, row in egovehicle_se3_sensor_df.iterrows():
         row = row.to_dict()
         if row["sensor_name"] not in AV2_CAMERA_ID_MAPPING:
             continue
-        camera_to_imu_se3 = av2_row_dict_to_pose_se3(row)
         pinhole_camera_name = row["sensor_name"]
         pinhole_camera_id = AV2_CAMERA_ID_MAPPING[pinhole_camera_name]
+        camera_metadata = metadatas[pinhole_camera_id]
 
         relative_image_path = find_closest_target_fpath(
             split=split,
@@ -485,15 +490,14 @@ def _extract_av2_sensor_pinhole_cameras(
 
             nearest_pose = get_slice_with_timestamp_ns(city_se3_egovehicle_df, int(timestamp_ns_str)).iloc[0].to_dict()
             nearest_pose_se3 = av2_row_dict_to_pose_se3(nearest_pose)
-            compensated_extrinsic_se3_array = reframe_se3_array(
-                from_origin=nearest_pose_se3,
-                to_origin=current_ego_pose_se3,
-                pose_se3_array=camera_to_imu_se3.array,
+            camera_to_global_se3 = rel_to_abs_se3(
+                origin=nearest_pose_se3,
+                pose_se3=camera_metadata.camera_to_imu_se3,
             )
             camera_data = ParsedCamera(
-                metadata=metadatas[pinhole_camera_id],
+                metadata=camera_metadata,
                 timestamp=Timestamp.from_ns(int(timestamp_ns_str)),
-                extrinsic=PoseSE3.from_array(compensated_extrinsic_se3_array),
+                camera_to_global_se3=camera_to_global_se3,
                 dataset_root=av2_sensor_data_root,
                 relative_path=relative_image_path,
             )

@@ -135,14 +135,14 @@ class ParsedCamera(BaseModality):
         self,
         metadata: Union[PinholeCameraMetadata, FisheyeMEICameraMetadata],
         timestamp: Timestamp,
-        extrinsic: PoseSE3,
+        camera_to_global_se3: PoseSE3,
         dataset_root: Optional[Union[str, Path]] = None,
         relative_path: Optional[Union[str, Path]] = None,
         byte_string: Optional[bytes] = None,
     ) -> None:
         self._metadata = metadata
         self._timestamp = timestamp
-        self._extrinsic = extrinsic
+        self._camera_to_global_se3 = camera_to_global_se3
 
         self._dataset_root = dataset_root
         self._relative_path = relative_path
@@ -163,9 +163,9 @@ class ParsedCamera(BaseModality):
         return self._metadata
 
     @property
-    def extrinsic(self) -> PoseSE3:
-        """Returns the extrinsic pose associated with this camera data."""
-        return self._extrinsic
+    def camera_to_global_se3(self) -> PoseSE3:
+        """Returns the camera-to-global pose associated with this camera data."""
+        return self._camera_to_global_se3
 
     @property
     def relative_path(self) -> Optional[Union[str, Path]]:

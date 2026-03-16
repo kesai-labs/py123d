@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Union
 
 import pyarrow as pa
 
@@ -68,7 +68,7 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
             [
                 (f"{metadata.modality_key}.timestamp_us", pa.int64()),
                 (f"{metadata.modality_key}.data", data_type),
-                (f"{metadata.modality_key}.pose_se3", pa.list_(pa.float64(), len(PoseSE3Index))),
+                (f"{metadata.modality_key}.camera_to_global_se3", pa.list_(pa.float64(), len(PoseSE3Index))),
             ]
         )
         schema = add_metadata_to_arrow_schema(schema, metadata)
@@ -99,7 +99,7 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
             {
                 f"{self._metadata.modality_key}.timestamp_us": [modality.timestamp.time_us],
                 f"{self._metadata.modality_key}.data": [data],
-                f"{self._metadata.modality_key}.pose_se3": [modality.extrinsic],
+                f"{self._metadata.modality_key}.camera_to_global_se3": [modality.camera_to_global_se3],
             }
         )
 
@@ -175,11 +175,11 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         table: pa.Table,
         metadata: BaseModalityMetadata,
         dataset: str,
-        scaling_factor: Optional[Tuple[int, int]] = None,
+        scale: Optional[int] = None,
         **kwargs,
     ) -> Optional[Camera]:
         assert isinstance(metadata, BaseCameraMetadata)
-        return _deserialize_camera(table, index, metadata, dataset, scaling_factor=scaling_factor)
+        return _deserialize_camera(table, index, metadata, dataset, scale=scale)
 
     @staticmethod
     def read_column_at_index(
@@ -189,7 +189,7 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         column: str,
         dataset: str,
         deserialize: bool = False,
-        scaling_factor: Optional[Tuple[int, int]] = None,
+        scale: Optional[int] = None,
         **kwargs,
     ) -> Optional[Any]:
         column_at_iteration: Optional[Any] = None
@@ -201,9 +201,9 @@ class ArrowCameraReader(ArrowBaseModalityReader):
                 column_at_iteration = _deserialize_data_column(
                     data=column_at_iteration,
                     dataset=dataset,
-                    scaling_factor=scaling_factor,
+                    scale=scale,
                 )
-            elif column == "pose_se3":
+            elif column == "camera_to_global_se3":
                 column_at_iteration = PoseSE3.from_list(column_at_iteration)
             elif column == "timestamp_us":
                 column_at_iteration = Timestamp.from_us(column_at_iteration)
@@ -220,38 +220,35 @@ def _deserialize_camera(
     index: int,
     camera_metadata: BaseCameraMetadata,
     dataset: str,
-    scaling_factor: Optional[Tuple[int, int]] = None,
+    scale: Optional[int] = None,
 ) -> Optional[Camera]:
     """Deserialize a camera observation from Arrow table columns at the given row index."""
     modality_key = camera_metadata.modality_key
 
     camera_data_column = f"{modality_key}.data"
-    camera_extrinsic_column = f"{modality_key}.pose_se3"
+    camera_extrinsic_column = f"{modality_key}.camera_to_global_se3"
     camera_timestamp_column = f"{modality_key}.timestamp_us"
 
     if not all_columns_in_schema(arrow_table, [camera_data_column, camera_extrinsic_column, camera_timestamp_column]):
         return None
 
     table_data = arrow_table[camera_data_column][index].as_py()
-    extrinsic_data = arrow_table[camera_extrinsic_column][index].as_py()
+    camera_to_global_se3_data = arrow_table[camera_extrinsic_column][index].as_py()
     timestamp_data = arrow_table[camera_timestamp_column][index].as_py()
 
-    if table_data is None or extrinsic_data is None:
+    if table_data is None or camera_to_global_se3_data is None:
         return None
-
     image = _deserialize_data_column(
         data=table_data,
         dataset=dataset,
-        scaling_factor=scaling_factor,
+        scale=scale,
     )
-
-    extrinsic = PoseSE3.from_list(extrinsic_data)
-
+    camera_to_global_se3 = PoseSE3.from_list(camera_to_global_se3_data)
     assert image is not None, "Failed to load camera image from Arrow table data."
     return Camera(
         metadata=camera_metadata,
         image=image,
-        extrinsic=extrinsic,
+        camera_to_global_se3=camera_to_global_se3,
         timestamp=Timestamp.from_us(timestamp_data),
     )
 
@@ -259,19 +256,19 @@ def _deserialize_camera(
 def _deserialize_data_column(
     data: Union[str, bytes, int],
     dataset: str,
-    scaling_factor: Optional[Tuple[int, int]] = None,
+    scale: Optional[int] = None,
 ) -> Optional[Any]:
     if isinstance(data, str):
         sensor_root = get_dataset_paths().get_sensor_root(dataset)
         assert sensor_root is not None, f"Dataset path for sensor loading not found for dataset: {dataset}"
         full_image_path = Path(sensor_root) / data
         assert full_image_path.exists(), f"Camera file not found: {full_image_path}"
-        image = load_image_from_jpeg_file(full_image_path, scaling_factor=scaling_factor)
+        image = load_image_from_jpeg_file(full_image_path, scale=scale)
     elif isinstance(data, bytes):
         if is_jpeg_binary(data):
-            image = decode_image_from_jpeg_binary(data, scaling_factor=scaling_factor)
+            image = decode_image_from_jpeg_binary(data, scale=scale)
         elif is_png_binary(data):
-            image = decode_image_from_png_binary(data)
+            image = decode_image_from_png_binary(data, scale=scale)
         else:
             raise ValueError("Camera binary data is neither in JPEG nor PNG format.")
     elif isinstance(data, int):

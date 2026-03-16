@@ -181,25 +181,25 @@ class BaseCameraMetadata(BaseModalityMetadata, abc.ABC):
 class Camera(BaseModality):
     """A camera observation: image, extrinsic pose, timestamp, and model-specific metadata."""
 
-    __slots__ = ("_metadata", "_image", "_extrinsic", "_timestamp")
+    __slots__ = ("_metadata", "_image", "_camera_to_global_se3", "_timestamp")
 
     def __init__(
         self,
         metadata: BaseCameraMetadata,
         image: npt.NDArray[np.uint8],
-        extrinsic: PoseSE3,
+        camera_to_global_se3: PoseSE3,
         timestamp: Timestamp,
     ) -> None:
         """Initialize a Camera instance.
 
         :param metadata: The camera metadata (determines the camera model).
         :param image: The image captured by the camera.
-        :param extrinsic: The extrinsic pose of the camera.
+        :param camera_to_global_se3: The extrinsic pose of the camera in global coordinates.
         :param timestamp: The timestamp of the image capture.
         """
         self._metadata = metadata
         self._image = image
-        self._extrinsic = extrinsic
+        self._camera_to_global_se3 = camera_to_global_se3
         self._timestamp = timestamp
 
     @property
@@ -218,6 +218,6 @@ class Camera(BaseModality):
         return self._image
 
     @property
-    def extrinsic(self) -> PoseSE3:
-        """The extrinsic :class:`~py123d.geometry.PoseSE3` of the camera, relative to the ego vehicle frame."""
-        return self._extrinsic
+    def camera_to_global_se3(self) -> PoseSE3:
+        """The extrinsic :class:`~py123d.geometry.PoseSE3` of the camera in global coordinates."""
+        return self._camera_to_global_se3

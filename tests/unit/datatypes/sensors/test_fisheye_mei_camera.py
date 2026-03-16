@@ -329,13 +329,13 @@ class TestFisheyeMEICamera:
         camera = Camera(
             metadata=metadata,
             image=image,
-            extrinsic=extrinsic,
+            camera_to_global_se3=extrinsic,
             timestamp=Timestamp.from_s(0.0),
         )
 
         assert camera.metadata == metadata
         np.testing.assert_array_equal(camera.image, image)
-        assert camera.extrinsic == extrinsic
+        assert camera.camera_to_global_se3 == extrinsic
         assert camera.timestamp == Timestamp.from_s(0.0)
 
     def test_camera_metadata_property(self):
@@ -357,7 +357,7 @@ class TestFisheyeMEICamera:
         camera = Camera(
             metadata=metadata,
             image=image,
-            extrinsic=extrinsic,
+            camera_to_global_se3=extrinsic,
             timestamp=Timestamp.from_s(0.0),
         )
 
@@ -384,7 +384,7 @@ class TestFisheyeMEICamera:
         camera = Camera(
             metadata=metadata,
             image=image,
-            extrinsic=extrinsic,
+            camera_to_global_se3=extrinsic,
             timestamp=Timestamp.from_s(0.0),
         )
 
@@ -407,9 +407,9 @@ class TestFisheyeMEICamera:
         image = np.zeros((480, 640), dtype=np.uint8)
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
-        camera = Camera(metadata=metadata, image=image, extrinsic=extrinsic, timestamp=Timestamp.from_s(0.0))
+        camera = Camera(metadata=metadata, image=image, camera_to_global_se3=extrinsic, timestamp=Timestamp.from_s(0.0))
 
-        assert camera.extrinsic is extrinsic
+        assert camera.camera_to_global_se3 is extrinsic
 
     def test_camera_with_color_image(self):
         """Test camera with color (3-channel) image."""
@@ -427,6 +427,6 @@ class TestFisheyeMEICamera:
         image = np.zeros((480, 640, 3), dtype=np.uint8)
         extrinsic = PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)
 
-        camera = Camera(metadata=metadata, image=image, extrinsic=extrinsic, timestamp=Timestamp.from_s(0.0))
+        camera = Camera(metadata=metadata, image=image, camera_to_global_se3=extrinsic, timestamp=Timestamp.from_s(0.0))
 
         assert camera.image.shape == (480, 640, 3)

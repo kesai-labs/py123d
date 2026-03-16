@@ -1,22 +1,11 @@
+import io
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import cv2
 import numpy as np
 import numpy.typing as npt
-
-# Lazy-initialized TurboJPEG instance (created on first use when scaling is requested).
-_turbojpeg_instance = None
-
-
-def _get_turbojpeg():
-    """Return a module-level TurboJPEG instance, creating it on first call."""
-    global _turbojpeg_instance
-    if _turbojpeg_instance is None:
-        from turbojpeg import TurboJPEG
-
-        _turbojpeg_instance = TurboJPEG()
-    return _turbojpeg_instance
+from PIL import Image
 
 
 def is_jpeg_binary(jpeg_binary: bytes) -> bool:
@@ -41,20 +30,20 @@ def encode_image_as_jpeg_binary(image: npt.NDArray[np.uint8]) -> bytes:
 
 def decode_image_from_jpeg_binary(
     jpeg_binary: bytes,
-    scaling_factor: Optional[Tuple[int, int]] = None,
+    scale: Optional[int] = None,
 ) -> npt.NDArray[np.uint8]:
     """Decodes a numpy RGB image from JPEG binary.
 
     :param jpeg_binary: The JPEG binary data to decode.
-    :param scaling_factor: Optional (numerator, denominator) tuple for downscaling during decode,
-        e.g. (1, 2) for half size, (1, 4) for quarter size. Requires the ``turbojpeg`` package.
+    :param scale: Optional downscale denominator, e.g. 2 for half size, 4 for quarter size.
+        For JPEG, uses Pillow's DCT-level scaling (supported factors: 2, 4, 8).
     """
-    if scaling_factor is not None:
-        from turbojpeg import TJPF_RGB
-
-        tj = _get_turbojpeg()
-        image = tj.decode(jpeg_binary, pixel_format=TJPF_RGB, scaling_factor=scaling_factor)
-        return image
+    if scale is not None and scale > 1:
+        img = Image.open(io.BytesIO(jpeg_binary))
+        w, h = img.size
+        img.draft("RGB", (w // scale, h // scale))
+        img.load()
+        return np.array(img)
 
     image = cv2.imdecode(np.frombuffer(jpeg_binary, np.uint8), cv2.IMREAD_UNCHANGED)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -70,17 +59,20 @@ def load_jpeg_binary_from_jpeg_file(jpeg_path: Path) -> bytes:
 
 def load_image_from_jpeg_file(
     jpeg_path: Path,
-    scaling_factor: Optional[Tuple[int, int]] = None,
+    scale: Optional[int] = None,
 ) -> npt.NDArray[np.uint8]:
     """Loads a numpy RGB image from a JPEG file.
 
     :param jpeg_path: Path to the JPEG file.
-    :param scaling_factor: Optional (numerator, denominator) tuple for downscaling during decode,
-        e.g. (1, 2) for half size, (1, 4) for quarter size. Requires the ``turbojpeg`` package.
+    :param scale: Optional downscale denominator, e.g. 2 for half size, 4 for quarter size.
+        For JPEG, uses Pillow's DCT-level scaling (supported factors: 2, 4, 8).
     """
-    if scaling_factor is not None:
-        jpeg_binary = load_jpeg_binary_from_jpeg_file(jpeg_path)
-        return decode_image_from_jpeg_binary(jpeg_binary, scaling_factor=scaling_factor)
+    if scale is not None and scale > 1:
+        img = Image.open(jpeg_path)
+        w, h = img.size
+        img.draft("RGB", (w // scale, h // scale))
+        img.load()
+        return np.array(img)
 
     image = cv2.imread(str(jpeg_path), cv2.IMREAD_COLOR)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

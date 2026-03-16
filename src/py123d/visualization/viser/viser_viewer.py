@@ -155,7 +155,7 @@ class ViserViewer:
                 initial_value=self._viser_config.lidar_point_color,
             )
 
-            lidar_id_list = [LidarID.LIDAR_MERGED] + scene.available_lidar_ids
+            lidar_id_list = scene.available_lidar_ids
             lidar_id_names = tuple(lid.name for lid in lidar_id_list)
             option_lidar_id = self._viser_server.gui.add_dropdown(
                 "Lidar ID",

@@ -33,7 +33,6 @@ dependencies = [
     "psutil",
     "pyarrow",
     "pyogrio",
-    "PyTurboJPEG",
     "pyquaternion",
     "ray[default]",
     "scipy",
