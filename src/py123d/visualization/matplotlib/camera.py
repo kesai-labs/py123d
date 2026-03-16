@@ -4,14 +4,15 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
-from pyquaternion import Quaternion
 
 from py123d.datatypes.detections import BoxDetectionsSE3
 from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.sensors import Camera, Lidar, PinholeIntrinsics
 from py123d.datatypes.vehicle_state import EgoStateSE3
-from py123d.geometry import BoundingBoxSE3Index, Corners3DIndex
-from py123d.geometry.transform import abs_to_rel_se3_array
+from py123d.geometry import BoundingBoxSE3Index, Corners3DIndex, EulerAnglesIndex, PoseSE3Index
+from py123d.geometry.pose import PoseSE3
+from py123d.geometry.transform import abs_to_rel_points_3d_array, abs_to_rel_se3_array, rel_to_abs_points_3d_array
+from py123d.geometry.utils.rotation_utils import get_euler_array_from_quaternion_array
 from py123d.visualization.color.default import BOX_DETECTION_CONFIG
 from py123d.visualization.matplotlib.helper import undistort_image_from_camera
 from py123d.visualization.matplotlib.lidar import get_lidar_pc_color
@@ -28,7 +29,9 @@ def add_pinhole_camera_ax(ax: plt.Axes, camera: Camera) -> plt.Axes:
     return ax
 
 
-def add_lidar_to_camera_ax(ax: plt.Axes, camera: Camera, lidar: Lidar, undistort: bool = True) -> plt.Axes:
+def add_lidar_to_camera_ax(
+    ax: plt.Axes, camera: Camera, lidar: Lidar, ego_state_se3: EgoStateSE3, undistort: bool = True
+) -> plt.Axes:
     """Add lidar point cloud to camera image on matplotlib axis
 
     :param ax: matplotlib axis
@@ -44,7 +47,7 @@ def add_lidar_to_camera_ax(ax: plt.Axes, camera: Camera, lidar: Lidar, undistort
 
     # lidar_pc = filter_lidar_pc(lidar_pc)
     lidar_pc_colors = np.array(get_lidar_pc_color(lidar, feature="distance"))
-    pc_in_cam, pc_in_fov_mask = _transform_pcs_to_images(lidar.xyz.copy(), camera)
+    pc_in_cam, pc_in_fov_mask = _transform_pcs_to_images(lidar.xyz.copy(), camera, ego_state_se3)
 
     for (x, y), color in zip(pc_in_cam[pc_in_fov_mask], lidar_pc_colors[pc_in_fov_mask]):
         color = (int(color[0]), int(color[1]), int(color[2]))
@@ -76,13 +79,8 @@ def add_box_detections_to_camera_ax(
     for idx, box_detection in enumerate(box_detections.box_detections):
         box_detection_array[idx] = box_detection.bounding_box_se3.array
 
-    # FIXME
-    box_detection_array[..., BoundingBoxSE3Index.SE3] = abs_to_rel_se3_array(
-        ego_state_se3.rear_axle_se3, box_detection_array[..., BoundingBoxSE3Index.SE3]
-    )
-    # box_detection_array[..., BoundingBoxSE3Index.XYZ] -= ego_state_se3.rear_axle_se3.point_3d.array
     detection_positions, detection_extents, detection_yaws = _transform_annotations_to_camera(
-        box_detection_array, camera.extrinsic.transformation_matrix
+        box_detection_array, camera.camera_to_global_se3
     )
 
     corners_norm = np.stack(np.unravel_index(np.arange(len(Corners3DIndex)), [2] * 3), axis=1)
@@ -106,40 +104,28 @@ def add_box_detections_to_camera_ax(
     return ax
 
 
-def _transform_annotations_to_camera(boxes: npt.NDArray, extrinsic: npt.NDArray) -> npt.NDArray:
-    """Transforms the box annotations from sensor frame to camera frame.
+def _transform_annotations_to_camera(
+    boxes: npt.NDArray, camera_to_global_se3: PoseSE3
+) -> Tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    """Transforms the box annotations from global frame to camera frame.
 
-    :param boxes: array of bounding box parameters.
-    :param extrinsic: The (4x4) transformation matrix from ego to camera frame.
-    :return: transformed bounding box parameters in camera frame.
+    :param boxes: array of bounding box parameters in global coordinates.
+    :param camera_to_global_se3: The camera's global pose.
+    :return: transformed bounding box positions, extents, and yaw angles in camera frame.
     """
-    sensor2lidar_rotation = extrinsic[:3, :3]
-    sensor2lidar_translation = extrinsic[:3, 3]
+    locs_global = boxes[:, BoundingBoxSE3Index.XYZ]
+    dims_cam = boxes[:, [BoundingBoxSE3Index.LENGTH, BoundingBoxSE3Index.HEIGHT, BoundingBoxSE3Index.WIDTH]]
 
-    locs, quaternions = (
-        boxes[:, BoundingBoxSE3Index.XYZ],
-        boxes[:, BoundingBoxSE3Index.QUATERNION],
-    )
-    dims_cam = boxes[
-        :, [BoundingBoxSE3Index.LENGTH, BoundingBoxSE3Index.HEIGHT, BoundingBoxSE3Index.WIDTH]
-    ]  # l, w, h -> l, h, w
+    # Positions: global -> camera frame
+    locs_cam = abs_to_rel_points_3d_array(camera_to_global_se3, locs_global)
 
-    rots_cam = np.zeros_like(quaternions[..., 0])
-    for idx, quaternion in enumerate(quaternions):
-        rot = Quaternion(array=quaternion)
-        rot = Quaternion(matrix=sensor2lidar_rotation).inverse * rot
-        rots_cam[idx] = -rot.yaw_pitch_roll[0]
+    # Orientations: global -> camera-relative, extract yaw
+    box_se3_global = boxes[:, BoundingBoxSE3Index.SE3]
+    cam_rel_se3 = abs_to_rel_se3_array(camera_to_global_se3, box_se3_global)
+    cam_rel_quaternions = cam_rel_se3[:, PoseSE3Index.QUATERNION]
+    euler_angles = get_euler_array_from_quaternion_array(cam_rel_quaternions)
+    rots_cam = -euler_angles[:, EulerAnglesIndex.YAW]
 
-    lidar2cam_r = np.linalg.inv(sensor2lidar_rotation)
-    lidar2cam_t = sensor2lidar_translation @ lidar2cam_r.T
-    lidar2cam_rt = np.eye(4)
-    lidar2cam_rt[:3, :3] = lidar2cam_r.T
-    lidar2cam_rt[3, :3] = -lidar2cam_t
-
-    locs_cam = np.concatenate([locs, np.ones_like(locs)[:, :1]], -1)  # -1, 4
-    locs_cam = lidar2cam_rt.T @ locs_cam.T
-    locs_cam = locs_cam.T
-    locs_cam = locs_cam[:, :-1]
     return locs_cam, dims_cam, rots_cam
 
 
@@ -266,44 +252,20 @@ def _transform_points_to_image(
 def _transform_pcs_to_images(
     lidar_xyz: npt.NDArray[np.float32],
     camera: Camera,
+    ego_state_se3: EgoStateSE3,
     eps: float = 1e-3,
 ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.bool_]]:
-    """Transforms lidar point cloud to image pixel coordinates
+    """Transforms lidar point cloud to image pixel coordinates.
 
-    TODO: refactor
-    :param lidar_xyz: lidar point cloud in xyz coordinates
-    :param camera: pinhole camera
-    :param eps: lower threshold of points, defaults to 1e-3
-    :return: points in pixel coordinates, mask of values in frame
+    :param lidar_xyz: lidar point cloud in ego-relative xyz coordinates.
+    :param camera: pinhole camera with global pose.
+    :param ego_state_se3: ego state for ego-to-global transformation.
+    :param eps: lower threshold of points, defaults to 1e-3.
+    :return: points in pixel coordinates, mask of values in frame.
     """
-
-    pc_xyz = lidar_xyz
-
-    lidar2cam_r = np.linalg.inv(camera.extrinsic.rotation_matrix)
-    lidar2cam_t = camera.extrinsic.point_3d @ lidar2cam_r.T
-    lidar2cam_rt = np.eye(4)
-    lidar2cam_rt[:3, :3] = lidar2cam_r.T
-    lidar2cam_rt[3, :3] = -lidar2cam_t
-
-    camera_matrix = camera.metadata.intrinsics.camera_matrix
-    viewpad = np.eye(4)
-    viewpad[: camera_matrix.shape[0], : camera_matrix.shape[1]] = camera_matrix
-    lidar2img_rt = viewpad @ lidar2cam_rt.T
-    img_shape = camera.image.shape[:2]
-
-    cur_pc_xyz = np.concatenate([pc_xyz, np.ones_like(pc_xyz)[:, :1]], -1)
-    cur_pc_cam = lidar2img_rt @ cur_pc_xyz.T
-    cur_pc_cam = cur_pc_cam.T
-    cur_pc_in_fov = cur_pc_cam[:, 2] > eps
-    cur_pc_cam = cur_pc_cam[..., 0:2] / np.maximum(cur_pc_cam[..., 2:3], np.ones_like(cur_pc_cam[..., 2:3]) * eps)
-
-    if img_shape is not None:
-        img_h, img_w = img_shape
-        cur_pc_in_fov = (
-            cur_pc_in_fov
-            & (cur_pc_cam[:, 0] < (img_w - 1))
-            & (cur_pc_cam[:, 0] > 0)
-            & (cur_pc_cam[:, 1] < (img_h - 1))
-            & (cur_pc_cam[:, 1] > 0)
-        )
-    return cur_pc_cam, cur_pc_in_fov
+    # 1. Ego-relative lidar points -> global
+    global_pts = rel_to_abs_points_3d_array(ego_state_se3.rear_axle_se3, lidar_xyz)
+    # 2. Global -> camera frame
+    cam_pts = abs_to_rel_points_3d_array(camera.camera_to_global_se3, global_pts)
+    # 3. Project to image pixels
+    return _transform_points_to_image(cam_pts, camera.metadata.intrinsics, image_shape=camera.image.shape[:2], eps=eps)
