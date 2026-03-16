@@ -1,5 +1,5 @@
 parser:
-  _target_: py123d.parser.nuscenes.nuscenes_interpolated_parser.NuScenesInterpolatedParser
+  _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
   _convert_: 'all'
 
   splits: ["nuscenes-interpolated-mini_train", "nuscenes-interpolated-mini_val"]

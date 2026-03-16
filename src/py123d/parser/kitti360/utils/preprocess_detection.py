@@ -27,7 +27,7 @@ from py123d.parser.kitti360.utils.kitti360_helper import (
     get_kitti360_lidar_extrinsic,
 )
 from py123d.parser.kitti360.utils.kitti360_labels import (
-    BBOX_LABLES_TO_DETECTION_NAME_DICT,
+    BBOX_LABELS_TO_DETECTION_NAME_DICT,
     KITTI360_DETECTION_NAME_DICT,
     kittiId2label,
 )
@@ -61,16 +61,16 @@ def _collect_static_objects(kitti360_dataset_root: Path, log_name: str) -> List[
 
     for child in root:
         if child.find("semanticId") is not None:
-            semanticIdKITTI = int(child.find("semanticId").text)
+            semanticIdKITTI = int(child.find("semanticId").text)  # type: ignore
             name = kittiId2label[semanticIdKITTI].name
         else:
-            label = child.find("label").text
-            name = BBOX_LABLES_TO_DETECTION_NAME_DICT.get(label, "unknown")
-        timestamp = int(child.find("timestamp").text)  # -1 for static objects
+            label = child.find("label").text  # type: ignore
+            name = BBOX_LABELS_TO_DETECTION_NAME_DICT.get(label, "unknown")  # type: ignore
+        timestamp = int(child.find("timestamp").text)  # -1 for static objects # type: ignore
         if child.find("transform") is None or name not in KITTI360_DETECTION_NAME_DICT.keys() or timestamp != -1:
             continue
         obj = KITTI360Bbox3D()
-        obj.parseBbox(child)
+        obj.parse_bbox(child)
         static_objs.append(obj)
     return static_objs
 
@@ -176,7 +176,7 @@ def process_detection(
                         record["points_in_box"] = points_in_box
                         break
 
-    max_workers = os.cpu_count() * 2
+    max_workers = os.cpu_count() * 2  # type: ignore
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         list(executor.map(process_one_frame, range(len(valid_timestamp))))
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import numpy as np
 
@@ -194,6 +194,17 @@ def _get_waymo_lanes(
     road_edges: List[RoadEdge],
     add_dummy_lane_groups: bool,
 ) -> List[Lane]:
+    """Extracts lanes from Waymo map features with computed boundaries.
+
+    Uses road lines and road edges to determine left/right lane boundaries via
+    perpendicular ray casting (see :func:`fill_lane_boundaries`).
+
+    :param map_features: Protobuf map features from a WOD frame or scenario.
+    :param road_lines: Previously extracted road lines (used for boundary computation).
+    :param road_edges: Previously extracted road edges (used for boundary computation).
+    :param add_dummy_lane_groups: Whether to assign each lane its own lane group ID.
+    :return: List of Lane objects with computed boundaries.
+    """
     # 1. Load lane data from Waymo frame proto
     lane_data_dict: Dict[int, WaymoLaneData] = {}
     for map_feature in map_features:
@@ -221,7 +232,8 @@ def _get_waymo_lanes(
     # 2. Process lane data to fill in left/right boundaries
     fill_lane_boundaries(lane_data_dict, road_lines, road_edges)
 
-    def _get_majority_neighbor(neighbors: List[Dict[str, int]]) -> Optional[int]:
+    def _get_majority_neighbor(neighbors: List[Dict[str, int]]) -> Optional[str]:
+        """Returns the lane ID of the neighbor with the longest overlap, or None if no neighbors."""
         if len(neighbors) == 0:
             return None
         length = {
@@ -255,7 +267,7 @@ def _get_waymo_lanes(
 
 
 def _get_waymo_lane_groups(lanes: List[Lane]) -> List[LaneGroup]:
-    # NOTE: WOD does not provide lane groups, so we create a lane group for each lane.
+    """Creates a dummy lane group for each lane since WOD does not provide lane groups."""
     lane_groups: List[LaneGroup] = []
     for lane in lanes:
         lane_groups.append(
@@ -274,6 +286,7 @@ def _get_waymo_lane_groups(lanes: List[Lane]) -> List[LaneGroup]:
 
 
 def _get_waymo_misc_surfaces(map_features: List[map_pb2.MapFeature], lane_dict: Dict[int, Lane]) -> List[BaseMapObject]:
+    """Extracts miscellaneous map surfaces (driveways, crosswalks, stop zones) from Waymo map features."""
     surfaces: List[BaseMapObject] = []
     for map_feature in map_features:
         if map_feature.HasField("driveway"):
@@ -371,7 +384,8 @@ def _create_stop_zone_from_stop_sign(map_feature: map_pb2.MapFeature, lane_dict:
     )
 
 
-def _extract_polyline_waymo_proto(data) -> Optional[Polyline3D]:
+def _extract_polyline_waymo_proto(data: Any) -> Optional[Polyline3D]:
+    """Extracts a 3D polyline from a Waymo protobuf message with a ``polyline`` field."""
     polyline: Optional[Polyline3D] = None
     polyline_array = np.array([[p.x, p.y, p.z] for p in data.polyline], dtype=np.float64)
     if polyline_array.ndim == 2 and polyline_array.shape[1] == 3 and len(polyline_array) >= 2:
@@ -380,7 +394,8 @@ def _extract_polyline_waymo_proto(data) -> Optional[Polyline3D]:
     return polyline
 
 
-def _extract_outline_from_waymo_proto(data) -> Optional[Polyline3D]:
+def _extract_outline_from_waymo_proto(data: Any) -> Optional[Polyline3D]:
+    """Extracts a 3D polygon outline from a Waymo protobuf message with a ``polygon`` field."""
     outline: Optional[Polyline3D] = None
     outline_array = np.array([[p.x, p.y, p.z] for p in data.polygon], dtype=np.float64)
     if outline_array.ndim == 2 and outline_array.shape[0] >= 3 and outline_array.shape[1] == 3:
@@ -389,7 +404,7 @@ def _extract_outline_from_waymo_proto(data) -> Optional[Polyline3D]:
     return outline
 
 
-def _extract_lane_neighbors(data) -> List[Dict[str, int]]:
+def _extract_lane_neighbors(data: Any) -> List[Dict[str, int]]:
     neighbors = []
     for neighbor in data:
         neighbors.append(

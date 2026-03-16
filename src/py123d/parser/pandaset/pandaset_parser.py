@@ -22,7 +22,6 @@ from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, EulerAnglesIndex, PoseSE3
-from py123d.geometry.transform import abs_to_rel_se3_array
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
 from py123d.geometry.utils.rotation_utils import get_quaternion_array_from_euler_array
 from py123d.parser.base_dataset_parser import (
@@ -44,7 +43,7 @@ from py123d.parser.pandaset.utils.pandaset_constants import (
     PANDASET_LOG_NAMES,
     PANDASET_SPLITS,
 )
-from py123d.parser.pandaset.utils.pandaset_utlis import (
+from py123d.parser.pandaset.utils.pandaset_utils import (
     extrinsic_to_imu,
     global_main_lidar_to_global_imu,
     pandaset_pose_dict_to_pose_se3,
@@ -145,7 +144,6 @@ class PandasetLogParser(BaseLogParser):
         # Read files from pandaset
         lidar_timestamps_s = read_json(source_log_path / "meta" / "timestamps.json")
 
-        gps: List[Dict[str, float]] = read_json(source_log_path / "meta" / "gps.json")
         lidar_poses: List[Dict[str, Dict[str, float]]] = read_json(source_log_path / "lidar" / "poses.json")
         camera_poses: Dict[str, List[Dict[str, Dict[str, float]]]] = {
             camera_name: read_json(source_log_path / "camera" / camera_name / "poses.json")
@@ -159,7 +157,6 @@ class PandasetLogParser(BaseLogParser):
         for iteration, timestep_s in enumerate(lidar_timestamps_s):
             timestamp = Timestamp.from_s(timestep_s)
             ego_state = _extract_pandaset_sensor_ego_state(
-                gps=gps[iteration],
                 lidar_pose=lidar_poses[iteration],
                 ego_metadata=ego_state_se3_metadata,
                 timestamp=timestamp,
@@ -170,7 +167,6 @@ class PandasetLogParser(BaseLogParser):
             parsed_cameras = _extract_pandaset_pinhole_cameras(
                 source_log_path,
                 iteration,
-                ego_state,
                 camera_poses,
                 camera_timestamps_s,
                 pinhole_cameras_metadata,
@@ -227,12 +223,11 @@ def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[Dict[Camera
 
 
 def _extract_pandaset_sensor_ego_state(
-    gps: Dict[str, float],
     lidar_pose: Dict[str, Dict[str, float]],
     ego_metadata: EgoStateSE3Metadata,
     timestamp: Timestamp,
 ) -> EgoStateSE3:
-    """Extracts the ego state from Pandaset GPS and Lidar pose data."""
+    """Extracts the ego state from PandaSet lidar pose data."""
     imu_se3 = global_main_lidar_to_global_imu(pandaset_pose_dict_to_pose_se3(lidar_pose))
 
     return EgoStateSE3.from_imu(
@@ -344,12 +339,15 @@ def _extract_pandaset_box_detections(
 def _extract_pandaset_pinhole_cameras(
     source_log_path: Path,
     iteration: int,
-    ego_state_se3: EgoStateSE3,
     camera_poses: Dict[str, List[Dict[str, Dict[str, float]]]],
     camera_timestamps_s: Dict[str, List[float]],
     pinhole_cameras_metadata: Optional[Dict[CameraID, PinholeCameraMetadata]],
 ) -> List[ParsedCamera]:
-    """Extracts the pinhole camera data from a Pandaset scene at a given iteration."""
+    """Extracts the pinhole camera data from a PandaSet scene at a given iteration.
+
+    PandaSet provides per-frame global camera poses directly in ``camera/{name}/poses.json``,
+    so we use those as ``camera_to_global_se3`` without any intermediate transforms.
+    """
     if pinhole_cameras_metadata is None:
         return []
 
@@ -360,18 +358,14 @@ def _extract_pandaset_pinhole_cameras(
         image_abs_path = source_log_path / f"camera/{camera_name}/{iteration_str}.jpg"
         assert image_abs_path.exists(), f"Camera image file {str(image_abs_path)} does not exist."
 
-        camera_pose_dict = camera_poses[camera_name][iteration]
-        camera_extrinsic = pandaset_pose_dict_to_pose_se3(camera_pose_dict)
-        camera_extrinsic = PoseSE3.from_array(
-            abs_to_rel_se3_array(ego_state_se3.rear_axle_se3, camera_extrinsic.array), copy=True
-        )
+        camera_to_global_se3 = pandaset_pose_dict_to_pose_se3(camera_poses[camera_name][iteration])
         camera_timestamp = Timestamp.from_s(camera_timestamps_s[camera_name][iteration])
 
         camera_data_list.append(
             ParsedCamera(
                 metadata=pinhole_cameras_metadata[camera_type],
                 timestamp=camera_timestamp,
-                extrinsic=camera_extrinsic,
+                camera_to_global_se3=camera_to_global_se3,
                 dataset_root=source_log_path.parent,
                 relative_path=image_abs_path.relative_to(source_log_path.parent),
             )

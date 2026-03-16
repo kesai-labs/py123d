@@ -236,6 +236,11 @@ class WODMotionLogParser(BaseLogParser):
 
 
 def _extract_all_timestamps(scenario: scenario_pb2.Scenario) -> List[Timestamp]:
+    """Extracts timestamps from a WOD-Motion scenario.
+
+    ``scenario.timestamps_seconds`` contains relative timestamps starting from 0
+    at 10Hz (0.1s intervals).
+    """
     return [Timestamp.from_s(ts) for ts in scenario.timestamps_seconds]
 
 
@@ -244,6 +249,12 @@ def _extract_all_ego_states(
     all_timestamps: List[Timestamp],
     ego_metadata: EgoStateSE3Metadata,
 ) -> List[EgoStateSE3]:
+    """Extracts the ego vehicle states from the SDC track in a WOD-Motion scenario.
+
+    The SDC track is identified by ``scenario.sdc_track_index``. Each ``ObjectState``
+    provides the bounding box center position and heading, which are used to construct
+    an :class:`EgoStateSE3` via :meth:`EgoStateSE3.from_center`.
+    """
     all_ego_states: List[EgoStateSE3] = []
     for track_idx, track in enumerate(scenario.tracks):
         if scenario.sdc_track_index != track_idx:

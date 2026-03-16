@@ -354,7 +354,7 @@ def _extract_lane_groups(lanes: Dict[str, Any]) -> List[List[str]]:
     :param lanes: Dictionary of lane information.
     :return: List of lane groups, where each lane group is a list of lane IDs.
     """
-    visited: set = set()
+    visited: set[str] = set()
     lane_groups: List[List[str]] = []
 
     def _get_valid_neighbor_id(lane_data: Dict[str, Any], direction: str) -> Optional[str]:
@@ -468,7 +468,7 @@ def _extract_intersection_dict(
     if len(boundary_segments_list) >= 1:
         boundary_segments = np.concatenate(boundary_segments_list, axis=0)
         boundary_segment_linestrings = shapely.creation.linestrings(boundary_segments)
-        occupancy_map = OccupancyMap2D(boundary_segment_linestrings)  # type: ignore
+        occupancy_map = OccupancyMap2D(boundary_segment_linestrings)  # type: ignore[arg-type]
 
         for intersection_id, intersection_data in intersection_dict.items():
             points_2d = intersection_data["outline_2d"].array

@@ -406,13 +406,15 @@ def _extract_nuscenes_stop_zones(nuscenes_map: NuScenesMap) -> List[StopZone]:
 
 def _extract_nuscenes_road_lines(nuscenes_map: NuScenesMap) -> List[RoadLine]:
     """Extract road line data (dividers) from a nuScenes map."""
+    line_token_to_type = _build_line_token_to_type_mapping(nuscenes_map)
+
     road_lines: List[RoadLine] = []
     running_idx = 0
 
     # Process road dividers
     for divider in nuscenes_map.road_divider:
         line = nuscenes_map.extract_line(divider["line_token"])
-        line_type = _get_road_line_type(divider["line_token"], nuscenes_map)
+        line_type = _get_road_line_type(divider["line_token"], line_token_to_type)
         road_lines.append(
             RoadLine(
                 object_id=running_idx,
@@ -425,7 +427,7 @@ def _extract_nuscenes_road_lines(nuscenes_map: NuScenesMap) -> List[RoadLine]:
     # Process lane dividers
     for divider in nuscenes_map.lane_divider:
         line = nuscenes_map.extract_line(divider["line_token"])
-        line_type = _get_road_line_type(divider["line_token"], nuscenes_map)
+        line_type = _get_road_line_type(divider["line_token"], line_token_to_type)
         road_lines.append(
             RoadLine(
                 object_id=running_idx,
@@ -463,17 +465,16 @@ def _extract_nuscenes_road_edges(nuscenes_map: NuScenesMap) -> List[RoadEdge]:
     return road_edges_cache
 
 
-def _get_road_line_type(line_token: str, nuscenes_map: NuScenesMap) -> RoadLineType:
-    """Map nuscenes line type to RoadLineType."""
+_NUSCENES_TO_ROAD_LINE_TYPE: Dict[str, RoadLineType] = {
+    "SINGLE_SOLID_WHITE": RoadLineType.SOLID_WHITE,
+    "DOUBLE_DASHED_WHITE": RoadLineType.DOUBLE_DASH_WHITE,
+    "SINGLE_SOLID_YELLOW": RoadLineType.SOLID_YELLOW,
+}
 
-    # FIXME @DanielDauner: Store token to type mapping. Creating mapping for every call is not ideal.
-    nuscenes_to_road_line_type = {
-        "SINGLE_SOLID_WHITE": RoadLineType.SOLID_WHITE,
-        "DOUBLE_DASHED_WHITE": RoadLineType.DOUBLE_DASH_WHITE,
-        "SINGLE_SOLID_YELLOW": RoadLineType.SOLID_YELLOW,
-    }
 
-    line_token_to_type = {}
+def _build_line_token_to_type_mapping(nuscenes_map: NuScenesMap) -> Dict[str, str]:
+    """Builds a mapping from line tokens to their segment types, constructed once per map."""
+    line_token_to_type: Dict[str, str] = {}
     for lane_record in nuscenes_map.lane:
         for seg in lane_record.get("left_lane_divider_segments", []):
             token = seg.get("line_token")
@@ -487,5 +488,10 @@ def _get_road_line_type(line_token: str, nuscenes_map: NuScenesMap) -> RoadLineT
             if token and seg_type:
                 line_token_to_type[token] = seg_type
 
+    return line_token_to_type
+
+
+def _get_road_line_type(line_token: str, line_token_to_type: Dict[str, str]) -> RoadLineType:
+    """Maps a nuScenes line token to a RoadLineType using a pre-built mapping."""
     nuscenes_type = line_token_to_type.get(line_token, "UNKNOWN")
-    return nuscenes_to_road_line_type.get(nuscenes_type, RoadLineType.UNKNOWN)
+    return _NUSCENES_TO_ROAD_LINE_TYPE.get(nuscenes_type, RoadLineType.UNKNOWN)

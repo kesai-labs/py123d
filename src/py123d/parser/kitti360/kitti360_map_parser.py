@@ -8,7 +8,7 @@ import shapely.geometry as geom
 from py123d.datatypes import BaseMapObject, Carpark, GenericDrivable, MapMetadata, RoadEdge, RoadEdgeType, Walkway
 from py123d.geometry import Polyline3D
 from py123d.parser.base_dataset_parser import BaseMapParser
-from py123d.parser.kitti360.utils.kitti360_helper import KITTI360_MAP_Bbox3D
+from py123d.parser.kitti360.utils.kitti360_helper import KITTI360MapBbox3D
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,
@@ -65,14 +65,14 @@ def iter_kitti360_map_objects(log_name: str, bbox_root: Path) -> Iterator[BaseMa
 
     tree = ET.parse(xml_path)
     root = tree.getroot()
-    objs: List[KITTI360_MAP_Bbox3D] = []
+    objs: List[KITTI360MapBbox3D] = []
 
     for child in root:
         label = child.find("label").text
         if child.find("transform") is None or label not in KITTI360_MAP_BBOX:
             continue
-        obj = KITTI360_MAP_Bbox3D()
-        obj.parseBbox(child)
+        obj = KITTI360MapBbox3D()
+        obj.parse_bbox(child)
         objs.append(obj)
 
     # 1. Yield roads, sidewalks, driveways, and collect road geometries

@@ -163,7 +163,7 @@ def assureSingleInstanceName(name):
     return name
 
 
-BBOX_LABLES_TO_DETECTION_NAME_DICT = {
+BBOX_LABELS_TO_DETECTION_NAME_DICT = {
     "car": "car",
     "truck": "truck",
     "bicycle": "bicycle",

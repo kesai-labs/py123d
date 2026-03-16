@@ -1,11 +1,11 @@
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Tuple, Union
 
 import numpy as np
 
 from py123d.datatypes import LidarFeature, LidarID
 from py123d.geometry.transform import abs_to_rel_points_3d_array
-from py123d.parser.pandaset.utils.pandaset_utlis import (
+from py123d.parser.pandaset.utils.pandaset_utils import (
     global_main_lidar_to_global_imu,
     pandaset_pose_dict_to_pose_se3,
     read_json,
@@ -15,12 +15,20 @@ from py123d.parser.pandaset.utils.pandaset_utlis import (
 
 def load_pandaset_point_cloud_data_from_path(
     pkl_gz_path: Union[Path, str],
-    iteration: Optional[int],
 ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
-    """Loads Pandaset Lidar point clouds from a gzip-pickle file and converts them to ego frame."""
+    """Loads PandaSet lidar point clouds from a gzip-pickle file and converts them to ego frame.
 
+    The iteration index is derived from the filename (e.g. ``03.pkl.gz`` → iteration 3)
+    and used to look up the ego pose from the sibling ``poses.json`` file.
+
+    :param pkl_gz_path: Absolute path to the ``{iteration:02d}.pkl.gz`` lidar file.
+    :return: Tuple of (point_cloud_3d [N, 3] float32 in ego frame, features dict).
+    """
     pkl_gz_path = Path(pkl_gz_path)
     assert pkl_gz_path.exists(), f"Pandaset Lidar file not found: {pkl_gz_path}"
+
+    # Derive iteration from filename: "03.pkl.gz" → 3
+    iteration = int(pkl_gz_path.name.split(".")[0])
 
     # NOTE @DanielDauner: Pickled pandas DataFrame with columns:
     #  - PC: "x", "y", "z",

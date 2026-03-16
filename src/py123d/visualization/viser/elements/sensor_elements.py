@@ -82,18 +82,20 @@ def add_fisheye_frustums_to_viser_server(
 ) -> None:
     if viser_config.fisheye_frustum_visible:
         scene_center_array = initial_ego_state.center_se3.point_3d.array
+        scene_center_pose = PoseSE3.from_R_t(rotation=Quaternion.identity(), translation=scene_center_array)
         ego_pose = scene.get_ego_state_se3_at_iteration(scene_interation).imu_se3.array
         ego_pose[PoseSE3Index.XYZ] -= scene_center_array
 
         def _add_fisheye_frustums_to_viser_server(fisheye_camera_type: CameraID) -> None:
             camera = scene.get_camera_at_iteration(
-                scene_interation, fisheye_camera_type, scale=viser_config.fisheye_frustum_image_scale
+                scene_interation,
+                fisheye_camera_type,
+                scale=viser_config.fisheye_frustum_image_scale,
             )
             if camera is not None:
                 fcam_position, fcam_quaternion = _decompose_camera_pose(
                     camera,
-                    ego_pose.copy(),
-                    viser_config.fisheye_frustum_image_scale,
+                    scene_center_pose,
                 )
                 if fisheye_camera_type in fisheye_frustum_handles:
                     fisheye_frustum_handles[fisheye_camera_type].position = fcam_position
@@ -101,7 +103,6 @@ def add_fisheye_frustums_to_viser_server(
                     fisheye_frustum_handles[fisheye_camera_type].image = camera.image
                 else:
                     # NOTE @DanielDauner: The FOV is just taking as a static value here.
-                    # The function se
                     fisheye_frustum_handles[fisheye_camera_type] = viser_server.scene.add_camera_frustum(
                         f"camera_frustums/{fisheye_camera_type.serialize()}",
                         fov=185,  # vertical fov

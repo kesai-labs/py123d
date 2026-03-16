@@ -16,17 +16,16 @@ def get_dataframe_from_file(file_path: Path) -> pd.DataFrame:
     if file_path.suffix == ".parquet":
         import pyarrow.parquet as pq
 
-        return pq.read_table(file_path)
+        result: pd.DataFrame = pq.read_table(file_path).to_pandas()
     elif file_path.suffix == ".feather":
-        from pyarrow import feather
-
-        return feather.read_feather(file_path)
+        result = pd.read_feather(file_path)
     else:
         raise ValueError(f"Unsupported file type: {file_path.suffix}")
+    return result
 
 
-def get_slice_with_timestamp_ns(dataframe: pd.DataFrame, timestamp_ns: int):
-    """Get the index of the closest timestamp to the target timestamp."""
+def get_slice_with_timestamp_ns(dataframe: pd.DataFrame, timestamp_ns: int) -> pd.DataFrame:
+    """Get all rows matching the given nanosecond timestamp."""
     return dataframe[dataframe["timestamp_ns"] == timestamp_ns]
 
 
@@ -176,14 +175,16 @@ def find_closest_target_fpath(
     # https://github.com/argoverse/av2-api/blob/6b22766247eda941cb1953d6a58e8d5631c561da/src/av2/datasets/sensor/sensor_dataloader.py#L448
 
     src_timedelta_ns = pd.Timedelta(src_timestamp_ns)
-    src_to_target_records = synchronization_df.loc[(split, log_id, src_sensor_name)].set_index(src_sensor_name)  # type: ignore
+    src_to_target_records: pd.DataFrame = synchronization_df.loc[(split, log_id, src_sensor_name)].set_index(  # type: ignore
+        src_sensor_name
+    )  # type: ignore[assignment]
     index = src_to_target_records.index
     if src_timedelta_ns not in index:
         # This timestamp does not correspond to any lidar sweep.
         return None
 
     # Grab the synchronization record.
-    target_timestamp_ns = src_to_target_records.loc[src_timedelta_ns, target_sensor_name]
+    target_timestamp_ns = src_to_target_records.loc[src_timedelta_ns, target_sensor_name]  # type: ignore
     if pd.isna(target_timestamp_ns):
         # No match was found within tolerance.
         return None
@@ -198,7 +199,7 @@ def find_closest_target_fpath(
     return target_path
 
 
-def av2_row_dict_to_pose_se3(row_dict: Dict[str, float]) -> PoseSE3:
+def av2_row_dict_to_pose_se3(row_dict: Dict) -> PoseSE3:
     """Helper function to convert a row dictionary to a PoseSE3 object."""
     return PoseSE3(
         x=row_dict["tx_m"],

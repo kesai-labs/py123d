@@ -5,7 +5,7 @@ from py123d.datatypes.sensors.lidar import LidarID, LidarMergedMetadata, LidarMe
 from py123d.datatypes.sensors.pinhole_camera import CameraID, PinholeDistortion, PinholeIntrinsics
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import PoseSE3
-from py123d.parser.pandaset.utils.pandaset_utlis import extrinsic_to_imu
+from py123d.parser.pandaset.utils.pandaset_utils import extrinsic_to_imu
 from py123d.parser.registry import PandasetBoxDetectionLabel
 
 PANDASET_SPLITS: List[str] = ["pandaset_train", "pandaset_val", "pandaset_test"]

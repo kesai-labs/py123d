@@ -14,6 +14,7 @@ NUPLAN_DEFAULT_DT: Final[float] = 0.05
 
 NUPLAN_TRAFFIC_STATUS_DICT: Final[Dict[str, TrafficLightStatus]] = {
     "green": TrafficLightStatus.GREEN,
+    "yellow": TrafficLightStatus.YELLOW,
     "red": TrafficLightStatus.RED,
     "unknown": TrafficLightStatus.UNKNOWN,
 }
@@ -47,7 +48,6 @@ NUPLAN_DATA_SPLITS: Set[str] = {
     "nuplan-mini_train",
     "nuplan-mini_val",
     "nuplan-mini_test",
-    "nuplan-private_test",  # TODO: remove, not publicly available
 }
 
 NUPLAN_MAP_LOCATIONS: List[str] = [
@@ -117,6 +117,7 @@ NUPLAN_STOP_ZONE_TYPE_CONVERSION: Final[Dict[int, StopZoneType]] = {
 }
 
 NUPLAN_ROLLING_SHUTTER_S: Final[Timestamp] = Timestamp.from_s(1 / 60)
+NUPLAN_LIDAR_SWEEP_DURATION_US: Final[int] = 50_000  # 50ms at 20Hz
 
 # NOTE: These parameters are mostly available in nuPlan, except for the rear_axle_to_center_vertical.
 # The value is estimated based the Lidar point cloud.

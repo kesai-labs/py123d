@@ -34,6 +34,7 @@ from py123d.datatypes import (
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Quaternion, Vector3D
+from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
 from py123d.parser.base_dataset_parser import (
     BaseDatasetParser,
     BaseLogParser,
@@ -65,7 +66,7 @@ from py123d.parser.kitti360.utils.kitti360_helper import (
     get_kitti360_lidar_extrinsic,
 )
 from py123d.parser.kitti360.utils.kitti360_labels import (
-    BBOX_LABLES_TO_DETECTION_NAME_DICT,
+    BBOX_LABELS_TO_DETECTION_NAME_DICT,
     KITTI360_DETECTION_NAME_DICT,
     kittiId2label,
 )
@@ -162,7 +163,7 @@ class Kitti360Parser(BaseDatasetParser):
                     split_sequence_candidates["kitti360_test"].append(seq_name)
 
         # Iterate all candidates, check that modalities available, and add to flat list
-        log_paths_and_split: List[Tuple[Path, str]] = []
+        log_names_and_split: List[Tuple[str, str]] = []
         for split, sequence_names in split_sequence_candidates.items():
             if split not in self._splits:
                 continue
@@ -173,15 +174,14 @@ class Kitti360Parser(BaseDatasetParser):
                     if not _has_modality(sequence_name, modality_key, root)
                 ]
                 if len(missing_modalities) == 0:
-                    log_paths_and_split.append((sequence_name, split))
+                    log_names_and_split.append((sequence_name, split))
                 else:
                     logging.info(
                         f"Sequence '{sequence_name}' skipped: missing modalities {missing_modalities}. "
                         f"Root: {self._kitti360_data_root}"
                     )
 
-        logging.info(f"Valid sequences found: {len(log_paths_and_split)}")
-        return log_paths_and_split
+        return log_names_and_split
 
     def get_map_parsers(self) -> List[BaseMapParser]:
         """Returns one :class:`MapParser` per map region in the dataset."""
@@ -194,7 +194,7 @@ class Kitti360Parser(BaseDatasetParser):
             for log_name, split in self._log_names_and_split
         ]
 
-    def get_log_parsers(self) -> List["Kitti360LogParser"]:
+    def get_log_parsers(self) -> List[BaseLogParser]:
         """Returns one :class:`LogParser` per log in the dataset."""
         return [
             Kitti360LogParser(
@@ -258,7 +258,6 @@ class Kitti360LogParser(BaseLogParser):
             self._kitti360_folders, self._camera_calibration
         )
         lidar_metadata = _get_kitti360_lidar_merged_metadata(self._kitti360_folders)
-
         timestamps_dict: Dict[str, List[Timestamp]] = _read_timestamps(self._log_name, self._kitti360_folders)
 
         # NOTE: We use the Lidar timestamps as reference timestamps for the log
@@ -266,7 +265,7 @@ class Kitti360LogParser(BaseLogParser):
         reference_timestamps = timestamps_dict[KITTI360_LIDAR_NAME]
 
         ego_state_all, valid_timestamp = _extract_ego_state_all(
-            self._log_name, self._kitti360_folders, ego_state_se3_metadata
+            self._log_name, self._kitti360_folders, ego_state_se3_metadata, reference_timestamps
         )
         ego_states_xyz = np.array(
             [ego_state.center_se3.point_3d.array[:3] for ego_state in ego_state_all], dtype=np.float64
@@ -287,6 +286,7 @@ class Kitti360LogParser(BaseLogParser):
 
         for idx in range(len(valid_timestamp)):
             valid_idx = valid_timestamp[idx]
+            ego_state_se3 = ego_state_all[idx]
 
             pinhole_cameras = _extract_kitti360_pinhole_cameras(
                 self._log_name,
@@ -294,6 +294,7 @@ class Kitti360LogParser(BaseLogParser):
                 timestamps_dict,
                 self._kitti360_folders,
                 pinhole_camera_metadatas,
+                ego_state_se3,
             )
             fisheye_cameras = _extract_kitti360_fisheye_mei_cameras(
                 self._log_name,
@@ -301,6 +302,7 @@ class Kitti360LogParser(BaseLogParser):
                 timestamps_dict,
                 self._kitti360_folders,
                 fisheye_mei_camera_metadatas,
+                ego_state_se3,
             )
             parsed_lidar = _extract_kitti360_lidar(
                 self._log_name,
@@ -338,35 +340,55 @@ def _get_kitti360_pinhole_camera_metadata(
     kitti360_folders: Dict[str, Path],
     camera_calibration: Dict[str, PoseSE3],
 ) -> Dict[CameraID, PinholeCameraMetadata]:
-    """Gets the KITTI-360 pinhole camera metadata from calibration files."""
+    """Gets the KITTI-360 pinhole camera metadata from calibration files.
 
+    NOTE: ``calib_cam_to_pose.txt`` maps from **unrectified** camera coordinates to the GPS/INS frame.
+    Since pinhole images in ``data_rect/`` are rectified, we must account for the rectification rotation
+    ``R_rect`` when computing the camera-to-IMU extrinsic: ``cam_to_imu_rect = cam_to_imu_unrect @ inv(R_rect)``.
+    The distortion coefficients are zeroed because ``data_rect/`` images are already undistorted.
+    """
     pinhole_cam_metadatas: Dict[CameraID, PinholeCameraMetadata] = {}
     persp = kitti360_folders[DIR_CALIB] / "perspective.txt"
     assert persp.exists()
-    persp_result = {"image_00": {}, "image_01": {}}
+    persp_result: Dict[str, Dict[str, Any]] = {"image_00": {}, "image_01": {}}
 
-    with open(persp, "r") as f:
+    with open(persp, "r", encoding="utf-8") as f:
         lines = [ln.strip() for ln in f if ln.strip()]
         for ln in lines:
             key, value = ln.split(" ", 1)
             cam_id = key.split("_")[-1][:2]
+            cam_key = f"image_{cam_id}"
+            if cam_key not in persp_result:
+                continue
             if key.startswith("P_rect_"):
-                persp_result[f"image_{cam_id}"]["intrinsic"] = _read_projection_matrix(ln)
+                persp_result[cam_key]["intrinsic"] = _read_projection_matrix(ln)
             elif key.startswith("S_rect_"):
-                persp_result[f"image_{cam_id}"]["wh"] = [int(round(float(x))) for x in value.split()]
-            elif key.startswith("D_"):
-                persp_result[f"image_{cam_id}"]["distortion"] = [float(x) for x in value.split()]
+                persp_result[cam_key]["wh"] = [int(round(float(x))) for x in value.split()]
+            elif key.startswith("R_rect_"):
+                persp_result[cam_key]["R_rect"] = np.array([float(x) for x in value.split()], dtype=np.float64).reshape(
+                    3, 3
+                )
 
     for pcam_type, pcam_name in KITTI360_PINHOLE_CAMERA_IDS.items():
         assert pcam_name in camera_calibration.keys(), f"Camera calibration missing for {pcam_name}"
+
+        # Apply inv(R_rect) to correct for rectification: the calibration gives unrectified-camera-to-IMU,
+        # but we need rectified-camera-to-IMU since images are already rectified.
+        cam_to_imu_mat = camera_calibration[pcam_name].transformation_matrix
+        R_rect = persp_result[pcam_name]["R_rect"]
+        R_rect_inv_4x4 = np.eye(4, dtype=np.float64)
+        R_rect_inv_4x4[:3, :3] = np.linalg.inv(R_rect)
+        corrected_mat = cam_to_imu_mat @ R_rect_inv_4x4
+        camera_to_imu_se3 = PoseSE3.from_transformation_matrix(corrected_mat)
+
         pinhole_cam_metadatas[pcam_type] = PinholeCameraMetadata(
             camera_name=pcam_name,
             camera_id=pcam_type,
             width=persp_result[pcam_name]["wh"][0],
             height=persp_result[pcam_name]["wh"][1],
             intrinsics=PinholeIntrinsics.from_camera_matrix(np.array(persp_result[pcam_name]["intrinsic"])),
-            distortion=PinholeDistortion.from_array(np.array(persp_result[pcam_name]["distortion"])),
-            camera_to_imu_se3=camera_calibration[pcam_name],
+            distortion=PinholeDistortion.from_array(np.zeros(5, dtype=np.float64)),
+            camera_to_imu_se3=camera_to_imu_se3,
             is_undistorted=True,
         )
 
@@ -383,8 +405,8 @@ def _get_kitti360_fisheye_mei_camera_metadata(
     fisheye_camera02_path = kitti360_folders[DIR_CALIB] / "image_02.yaml"
     fisheye_camera03_path = kitti360_folders[DIR_CALIB] / "image_03.yaml"
 
-    fisheye02 = _readYAMLFile(fisheye_camera02_path)
-    fisheye03 = _readYAMLFile(fisheye_camera03_path)
+    fisheye02 = _read_yaml_file(fisheye_camera02_path)
+    fisheye03 = _read_yaml_file(fisheye_camera03_path)
     fisheye_result = {"image_02": fisheye02, "image_03": fisheye03}
 
     for fcam_id, fcam_name in KITTI360_FISHEYE_MEI_CAMERA_IDS.items():
@@ -422,6 +444,9 @@ def _get_kitti360_fisheye_mei_camera_metadata(
 
 def _get_kitti360_lidar_merged_metadata(kitti360_folders: Dict[str, Path]) -> LidarMergedMetadata:
     """Gets the KITTI-360 Lidar metadata from calibration files."""
+
+    # NOTE: @DanielDauner: We place the top lidar in a merged metadata object.
+    # This enables convient access in the API later, both for the merged and top lidar id.
     extrinsic = get_kitti360_lidar_extrinsic(kitti360_folders[DIR_CALIB])
     extrinsic_pose_se3 = PoseSE3.from_transformation_matrix(extrinsic)
     metadata: Dict[LidarID, LidarMetadata] = {
@@ -450,18 +475,15 @@ def _read_projection_matrix(p_line: str) -> np.ndarray:
     return K
 
 
-def _readYAMLFile(fileName: Path) -> Dict[str, Any]:
-    """Make OpenCV YAML file compatible with python."""
-    ret = {}
-    skip_lines = 1  # Skip the first line which says "%YAML:1.0". Or replace it with "%YAML 1.0"
-    with open(fileName) as fin:
-        for i in range(skip_lines):
-            fin.readline()
-        yamlFileOut = fin.read()
-        myRe = re.compile(r":([^ ])")  # Add space after ":", if it doesn't exist. Python yaml requirement
-        yamlFileOut = myRe.sub(r": \1", yamlFileOut)
-        ret = yaml.safe_load(yamlFileOut)
-    return ret
+def _read_yaml_file(file_path: Path) -> Dict[str, Any]:
+    """Read an OpenCV YAML file, fixing formatting to be compatible with Python's yaml parser."""
+    with open(file_path, encoding="utf-8") as fin:
+        fin.readline()  # Skip the first line which says "%YAML:1.0"
+        content = fin.read()
+        # Add space after ":" if it doesn't exist (Python yaml requirement)
+        content = re.sub(r":([^ ])", r": \1", content)
+        result: Dict[str, Any] = yaml.safe_load(content)
+    return result
 
 
 def _read_timestamps(log_name: str, kitti360_folders: Dict[str, Path]) -> Dict[str, List[Timestamp]]:
@@ -481,7 +503,7 @@ def _read_timestamps(log_name: str, kitti360_folders: Dict[str, Path]) -> Dict[s
     for modality, ts_file in ts_files.items():
         if ts_file.exists():
             tps: List[Timestamp] = []
-            with open(ts_file, "r") as f:
+            with open(ts_file, "r", encoding="utf-8") as f:
                 for line in f:
                     s = line.strip()
                     if not s:
@@ -508,19 +530,26 @@ def _extract_ego_state_all(
     log_name: str,
     kitti360_folders: Dict[str, Path],
     ego_metadata: EgoStateSE3Metadata,
+    reference_timestamps: List[Timestamp],
 ) -> Tuple[List[EgoStateSE3], List[int]]:
-    """Extracts all ego states for the given sequence."""
+    """Extracts all ego states for the given sequence.
 
+    :param log_name: The name of the KITTI-360 sequence.
+    :param kitti360_folders: Dictionary mapping directory keys to paths.
+    :param ego_metadata: Metadata for the ego vehicle.
+    :param reference_timestamps: Lidar reference timestamps indexed by frame number.
+    :return: Tuple of (ego states list, valid frame indices list).
+    """
     ego_state_all: List[EgoStateSE3] = []
     pose_file = kitti360_folders[DIR_POSES] / log_name / "poses.txt"
     if not pose_file.exists():
         raise FileNotFoundError(f"Pose file not found: {pose_file}")
     poses = np.loadtxt(pose_file)
     poses_time = poses[:, 0].astype(np.int32)
-    valid_timestamp: List[int] = list(poses_time)
+    valid_frame_indices: List[int] = list(poses_time)
     oxts_path = kitti360_folders[DIR_POSES] / log_name / "oxts" / "data"
 
-    for idx in range(len(valid_timestamp)):
+    for idx in range(len(valid_frame_indices)):
         pos = idx
         if log_name == "2013_05_28_drive_0004_sync" and pos == 0:
             pos = 1
@@ -542,7 +571,9 @@ def _extract_ego_state_all(
             qz=ego_quaternion.qz,
         )
 
-        oxts_path_file = oxts_path / f"{int(valid_timestamp[idx]):010d}.txt"
+        frame_idx = valid_frame_indices[idx]
+        oxts_path_file = oxts_path / f"{frame_idx:010d}.txt"
+        dynamic_state_se3: Optional[DynamicStateSE3] = None
         if oxts_path_file.exists():
             # NOTE: "2013_05_28_drive_0009_sync" is missing oxts files
             oxts_data = np.loadtxt(oxts_path_file)
@@ -551,17 +582,16 @@ def _extract_ego_state_all(
                 acceleration=Vector3D(x=oxts_data[14], y=oxts_data[15], z=oxts_data[16]),
                 angular_velocity=Vector3D(x=oxts_data[20], y=oxts_data[21], z=oxts_data[22]),
             )
-        else:
-            dynamic_state_se3 = None
+
         ego_state_all.append(
             EgoStateSE3.from_imu(
                 imu_se3=imu_pose_se3,
                 metadata=ego_metadata,
                 dynamic_state_se3=dynamic_state_se3,
-                timestamp=Timestamp.from_us(valid_timestamp[idx] * 1_000_000),
+                timestamp=reference_timestamps[frame_idx],
             )
         )
-    return ego_state_all, valid_timestamp
+    return ego_state_all, valid_frame_indices
 
 
 def _extract_kitti360_box_detections_all(
@@ -576,8 +606,11 @@ def _extract_kitti360_box_detections_all(
     box_detections_se3_metadata: BoxDetectionsSE3Metadata,
 ) -> List[BoxDetectionsSE3]:
     """Extracts all KITTI-360 box detections for the given sequence."""
+    # Reset class-level counters to ensure deterministic IDs across multiple parsing runs
+    KITTI360Bbox3D.dynamic_global_id = 2000000
+    KITTI360Bbox3D.static_global_id = 1000000
 
-    detections_states: List[List[List[float]]] = [[] for _ in range(ts_len)]
+    detections_states: List[List[np.ndarray]] = [[] for _ in range(ts_len)]
     detections_velocity: List[List[List[float]]] = [[] for _ in range(ts_len)]
     detections_tokens: List[List[str]] = [[] for _ in range(ts_len)]
     detections_labels: List[List[KITTI360BoxDetectionLabel]] = [[] for _ in range(ts_len)]
@@ -611,15 +644,18 @@ def _extract_kitti360_box_detections_all(
 
     for child in root:
         if child.find("semanticId") is not None:
-            semanticIdKITTI = int(child.find("semanticId").text)
-            name = kittiId2label[semanticIdKITTI].name
+            semantic_id_kitti = int(child.find("semanticId").text)  # type: ignore[union-attr]
+            name = kittiId2label[semantic_id_kitti].name
         else:
-            label = child.find("label").text
-            name = BBOX_LABLES_TO_DETECTION_NAME_DICT.get(label, "unknown")
-        if child.find("transform") is None or name not in KITTI360_DETECTION_NAME_DICT.keys():
+            label_element = child.find("label")
+            label_text: str = (
+                label_element.text if label_element is not None and label_element.text is not None else "unknown"
+            )
+            name = BBOX_LABELS_TO_DETECTION_NAME_DICT.get(label_text, "unknown")
+        if child.find("transform") is None or name not in KITTI360_DETECTION_NAME_DICT:
             continue
         obj = KITTI360Bbox3D()
-        obj.parseBbox(child)
+        obj.parse_bbox(child)
 
         # static object
         if obj.timestamp == -1:
@@ -686,7 +722,7 @@ def _extract_kitti360_box_detections_all(
                 label=detection_label,
                 track_token=token,
             )
-            bounding_box_se3 = BoundingBoxSE3.from_list(state)
+            bounding_box_se3 = BoundingBoxSE3.from_array(state)
             velocity_vector = Vector3D.from_list(velocity)
             box_detection = BoxDetectionSE3(
                 attributes=detection_attributes,
@@ -713,24 +749,26 @@ def _extract_kitti360_lidar(
 ) -> Optional[ParsedLidar]:
     """Extracts KITTI-360 Lidar data for the given sequence and index."""
 
-    # NOTE special case for sequence 2013_05_28_drive_0002_sync which has no lidar data before frame 4391
-    if log_name == "2013_05_28_drive_0002_sync" and idx <= 4390:
-        return None
+    parsed_lidar: Optional[ParsedLidar] = None
 
-    lidar_full_path = kitti360_folders[DIR_3D_RAW] / log_name / "velodyne_points" / "data" / f"{idx:010d}.bin"
-    if lidar_full_path.exists():
-        # The KITTI-360 lidar timestamp marks the start of the sweep.
-        # The Velodyne HDL-64E rotates at 10Hz, so each sweep covers 100ms.
-        return ParsedLidar(
-            metadata=lidar_metadata,
-            start_timestamp=timestamp,
-            end_timestamp=Timestamp.from_us(timestamp.time_us + KITTI360_LIDAR_SWEEP_DURATION_US),
-            iteration=idx,
-            dataset_root=kitti360_folders[DIR_ROOT],
-            relative_path=lidar_full_path.relative_to(kitti360_folders[DIR_ROOT]),
-        )
-    else:
-        raise FileNotFoundError(f"Lidar file not found: {lidar_full_path}")
+    # NOTE special case for sequence 2013_05_28_drive_0002_sync which has no lidar data before frame 4391
+    if log_name != "2013_05_28_drive_0002_sync" or idx > 4390:
+        lidar_full_path = kitti360_folders[DIR_3D_RAW] / log_name / "velodyne_points" / "data" / f"{idx:010d}.bin"
+        if lidar_full_path.exists():
+            # The KITTI-360 lidar timestamp marks the start of the sweep.
+            # The Velodyne HDL-64E rotates at 10Hz, so each sweep covers 100ms.
+            parsed_lidar = ParsedLidar(
+                metadata=lidar_metadata,
+                start_timestamp=timestamp,
+                end_timestamp=Timestamp.from_us(timestamp.time_us + KITTI360_LIDAR_SWEEP_DURATION_US),
+                iteration=idx,
+                dataset_root=kitti360_folders[DIR_ROOT],
+                relative_path=lidar_full_path.relative_to(kitti360_folders[DIR_ROOT]),
+            )
+        else:
+            logging.warning(f"Lidar file not found: {lidar_full_path}")
+
+    return parsed_lidar
 
 
 def _extract_kitti360_pinhole_cameras(
@@ -739,18 +777,23 @@ def _extract_kitti360_pinhole_cameras(
     timestamps_dict: Dict[str, List[Timestamp]],
     kitti360_folders: Dict[str, Path],
     pinhole_camera_metadatas: Dict[CameraID, PinholeCameraMetadata],
+    ego_state_se3: EgoStateSE3,
 ) -> List[ParsedCamera]:
     """Extracts KITTI-360 pinhole camera data for the given sequence and index."""
 
     pinhole_camera_data_list: List[ParsedCamera] = []
-    for camera_type, camera_name in KITTI360_PINHOLE_CAMERA_IDS.items():
+    for camera_id, camera_name in KITTI360_PINHOLE_CAMERA_IDS.items():
         img_path_png = kitti360_folders[DIR_2D_RAW] / log_name / camera_name / "data_rect" / f"{idx:010d}.png"
-        camera_timestamp = timestamps_dict[camera_name][idx]
         if img_path_png.exists():
+            camera_timestamp = timestamps_dict[camera_name][idx]
+            camera_to_global_se3 = rel_to_abs_se3(
+                origin=ego_state_se3.imu_se3,
+                pose_se3=pinhole_camera_metadatas[camera_id].camera_to_imu_se3,
+            )
             pinhole_camera_data_list.append(
                 ParsedCamera(
-                    metadata=pinhole_camera_metadatas[camera_type],
-                    extrinsic=pinhole_camera_metadatas[camera_type].camera_to_imu_se3,
+                    metadata=pinhole_camera_metadatas[camera_id],
+                    camera_to_global_se3=camera_to_global_se3,
                     timestamp=camera_timestamp,
                     dataset_root=kitti360_folders[DIR_ROOT],
                     relative_path=img_path_png.relative_to(kitti360_folders[DIR_ROOT]),
@@ -766,17 +809,22 @@ def _extract_kitti360_fisheye_mei_cameras(
     timestamps_dict: Dict[str, List[Timestamp]],
     kitti360_folders: Dict[str, Path],
     fisheye_mei_camera_metadatas: Dict[CameraID, FisheyeMEICameraMetadata],
+    ego_state_se3: EgoStateSE3,
 ) -> List[ParsedCamera]:
     """Extracts KITTI-360 fisheye MEI camera data for the given sequence and index."""
     fisheye_camera_data_list: List[ParsedCamera] = []
-    for camera_type, cam_dir_name in KITTI360_FISHEYE_MEI_CAMERA_IDS.items():
-        img_path_png = kitti360_folders[DIR_2D_RAW] / log_name / cam_dir_name / "data_rgb" / f"{idx:010d}.png"
-        camera_timestamp = timestamps_dict[cam_dir_name][idx]
+    for camera_id, camera_name in KITTI360_FISHEYE_MEI_CAMERA_IDS.items():
+        img_path_png = kitti360_folders[DIR_2D_RAW] / log_name / camera_name / "data_rgb" / f"{idx:010d}.png"
         if img_path_png.exists():
+            camera_timestamp = timestamps_dict[camera_name][idx]
+            camera_to_global_se3 = rel_to_abs_se3(
+                origin=ego_state_se3.imu_se3,
+                pose_se3=fisheye_mei_camera_metadatas[camera_id].camera_to_imu_se3,
+            )
             fisheye_camera_data_list.append(
                 ParsedCamera(
-                    metadata=fisheye_mei_camera_metadatas[camera_type],
-                    extrinsic=fisheye_mei_camera_metadatas[camera_type].camera_to_imu_se3,
+                    metadata=fisheye_mei_camera_metadatas[camera_id],
+                    camera_to_global_se3=camera_to_global_se3,
                     timestamp=camera_timestamp,
                     dataset_root=kitti360_folders[DIR_ROOT],
                     relative_path=img_path_png.relative_to(kitti360_folders[DIR_ROOT]),
@@ -793,7 +841,7 @@ def _load_kitti_360_calibration(kitti_360_data_root: Path) -> Dict[str, PoseSE3]
 
     lastrow = np.array([0, 0, 0, 1]).reshape(1, 4)
     calib_dict: Dict[str, PoseSE3] = {}
-    with open(calib_file, "r") as f:
+    with open(calib_file, "r", encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split()
             key = parts[0][:-1]

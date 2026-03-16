@@ -1,9 +1,17 @@
-from typing import Iterator, List, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Iterator, List, Optional
+
+if TYPE_CHECKING:
+    import sqlite3
+
+import numpy as np
 
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.datatypes.detections.box_detections import BoxDetectionAttributes, BoxDetectionSE3
 from py123d.geometry import BoundingBoxSE3, EulerAngles, PoseSE3, Vector3D
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
+from py123d.geometry.utils.rotation_utils import slerp_quaternion_arrays
 from py123d.parser.nuplan.utils.nuplan_constants import NUPLAN_DETECTION_NAME_DICT
 
 check_dependencies(modules=["nuplan"], optional_name="nuplan")
@@ -69,72 +77,60 @@ def get_box_detections_for_lidarpc_token_from_db(log_file: str, token: str) -> L
     return box_detections
 
 
-def get_ego_pose_for_timestamp_from_db(log_file: str, timestamp: int) -> PoseSE3:
-    """Gets the ego pose for a given timestamp from the NuPlan database."""
-
-    query = """
-        SELECT  ep.x,
-                ep.y,
-                ep.z,
-                ep.qw,
-                ep.qx,
-                ep.qy,
-                ep.qz,
-                ep.timestamp,
-                ep.vx,
-                ep.vy,
-                ep.acceleration_x,
-                ep.acceleration_y
-        FROM ego_pose AS ep
-        ORDER BY ABS(ep.timestamp - ?)
-        LIMIT 1
-    """
-
-    row = execute_one(query, (timestamp,), log_file)
-    assert row is not None, f"No ego pose found for timestamp {timestamp} in log file {log_file}"
+def _row_to_pose_se3(row: sqlite3.Row) -> PoseSE3:
+    """Converts a database row with x, y, z, qw, qx, qy, qz columns to a :class:`PoseSE3`."""
     return PoseSE3(x=row["x"], y=row["y"], z=row["z"], qw=row["qw"], qx=row["qx"], qy=row["qy"], qz=row["qz"])
 
 
-def get_nearest_ego_pose_for_timestamp_from_db(
-    log_file: str,
-    timestamp: int,
-    tokens: List[str],
-    lookahead_window_us: int = 50000,
-    lookback_window_us: int = 50000,
-) -> Tuple[List[PoseSE3], List[int]]:
-    """Gets the nearest ego pose for a given timestamp from the NuPlan database within a lookahead and lookback window."""
+def get_interpolated_ego_pose_from_db(log_file: str, timestamp_us: int) -> PoseSE3:
+    """Interpolates the ego pose at an arbitrary timestamp by querying the two bracketing ego poses from the database.
 
-    query = f"""
-        SELECT  ep.x,
-                ep.y,
-                ep.z,
-                ep.qw,
-                ep.qx,
-                ep.qy,
-                ep.qz,
-                ep.timestamp
-        FROM ego_pose AS ep
-            INNER JOIN lidar_pc AS lpc
-                ON  ep.timestamp <= lpc.timestamp + ?
-                AND ep.timestamp >= lpc.timestamp - ?
-            WHERE lpc.token IN ({("?," * len(tokens))[:-1]})
-        ORDER BY ABS(ep.timestamp - ?)
-        LIMIT 1
-    """  # noqa: E226
+    Uses linear interpolation for position and SLERP for orientation. If the timestamp falls exactly on an ego pose
+    or outside the range, the nearest boundary pose is returned.
 
-    args = [lookahead_window_us, lookback_window_us]
-    args += [bytearray.fromhex(t) for t in tokens]
-    args += [timestamp]
+    :param log_file: Path to the nuPlan ``.db`` log file.
+    :param timestamp_us: Target timestamp in microseconds.
+    :return: Interpolated ego pose as a :class:`PoseSE3`.
+    """
+    _EGO_POSE_COLS = "ep.x, ep.y, ep.z, ep.qw, ep.qx, ep.qy, ep.qz, ep.timestamp"
 
-    poses = []
-    times = []
+    before_row: Optional[sqlite3.Row] = execute_one(
+        f"SELECT {_EGO_POSE_COLS} FROM ego_pose AS ep WHERE ep.timestamp <= ? ORDER BY ep.timestamp DESC LIMIT 1",
+        (timestamp_us,),
+        log_file,
+    )
+    after_row: Optional[sqlite3.Row] = execute_one(
+        f"SELECT {_EGO_POSE_COLS} FROM ego_pose AS ep WHERE ep.timestamp > ? ORDER BY ep.timestamp ASC LIMIT 1",
+        (timestamp_us,),
+        log_file,
+    )
 
-    for row in execute_many(query, args, log_file):
-        poses.append(
-            PoseSE3(x=row["x"], y=row["y"], z=row["z"], qw=row["qw"], qx=row["qx"], qy=row["qy"], qz=row["qz"])
-        )
-        times.append(abs(row["timestamp"] - timestamp))
-    return poses, times
+    # Resolve which row(s) to use: boundary clamp, exact match, or interpolation
+    if before_row is None and after_row is None:
+        raise ValueError(f"No ego poses found in log file {log_file}")
+
+    if before_row is None:
+        assert after_row is not None
+        pose = _row_to_pose_se3(after_row)
+    elif after_row is None or before_row["timestamp"] == timestamp_us:
+        pose = _row_to_pose_se3(before_row)
+    else:
+        # Interpolate between the two bracketing poses
+        t0 = int(before_row["timestamp"])
+        t1 = int(after_row["timestamp"])
+        alpha = float(timestamp_us - t0) / float(t1 - t0)
+
+        pos_before = np.array([before_row["x"], before_row["y"], before_row["z"]], dtype=np.float64)
+        pos_after = np.array([after_row["x"], after_row["y"], after_row["z"]], dtype=np.float64)
+        position = (1.0 - alpha) * pos_before + alpha * pos_after
+
+        q_before = np.array([before_row["qw"], before_row["qx"], before_row["qy"], before_row["qz"]], dtype=np.float64)
+        q_after = np.array([after_row["qw"], after_row["qx"], after_row["qy"], after_row["qz"]], dtype=np.float64)
+        quaternion = slerp_quaternion_arrays(q_before, q_after, np.array(alpha))
+
+        pose = PoseSE3.from_R_t(rotation=quaternion, translation=position)
+
+    return pose
 
 
 # ------------------------------------------------------------------------------------------------------------------

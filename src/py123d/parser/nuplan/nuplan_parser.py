@@ -34,7 +34,7 @@ from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, EulerAngles, PoseSE3, Vector3D
-from py123d.geometry.transform import reframe_se3_array
+from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
 from py123d.parser.base_dataset_parser import (
     BaseDatasetParser,
@@ -51,13 +51,14 @@ from py123d.parser.nuplan.utils.nuplan_constants import (
     NUPLAN_DETECTION_NAME_DICT,
     NUPLAN_EGO_STATE_SE3_METADATA,
     NUPLAN_LIDAR_DICT,
+    NUPLAN_LIDAR_SWEEP_DURATION_US,
     NUPLAN_MAP_LOCATIONS,
     NUPLAN_ROLLING_SHUTTER_S,
     NUPLAN_TRAFFIC_STATUS_DICT,
 )
 from py123d.parser.nuplan.utils.nuplan_sql_helper import (
     get_box_detections_for_lidarpc_token_from_db,
-    get_nearest_ego_pose_for_timestamp_from_db,
+    get_interpolated_ego_pose_from_db,
     iter_all_box_detections_from_db,
     iter_all_ego_poses_from_db,
     iter_all_images_from_db,
@@ -247,8 +248,7 @@ class NuplanLogParser(BaseLogParser):
                 )
                 traffic_lights = _extract_nuplan_traffic_lights(nuplan_log_db, lidar_pc_token, timestamp)
                 parsed_pinhole_cameras = _extract_nuplan_cameras(
-                    nuplan_log_db=nuplan_log_db,
-                    nuplan_lidar_pc=nuplan_lidar_pc,
+                    lidar_pc_token=lidar_pc_token,
                     source_log_path=self._source_log_path,
                     nuplan_sensor_root=self._nuplan_sensor_root,
                     metadatas=pinhole_camera_metadatas,
@@ -277,15 +277,13 @@ class NuplanLogParser(BaseLogParser):
         """Inherited, see superclass."""
         ego_state_se3_metadata = NUPLAN_EGO_STATE_SE3_METADATA
         box_detections_se3_metadata = NUPLAN_BOX_DETECTIONS_SE3_METADATA
-        pinhole_camera_metadatas = _get_nuplan_camera_metadata(self._source_log_path, self._nuplan_sensor_root)
         lidar_merged_metadata = _get_nuplan_lidar_merged_metadata(self._nuplan_sensor_root, self._source_log_path.stem)
 
         yield from self._iter_ego_states_se3(ego_state_se3_metadata)
         yield from self._iter_box_detections_se3(box_detections_se3_metadata)
         yield from self._iter_traffic_lights()
         yield from self._iter_lidars(lidar_merged_metadata)
-        for pinhole_camera_metadata in pinhole_camera_metadatas.values():
-            yield from self._iter_pinhole_camera(pinhole_camera_metadata)
+        yield from self._iter_pinhole_cameras()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Per-modality iterators (async / native-rate)
@@ -377,19 +375,24 @@ class NuplanLogParser(BaseLogParser):
             ]
             yield TrafficLightDetections(detections=detections, timestamp=Timestamp.from_us(timestamp))
 
-    def _iter_pinhole_camera(self, pinhole_camera_metadata: PinholeCameraMetadata) -> Iterator[ParsedCamera]:
-        """Yields pinhole camera observations for a specific camera at native rate (~10Hz)."""
+    def _iter_pinhole_cameras(self) -> Iterator[ParsedCamera]:
+        """Yields pinhole camera observations for all cameras at native rate (~10Hz).
+
+        Iterates the image table once and dispatches each image to its corresponding camera metadata.
+        For each image, the ego pose is interpolated at the rolling-shutter-compensated camera timestamp
+        and composed with the static camera-to-IMU extrinsic to produce a camera-to-global pose.
+        """
+        pinhole_camera_metadatas = _get_nuplan_camera_metadata(self._source_log_path, self._nuplan_sensor_root)
         channel_to_camera_id = {str(v.value): k for k, v in NUPLAN_CAMERA_MAPPING.items()}
+        log_file = str(self._source_log_path)
 
-        target_camera_id = pinhole_camera_metadata.camera_id
-
-        for row in iter_all_images_from_db(str(self._source_log_path)):
+        for row in iter_all_images_from_db(log_file):
             channel = row["channel"]
             if channel not in channel_to_camera_id:
                 continue
 
             camera_id = channel_to_camera_id[channel]
-            if camera_id != target_camera_id:
+            if camera_id not in pinhole_camera_metadatas:
                 continue
 
             filename_jpg = row["filename_jpg"]
@@ -397,10 +400,20 @@ class NuplanLogParser(BaseLogParser):
             if not full_path.exists():
                 continue
 
+            camera_metadata = pinhole_camera_metadatas[camera_id]
+
+            # Interpolate ego pose at the rolling-shutter-compensated camera timestamp
+            compensated_timestamp_us = row["timestamp"] + NUPLAN_ROLLING_SHUTTER_S.time_us
+            ego_pose = get_interpolated_ego_pose_from_db(log_file, compensated_timestamp_us)
+            camera_to_global_se3 = rel_to_abs_se3(
+                origin=ego_pose,
+                pose_se3=camera_metadata.camera_to_imu_se3,
+            )
+
             yield ParsedCamera(
-                metadata=pinhole_camera_metadata,
+                metadata=camera_metadata,
                 timestamp=Timestamp.from_us(row["timestamp"]),
-                extrinsic=pinhole_camera_metadata.camera_to_imu_se3,
+                camera_to_global_se3=camera_to_global_se3,
                 dataset_root=self._nuplan_sensor_root,
                 relative_path=filename_jpg,
             )
@@ -413,7 +426,7 @@ class NuplanLogParser(BaseLogParser):
                 yield ParsedLidar(
                     metadata=modality_metadata,
                     start_timestamp=Timestamp.from_us(row["timestamp"]),
-                    end_timestamp=Timestamp.from_us(row["timestamp"]),
+                    end_timestamp=Timestamp.from_us(row["timestamp"] + NUPLAN_LIDAR_SWEEP_DURATION_US),
                     dataset_root=self._nuplan_sensor_root,
                     relative_path=row["filename"],
                 )
@@ -441,7 +454,8 @@ def _get_nuplan_camera_metadata(
         distortion_array = np.array(pickle.loads(cam.distortion), dtype=np.float64)  # type: ignore
         distortion = PinholeDistortion.from_array(distortion_array, copy=False)
 
-        # Load static extrinsic
+        # Load static extrinsic (camera-to-ego transform)
+        # NOTE: nuPlan stores rotation as a scalar-first quaternion [w, x, y, z], matching QuaternionIndex.
         translation_array = np.array(pickle.loads(cam.translation), dtype=np.float64)  # type: ignore
         rotation_array = np.array(pickle.loads(cam.rotation), dtype=np.float64)  # type: ignore
         extrinsic = PoseSE3.from_R_t(rotation=rotation_array, translation=translation_array)
@@ -560,54 +574,63 @@ def _extract_nuplan_traffic_lights(
 
 
 def _extract_nuplan_cameras(
-    nuplan_log_db: NuPlanDB,
-    nuplan_lidar_pc: LidarPc,
+    lidar_pc_token: str,
     source_log_path: Path,
     nuplan_sensor_root: Path,
     metadatas: Dict[CameraID, PinholeCameraMetadata],
 ) -> List[ParsedCamera]:
-    """Extracts the nuPlan camera data from a given LidarPc database object."""
-    camera_data_list: List[ParsedCamera] = []
-    current_ego_pose = PoseSE3.from_transformation_matrix(nuplan_lidar_pc.ego_pose.trans_matrix)
+    """Extracts the nuPlan camera data for cameras associated with a given lidar sweep.
 
-    log_cam_infos = {camera.token: camera for camera in nuplan_log_db.log.cameras}
+    For each camera image matched to the lidar sweep, the ego pose is interpolated at the
+    rolling-shutter-compensated camera timestamp and composed with the static camera-to-IMU
+    extrinsic to produce a camera-to-global pose.
+
+    :param lidar_pc_token: Token of the lidar point cloud sweep.
+    :param source_log_path: Path to the source log ``.db`` file.
+    :param nuplan_sensor_root: Root directory of the nuPlan sensor data.
+    :param metadatas: Camera metadata dict keyed by :class:`CameraID`.
+    :return: List of :class:`ParsedCamera` for all matched camera images.
+    """
+    camera_data_list: List[ParsedCamera] = []
+    log_file = str(source_log_path)
+
     for camera_type, camera_channel in NUPLAN_CAMERA_MAPPING.items():
         if camera_type not in metadatas:
             continue
 
-        image_class = list(
+        images = list(
             get_images_from_lidar_tokens(
-                log_file=str(source_log_path), tokens=[nuplan_lidar_pc.token], channels=[str(camera_channel.value)]
+                log_file=log_file, tokens=[lidar_pc_token], channels=[str(camera_channel.value)]
+            )
+        )
+        if len(images) == 0:
+            continue
+
+        image = images[0]
+        image_path = nuplan_sensor_root / image.filename_jpg  # type: ignore
+        if not (image_path.exists() and image_path.is_file()):
+            continue
+
+        # Interpolate ego pose at the rolling-shutter-compensated camera timestamp
+        compensated_timestamp_us = image.timestamp + NUPLAN_ROLLING_SHUTTER_S.time_us  # type: ignore
+        ego_pose = get_interpolated_ego_pose_from_db(log_file, compensated_timestamp_us)
+        camera_to_global_se3 = rel_to_abs_se3(
+            origin=ego_pose,
+            pose_se3=metadatas[camera_type].camera_to_imu_se3,
+        )
+
+        # NOTE @DanielDauner: We pass the original image timestamp here (without rolling shutter compensation).
+        # This could be changed in the future, but documentation here remains scarce, and compensation is a heuristic.
+        camera_data_list.append(
+            ParsedCamera(
+                metadata=metadatas[camera_type],
+                timestamp=Timestamp.from_us(image.timestamp),  # type: ignore
+                camera_to_global_se3=camera_to_global_se3,
+                dataset_root=nuplan_sensor_root,
+                relative_path=image_path.relative_to(nuplan_sensor_root),
             )
         )
 
-        if len(image_class) != 0:
-            image = image_class[0]
-            filename_jpg = nuplan_sensor_root / image.filename_jpg  # type: ignore
-            if filename_jpg.exists() and filename_jpg.is_file():
-                # Query nearest ego pose for the image timestamp
-                timestamp = image.timestamp + NUPLAN_ROLLING_SHUTTER_S.time_us  # type: ignore
-                nearest_ego_poses, timestamp_poses = get_nearest_ego_pose_for_timestamp_from_db(
-                    str(source_log_path),
-                    timestamp,
-                    [nuplan_lidar_pc.token],
-                )
-                nearest_ego_pose = nearest_ego_poses[np.argmin(timestamp_poses)]
-                extrinsic_static = PoseSE3.from_transformation_matrix(log_cam_infos[image.camera_token].trans_matrix)  # type: ignore
-                extrinsic_compensated_array = reframe_se3_array(
-                    from_origin=nearest_ego_pose, to_origin=current_ego_pose, pose_se3_array=extrinsic_static.array
-                )
-                extrinsic = PoseSE3.from_array(extrinsic_compensated_array)
-
-                camera_data_list.append(
-                    ParsedCamera(
-                        metadata=metadatas[camera_type],
-                        timestamp=Timestamp.from_us(image.timestamp),  # type: ignore
-                        extrinsic=extrinsic,
-                        dataset_root=nuplan_sensor_root,
-                        relative_path=filename_jpg.relative_to(nuplan_sensor_root),
-                    )
-                )
     return camera_data_list
 
 
@@ -616,19 +639,28 @@ def _extract_nuplan_lidar_data(
     nuplan_sensor_root: Path,
     metadata: LidarMergedMetadata,
 ) -> Optional[ParsedLidar]:
-    """Extracts the nuPlan Lidar data from a given LidarPc database object."""
+    """Extracts the nuPlan Lidar data from a given LidarPc database object.
+
+    :param nuplan_lidar_pc: The nuPlan LidarPc database object.
+    :param nuplan_sensor_root: Root directory of the nuPlan sensor data.
+    :param metadata: Lidar merged metadata.
+    :return: A :class:`ParsedLidar` if the file exists, otherwise ``None``.
+    """
+    parsed_lidar: Optional[ParsedLidar] = None
     lidar_full_path: Path = nuplan_sensor_root / nuplan_lidar_pc.filename
+
     if lidar_full_path.exists() and lidar_full_path.is_file():
-        return ParsedLidar(
+        parsed_lidar = ParsedLidar(
             metadata=metadata,
             start_timestamp=Timestamp.from_us(nuplan_lidar_pc.timestamp),
-            end_timestamp=Timestamp.from_us(nuplan_lidar_pc.timestamp),
+            end_timestamp=Timestamp.from_us(nuplan_lidar_pc.timestamp + NUPLAN_LIDAR_SWEEP_DURATION_US),
             dataset_root=nuplan_sensor_root,
             relative_path=nuplan_lidar_pc.filename,
         )
     else:
         logger.debug(f"Lidar file not found: {lidar_full_path}")
-    return None
+
+    return parsed_lidar
 
 
 def _get_ideal_lidar_pc_offset(source_log_path: Path, nuplan_log_db: NuPlanDB) -> int:
@@ -643,11 +675,12 @@ def _get_ideal_lidar_pc_offset(source_log_path: Path, nuplan_log_db: NuPlanDB) -
     :return: Either 0 or 1, as integer.
     """
     QUERY_START: int = 10
-    average_offsets = np.zeros((2,), dtype=np.float64)
+    average_offsets = np.full((2,), fill_value=np.inf, dtype=np.float64)
+    camera_channels = [str(channel.value) for channel in NUPLAN_CAMERA_MAPPING.values()]
+
     for offset in [0, 1]:
         lidar_pc = nuplan_log_db.lidar_pc[QUERY_START + offset]
         lidar_pc_timestamp_us = lidar_pc.timestamp
-        camera_channels = [str(channel.value) for channel in NUPLAN_CAMERA_MAPPING.values()]
         images = list(
             get_images_from_lidar_tokens(
                 log_file=str(source_log_path),
@@ -655,10 +688,8 @@ def _get_ideal_lidar_pc_offset(source_log_path: Path, nuplan_log_db: NuPlanDB) -
                 channels=camera_channels,
             )
         )
-        absolute_time_offset_ms = []
-        for image in images:
-            image_timestamp_us = image.timestamp
-            absolute_time_offset_ms.append(abs(image_timestamp_us - lidar_pc_timestamp_us) / 1e3)
-        average_offsets[offset] = np.mean(absolute_time_offset_ms)
+        if len(images) > 0:
+            absolute_time_offset_ms = [abs(image.timestamp - lidar_pc_timestamp_us) / 1e3 for image in images]
+            average_offsets[offset] = np.mean(absolute_time_offset_ms)
 
     return int(np.argmin(average_offsets))

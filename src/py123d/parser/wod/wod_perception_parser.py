@@ -34,7 +34,7 @@ from py123d.geometry import (
     Vector3D,
     Vector3DIndex,
 )
-from py123d.geometry.transform import reframe_se3_array, rel_to_abs_se3_array
+from py123d.geometry.transform import rel_to_abs_se3, rel_to_abs_se3_array
 from py123d.geometry.utils.constants import DEFAULT_PITCH, DEFAULT_ROLL
 from py123d.geometry.utils.rotation_utils import (
     get_euler_array_from_quaternion_array,
@@ -262,7 +262,7 @@ class WODPerceptionLogParser(BaseLogParser):
                 self._zero_roll_pitch,
                 ego_pose_timestamp,
             )
-            parsed_pinhole_cameras = _extract_wod_perception_cameras(frame, pinhole_cameras_metadata)
+            parsed_pinhole_cameras = _extract_wod_perception_cameras(frame, pinhole_cameras_metadata, map_pose_offset)
             parsed_lidar = _extract_wod_perception_lidar(
                 frame,
                 frame_idx,
@@ -470,58 +470,50 @@ def _extract_wod_perception_box_detections(
 def _extract_wod_perception_cameras(
     frame: dataset_pb2.Frame,
     camera_metadatas: Dict[CameraID, PinholeCameraMetadata],
+    map_pose_offset: Vector3D,
 ) -> List[ParsedCamera]:
     """Extracts the camera data from a WOD Perception frame.
 
     Each camera has its own ``pose_timestamp`` (seconds since epoch) from the proto,
-    which is the time of the ego pose when the camera triggers. The static calibration
-    extrinsic is motion-compensated from the per-camera ego pose to the frame ego pose
-    (``frame.pose``), consistent with how AV2 handles camera extrinsics in sync mode.
+    which is the time of the ego pose when the camera triggers. The global camera pose
+    is computed by composing the per-camera ego pose (``image_proto.pose``) with the
+    static camera-to-vehicle extrinsic from calibration (already stored in
+    ``camera_metadatas[...].camera_to_imu_se3`` with convention conversion applied).
+
+    The ``map_pose_offset`` is applied to the camera ego pose translation to align
+    camera global poses with map features, consistent with how ego and detection poses
+    are offset (see :func:`_get_ego_pose_se3`). In the official Waymo tutorial the
+    offset is added to global-frame coordinates after the vehicle-to-world transform;
+    applying it to the ego pose translation is equivalent.
+
+    This follows the same pattern as AV2, nuPlan, PandaSet, and KITTI-360 parsers.
     """
     camera_data_list: List[ParsedCamera] = []
 
-    # Static calibration extrinsics (camera-to-vehicle, fixed per log)
-    camera_static_extrinsic: Dict[CameraID, PoseSE3] = {}
-    for calibration in frame.context.camera_calibrations:
-        camera_type = WOD_PERCEPTION_CAMERA_IDS[calibration.name]
-        camera_transform = np.array(calibration.extrinsic.transform, dtype=np.float64).reshape(4, 4)
-        camera_pose = PoseSE3.from_transformation_matrix(camera_transform)
-        # NOTE: WOD Perception uses a different camera convention than py123d
-        # https://arxiv.org/pdf/1912.04838 (Figure 1.)
-        camera_pose = convert_camera_convention(
-            camera_pose,
-            from_convention=CameraConvention.pXpZmY,
-            to_convention=CameraConvention.pZmYpX,
-        )
-        camera_static_extrinsic[camera_type] = camera_pose
-
-    # frame.pose is the ego pose at mid-sweep (the reference frame for this ModalitiesSync)
-    frame_ego_pose = PoseSE3.from_transformation_matrix(np.array(frame.pose.transform, dtype=np.float64).reshape(4, 4))
-
     for image_proto in frame.images:
         camera_type = WOD_PERCEPTION_CAMERA_IDS[image_proto.name]
-        static_extrinsic = camera_static_extrinsic[camera_type]
+        metadata = camera_metadatas[camera_type]
 
         # image_proto.pose is the ego pose at the camera trigger time.
-        # Compensate the static extrinsic from the camera's ego frame to the frame's ego frame,
-        # so that lidar-to-camera projection is consistent within this frame.
+        # Apply the same map_pose_offset as for frame.pose (both are in the same global frame).
         camera_ego_pose = PoseSE3.from_transformation_matrix(
             np.array(image_proto.pose.transform, dtype=np.float64).reshape(4, 4)
         )
-        compensated_extrinsic = PoseSE3.from_array(
-            reframe_se3_array(
-                from_origin=camera_ego_pose,
-                to_origin=frame_ego_pose,
-                pose_se3_array=static_extrinsic.array,
-            )
+        camera_ego_pose.array[PoseSE3Index.XYZ] += map_pose_offset.array[Vector3DIndex.XYZ]
+
+        # Compute global camera pose: ego_pose @ camera_to_imu_se3
+        # camera_to_imu_se3 already has the pXpZmY -> pZmYpX convention conversion applied.
+        camera_to_global_se3 = rel_to_abs_se3(
+            origin=camera_ego_pose,
+            pose_se3=metadata.camera_to_imu_se3,
         )
 
         # NOTE: WOD also provides {shutter, camera_trigger_time, camera_readout_done_time}
         camera_data_list.append(
             ParsedCamera(
-                metadata=camera_metadatas[camera_type],
+                metadata=metadata,
                 timestamp=Timestamp.from_s(image_proto.pose_timestamp),
-                extrinsic=compensated_extrinsic,
+                camera_to_global_se3=camera_to_global_se3,
                 byte_string=image_proto.image,
             )
         )

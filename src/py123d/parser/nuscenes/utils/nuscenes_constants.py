@@ -33,7 +33,6 @@ NUSCENES_INTERPOLATED_DATA_SPLITS: Final[List[str]] = [
 TARGET_DT: Final[float] = 0.1
 NUSCENES_DT: Final[float] = 0.5
 NUSCENES_LIDAR_SWEEP_DURATION_US: Final[int] = 50_000  # 1/20s = 50ms, one full lidar rotation
-SORT_BY_TIMESTAMP: Final[bool] = True
 NUSCENES_DETECTION_NAME_DICT = {
     # Vehicles (4+ wheels)
     "vehicle.car": NuScenesBoxDetectionLabel.VEHICLE_CAR,
@@ -84,6 +83,10 @@ NUSCENES_LANE_TYPE_MAPPING: Dict[str, LaneType] = {
 }
 
 # NOTE: The parameters in nuScenes are estimates, and partially taken from the Renault Zoe model [1].
+# The nuScenes ego_pose reference frame is at the midpoint of the rear vehicle axle at ground level.
+# In py123d, this frame is called "IMU" by convention (see EgoStateSE3.from_imu), so
+# rear_axle_to_imu_se3 = identity (ego_pose IS the rear axle frame) and center_to_imu_se3
+# gives the offset from rear axle to the vehicle's geometric center.
 # [1] https://en.wikipedia.org/wiki/Renault_Zoe
 NUSCENES_EGO_STATE_SE3_METADATA = EgoStateSE3Metadata(
     vehicle_name="nuscenes_renault_zoe",
