@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 
 
 class Timestamp:
@@ -36,7 +37,7 @@ class Timestamp:
     @classmethod
     def from_ms(cls, t_ms: float) -> Timestamp:
         instance = object.__new__(cls)
-        setattr(instance, "_time_us", int(t_ms * int(1e3)))
+        setattr(instance, "_time_us", int(t_ms * 1000))
         return instance
 
     @classmethod
@@ -47,7 +48,7 @@ class Timestamp:
         :return: Timestamp.
         """
         instance = object.__new__(cls)
-        setattr(instance, "_time_us", int(t_s * int(1e6)))
+        setattr(instance, "_time_us", int(t_s * 1_000_000))
         return instance
 
     @property
@@ -83,6 +84,14 @@ class Timestamp:
     def __hash__(self) -> int:
         """Hash of the Timestamp based on its microsecond value."""
         return hash(self._time_us)
+
+    def __int__(self) -> int:
+        """Return the timestamp as an integer in microseconds."""
+        return self._time_us
+
+    def __array__(self, dtype: npt.DTypeLike = np.int64, copy: bool = False) -> npt.NDArray:  # noqa: PLW3201
+        """Allow numpy conversion, enabling ``np.array([ts1, ts2, ...])`` to return an int64 array."""
+        return np.asarray(self._time_us, dtype=dtype)
 
     def __repr__(self):
         """String representation of :class:`Timestamp`."""

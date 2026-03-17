@@ -49,7 +49,7 @@ class ArrayMixin:
         """The array representation of the geometric entity."""
         raise NotImplementedError
 
-    def __array__(self, dtype: npt.DTypeLike = None, copy: bool = False) -> npt.NDArray:
+    def __array__(self, dtype: npt.DTypeLike = None, copy: bool = False) -> npt.NDArray:  # noqa: PLW3201
         array = self.array
         return array if dtype is None else array.astype(dtype=dtype, copy=copy)
 
