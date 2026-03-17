@@ -59,7 +59,7 @@ def _get_scene_sync_range(scene_metadata: SceneMetadata, include_history: bool =
     :return: Tuple of (start_idx, end_idx) where end_idx is exclusive.
     """
     start_idx = (
-        scene_metadata.initial_idx - scene_metadata.number_of_history_iterations
+        scene_metadata.initial_idx - scene_metadata.num_history_iterations * scene_metadata.target_iteration_stride
         if include_history
         else scene_metadata.initial_idx
     )
@@ -93,10 +93,11 @@ def get_all_modality_timestamps(
         return []
 
     start_idx, end_idx = _get_scene_sync_range(scene_metadata, include_history)
+    stride = scene_metadata.target_iteration_stride
 
-    # Find first referenced row index (scan forward)
+    # Find first referenced row index (scan forward through strided frames)
     first_row: Optional[int] = None
-    for i in range(start_idx, end_idx):
+    for i in range(start_idx, end_idx, stride):
         first_row = get_modality_index_from_sync_index(sync_table, modality_key, i)
         if first_row is not None:
             break
@@ -104,9 +105,9 @@ def get_all_modality_timestamps(
     if first_row is None:
         return []
 
-    # Find last referenced row index (scan backward)
+    # Find last referenced row index (scan backward through strided frames)
     last_row: Optional[int] = None
-    for i in range(end_idx - 1, start_idx - 1, -1):
+    for i in range(start_idx + ((end_idx - 1 - start_idx) // stride) * stride, start_idx - 1, -stride):
         last_row = get_modality_index_from_sync_index(sync_table, modality_key, i)
         if last_row is not None:
             break

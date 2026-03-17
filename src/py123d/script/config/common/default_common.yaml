@@ -6,7 +6,7 @@ hydra:
 
 defaults:
   - execution: ray_executor
-  - scene_filter: all_scenes
+  - scene_filter: all
   - scene_builder: default_scene_builder
   - override hydra/job_logging: disabled
   - override hydra/hydra_logging: colorlog

@@ -74,7 +74,8 @@ class ArrowSceneAPI(SceneAPI):
     def _get_sync_index(self, iteration: int) -> int:
         """Resolve an iteration (which may be negative for history) to an absolute table index."""
         assert -self.number_of_history_iterations <= iteration < self.number_of_iterations, "Iteration out of bounds"
-        return self.get_scene_metadata().initial_idx + iteration
+        metadata = self.get_scene_metadata()
+        return metadata.initial_idx + iteration * metadata.target_iteration_stride
 
     def _get_log_dir_metadatas(self) -> LogDirectoryMetadata:
         """Helper to get modality metadata for a given modality type and optional id."""
@@ -109,8 +110,9 @@ class ArrowSceneAPI(SceneAPI):
         sync_table = get_sync_table(self._log_dir)
         scene_metadata = self.get_scene_metadata()
         start_idx, end_idx = _get_scene_sync_range(scene_metadata, include_history)
+        stride = scene_metadata.target_iteration_stride
         ts_column = sync_table["sync.timestamp_us"].to_numpy()
-        return [Timestamp.from_us(ts_column[i]) for i in range(start_idx, end_idx)]
+        return [Timestamp.from_us(ts_column[i]) for i in range(start_idx, end_idx, stride)]
 
     def get_scene_timestamp_boundaries(self, include_history: bool = False) -> Tuple[Timestamp, Timestamp]:
         """Inherited, see superclass."""

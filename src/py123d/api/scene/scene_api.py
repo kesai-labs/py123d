@@ -588,13 +588,13 @@ class SceneAPI(abc.ABC):
 
     @property
     def number_of_iterations(self) -> int:
-        """The number of iterations in the scene."""
-        return self.scene_metadata.number_of_iterations
+        """The number of iterations in the scene (includes current frame + future)."""
+        return self.scene_metadata.num_future_iterations + 1
 
     @property
     def number_of_history_iterations(self) -> int:
         """The number of history iterations in the scene."""
-        return self.scene_metadata.number_of_history_iterations
+        return self.scene_metadata.num_history_iterations
 
     @property
     def available_camera_ids(self) -> List[CameraID]:

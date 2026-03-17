@@ -16,6 +16,10 @@ def create_deterministic_uuid(split: str, log_name: str, timestamp_us: int, misc
     """
     # https://en.wikipedia.org/wiki/Universally_unique_identifier#Versions_3_and_5_(namespace_name-based)
 
+    # NOTE @DanielDauner: We use UUIDv5 (SHA-1 based) to generate deterministic UUIDs.
+    # For the string, we use the split name, log name, and microsecond timestamp, s.t. UUIDs are deterministic
+    # and won't change between versions in the converted datasets.
+
     # Create a unique string from all identifying fields
     unique_string = f"{split}:{log_name}:{timestamp_us}"
     if misc:
@@ -26,12 +30,67 @@ def create_deterministic_uuid(split: str, log_name: str, timestamp_us: int, misc
 
 
 def convert_to_str_uuid(uuid_input: Union[str, bytes, uuid.UUID]) -> str:
-    """Convert various UUID input types to a string representation."""
-    if isinstance(uuid_input, str):
-        return uuid_input
-    elif isinstance(uuid_input, bytes):
-        return str(uuid.UUID(bytes=uuid_input))
-    elif isinstance(uuid_input, uuid.UUID):
+    """Convert a UUID input to its normalized string representation.
+
+    Accepts string, bytes (binary(16)), or uuid.UUID inputs. String inputs are validated.
+
+    :param uuid_input: A UUID in any common form.
+    :return: The normalized UUID string (lowercase, hyphenated).
+    :raises ValueError: If a string input is not a valid UUID or the type is unsupported.
+    """
+    if isinstance(uuid_input, uuid.UUID):
         return str(uuid_input)
-    else:
-        raise ValueError(f"Invalid UUID input type: {type(uuid_input)}")
+    if isinstance(uuid_input, bytes):
+        return str(uuid.UUID(bytes=uuid_input))
+    if isinstance(uuid_input, str):
+        try:
+            return str(uuid.UUID(hex=uuid_input))
+        except ValueError:
+            raise ValueError(f"Invalid UUID: '{uuid_input}'. Expected format: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'.")
+    raise ValueError(f"Invalid UUID input type: {type(uuid_input)}")
+
+
+def convert_to_bytes_uuid(uuid_input: Union[str, bytes, uuid.UUID]) -> bytes:
+    """Convert a UUID input to its binary(16) bytes representation.
+
+    Accepts string, bytes (binary(16)), or uuid.UUID inputs. String inputs are validated.
+
+    :param uuid_input: A UUID in any common form.
+    :return: The UUID as 16-byte binary.
+    :raises ValueError: If a string input is not a valid UUID or the type is unsupported.
+    """
+    if isinstance(uuid_input, uuid.UUID):
+        return uuid_input.bytes
+    if isinstance(uuid_input, bytes):
+        if len(uuid_input) != 16:
+            raise ValueError(f"Invalid bytes UUID: expected 16 bytes, got {len(uuid_input)} bytes.")
+        return uuid_input
+    if isinstance(uuid_input, str):
+        try:
+            return uuid.UUID(hex=uuid_input).bytes
+        except ValueError:
+            raise ValueError(f"Invalid UUID: '{uuid_input}'. Expected format: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'.")
+    raise ValueError(f"Invalid UUID input type: {type(uuid_input)}")
+
+
+def convert_to_uuid_object(uuid_input: Union[str, bytes, uuid.UUID]) -> uuid.UUID:
+    """Convert a UUID input to a uuid.UUID object.
+
+    Accepts string, bytes (binary(16)), or uuid.UUID inputs. String inputs are validated.
+
+    :param uuid_input: A UUID in any common form.
+    :return: The UUID as a uuid.UUID object.
+    :raises ValueError: If a string input is not a valid UUID or the type is unsupported.
+    """
+    if isinstance(uuid_input, uuid.UUID):
+        return uuid_input
+    if isinstance(uuid_input, bytes):
+        if len(uuid_input) != 16:
+            raise ValueError(f"Invalid bytes UUID: expected 16 bytes, got {len(uuid_input)} bytes.")
+        return uuid.UUID(bytes=uuid_input)
+    if isinstance(uuid_input, str):
+        try:
+            return uuid.UUID(hex=uuid_input)
+        except ValueError:
+            raise ValueError(f"Invalid UUID: '{uuid_input}'. Expected format: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'.")
+    raise ValueError(f"Invalid UUID input type: {type(uuid_input)}")
