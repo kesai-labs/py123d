@@ -78,8 +78,9 @@ class ArrowCustomModalityReader(ArrowBaseModalityReader):
         data = msgpack_decode_with_numpy(encoded_data)
         return CustomModality(
             data=data,
+            metadata=metadata,
             timestamp=Timestamp.from_us(timestamp_us),
-        )  # type: ignore
+        )
 
     @staticmethod
     def read_column_at_index(

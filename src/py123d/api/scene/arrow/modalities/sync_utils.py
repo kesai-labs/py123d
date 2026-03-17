@@ -59,7 +59,7 @@ def _get_scene_sync_range(scene_metadata: SceneMetadata, include_history: bool =
     :return: Tuple of (start_idx, end_idx) where end_idx is exclusive.
     """
     start_idx = (
-        scene_metadata.initial_idx - scene_metadata.number_of_history_iterations
+        scene_metadata.initial_idx - scene_metadata.num_history_iterations
         if include_history
         else scene_metadata.initial_idx
     )

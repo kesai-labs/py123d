@@ -1,20 +1,24 @@
 _target_: py123d.api.scene.scene_filter.SceneFilter
 _convert_: 'all'
 
+# Category 1: Log discovery
 datasets: ["carla"]
 split_types: null
 split_names: null
 log_names: null
 
+# Category 2: Metadata & log-level
+log_locations: null
+required_log_modalities: null
 
-locations: null
+# Category 3: Scene-level
 scene_uuids: null
+future_duration_s: null
+history_duration_s: null
+future_num_iterations: null
+history_num_iterations: null
 timestamp_threshold_s: null
 
-duration_s: null
-history_s: null
-
-camera_ids: null
-
+# Category 4: Post-filtering
 max_num_scenes: null
 shuffle: False
