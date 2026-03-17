@@ -8,7 +8,7 @@ import pyarrow as pa
 import pytest
 
 from py123d.api.scene.arrow.arrow_scene_builder import _parse_valid_log_dirs
-from py123d.api.scene.arrow.scene_builder_utils import (
+from py123d.api.scene.arrow.utils.scene_builder_utils import (
     check_log_passes_metadata_filters,
     filter_scenes,
     generate_scene_metadatas,
