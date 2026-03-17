@@ -21,7 +21,6 @@ from py123d.datatypes import (
     Timestamp,
 )
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
-from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import (
@@ -280,10 +279,6 @@ class WODPerceptionLogParser(BaseLogParser):
                     *parsed_pinhole_cameras,
                 ],
             )
-
-    def iter_modalities_async(self) -> Iterator[BaseModality]:
-        """Inherited, see superclass."""
-        raise NotImplementedError("Async per-modality iteration is not implemented for WOD Perception.")
 
 
 def _get_initial_frame_from_tfrecord(tf_record_path: Path) -> dataset_pb2.Frame:

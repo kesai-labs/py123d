@@ -33,7 +33,6 @@ from py123d.parser.wod.utils.wod_constants import WOD_MOTION_AVAILABLE_SPLITS, W
 from py123d.parser.wod.wod_map_parser import WODMapParser
 
 if TYPE_CHECKING:
-    from py123d.datatypes.modalities.base_modality import BaseModality
     from py123d.parser.wod.waymo_open_dataset.protos import scenario_pb2
 
 logger = logging.getLogger(__name__)
@@ -229,10 +228,6 @@ class WODMotionLogParser(BaseLogParser):
                     all_traffic_lights[time_idx],
                 ],
             )
-
-    def iter_modalities_async(self) -> Iterator[BaseModality]:
-        """Inherited, see superclass."""
-        raise NotImplementedError("Async per-modality iteration is not implemented for WOD Motion.")
 
 
 def _extract_all_timestamps(scenario: scenario_pb2.Scenario) -> List[Timestamp]:

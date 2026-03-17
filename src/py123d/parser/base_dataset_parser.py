@@ -55,14 +55,19 @@ class BaseLogParser(abc.ABC):
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Yields synchronized modalities of data, one at a time."""
 
-    @abc.abstractmethod
     def iter_modalities_async(self) -> Iterator[BaseModality]:
-        """Yields modality data objects for the given modality metadata.
+        """Yields modality data objects independently for asynchronous writing.
 
-        This is used for asynchronous writing, where modalities are written independently
-        as they are produced, rather than waiting for a full frame to be ready.
-        The orchestrator forwards these to ``writer.write_async(modality, modality_metadata)``.
+        Each modality is yielded as it is produced, rather than waiting for a full
+        synchronized frame. The orchestrator forwards these to
+        ``writer.write_async(modality, modality_metadata)``.
+
+        The default implementation unwraps each :class:`ModalitiesSync` frame from
+        :meth:`iter_modalities_sync`. Override this method to yield modalities at
+        their native sensor rates (e.g., cameras at 20 Hz, lidar at 10 Hz).
         """
+        for modalities_sync in self.iter_modalities_sync():
+            yield from modalities_sync.modalities
 
 
 class ModalitiesSync:

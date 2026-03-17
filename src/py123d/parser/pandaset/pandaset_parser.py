@@ -18,7 +18,6 @@ from py123d.datatypes import (
     Timestamp,
 )
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
-from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, EulerAnglesIndex, PoseSE3
@@ -182,10 +181,6 @@ class PandasetLogParser(BaseLogParser):
                     *parsed_cameras,
                 ],
             )
-
-    def iter_modalities_async(self) -> Iterator[BaseModality]:
-        """Not implemented — Pandaset parser only supports sync conversion."""
-        raise NotImplementedError("Pandaset parser only supports sync conversion via iter_modalities_sync().")
 
 
 def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[Dict[CameraID, PinholeCameraMetadata]]:

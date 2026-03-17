@@ -326,10 +326,6 @@ class Kitti360LogParser(BaseLogParser):
                 modalities=modalities,
             )
 
-    def iter_modalities_async(self) -> Iterator[BaseModality]:
-        """Not implemented — KITTI-360 uses synchronized conversion only."""
-        raise NotImplementedError("KITTI-360 parser only supports synchronized conversion via iter_modalities_sync().")
-
 
 # ------------------------------------------------------------------------------------------------------------------
 # Metadata helpers
