@@ -10,11 +10,12 @@ import pytest
 from py123d.api.scene.arrow.arrow_scene_builder import _parse_valid_log_dirs
 from py123d.api.scene.arrow.utils.scene_builder_utils import (
     check_log_passes_metadata_filters,
-    filter_scenes,
+    filter_scene_metadata_candidates,
     generate_scene_metadatas,
     infer_iteration_duration_s,
     resolve_iteration_counts,
     resolve_scene_uuid_indices,
+    scene_uuids_to_binary,
 )
 from py123d.api.scene.scene_filter import SceneFilter
 from py123d.api.scene.scene_metadata import SceneMetadata
@@ -284,7 +285,7 @@ class TestFilterScenes:
         table = _make_sync_table(num_rows=30, timestep_us=100_000)
         candidates = self._make_candidates(5)  # at indices 0, 5, 10, 15, 20
         f = SceneFilter(timestamp_threshold_s=1.5)  # only keep scenes >= 1.5s apart
-        result = filter_scenes(candidates, f, table)
+        result = filter_scene_metadata_candidates(candidates, f, table)
         # 0 → keep, 5 (0.5s gap) → skip, 10 (1.0s) → skip, 15 (1.5s) → keep, 20 (0.5s from 15) → skip
         assert len(result) == 2
         assert result[0].initial_idx == 0
@@ -317,33 +318,71 @@ class TestFilterScenes:
             ),
         ]
         f = SceneFilter(required_scene_modalities=["camera.front"])
-        result = filter_scenes(candidates, f, table)
+        result = filter_scene_metadata_candidates(candidates, f, table)
         # First scene (idx 0-4) has nulls at 2,3 → filtered out. Second (idx 5-9) is clean.
         assert len(result) == 1
         assert result[0].initial_idx == 5
 
+    def test_iteration_threshold(self):
+        table = _make_sync_table(num_rows=30, timestep_us=100_000)
+        candidates = self._make_candidates(5)  # at indices 0, 5, 10, 15, 20
+        f = SceneFilter(iteration_threshold=12)  # only keep scenes >= 12 iterations apart
+        result = filter_scene_metadata_candidates(candidates, f, table)
+        # 0 → keep, 5 (5 gap) → skip, 10 (10) → skip, 15 (15) → keep, 20 (5 from 15) → skip
+        assert len(result) == 2
+        assert result[0].initial_idx == 0
+        assert result[1].initial_idx == 15
+
+    def test_timestamp_threshold_takes_priority_over_iteration_threshold(self):
+        table = _make_sync_table(num_rows=30, timestep_us=100_000)
+        candidates = self._make_candidates(5)  # at indices 0, 5, 10, 15, 20
+        # timestamp_threshold_s=1.5 keeps 0 and 15; iteration_threshold=3 would keep 0, 5, 10, 15, 20
+        f = SceneFilter(timestamp_threshold_s=1.5, iteration_threshold=3)
+        result = filter_scene_metadata_candidates(candidates, f, table)
+        assert len(result) == 2
+        assert result[0].initial_idx == 0
+        assert result[1].initial_idx == 15
+
     def test_no_filters_passes_all(self):
         table = _make_sync_table(num_rows=20)
         candidates = self._make_candidates(3)
-        result = filter_scenes(candidates, SceneFilter(), table)
+        result = filter_scene_metadata_candidates(candidates, SceneFilter(), table)
         assert len(result) == 3
 
 
 class TestResolveSceneUuidIndices:
     def test_finds_matching_uuids(self):
         table = _make_sync_table(num_rows=10)
-        # Get the UUID at index 3
         from py123d.common.utils.uuid_utils import convert_to_str_uuid
 
         target_uuid = convert_to_str_uuid(table["sync.uuid"][3].as_py())
-        result = resolve_scene_uuid_indices(table, [target_uuid])
+        target_binary = scene_uuids_to_binary([target_uuid])
+        result = resolve_scene_uuid_indices(table, target_binary)
         assert result is not None
         assert 3 in result
 
     def test_no_matches_returns_none(self):
         table = _make_sync_table(num_rows=10)
-        result = resolve_scene_uuid_indices(table, ["nonexistent-uuid"])
+        target_binary = scene_uuids_to_binary(["00000000-0000-0000-0000-000000000000"])
+        result = resolve_scene_uuid_indices(table, target_binary)
         assert result is None
+
+
+class TestSceneFilterUuidValidation:
+    def test_accepts_valid_uuid_strings(self):
+        f = SceneFilter(scene_uuids=["12345678-1234-5678-1234-567812345678"])
+        assert f.scene_uuids == ["12345678-1234-5678-1234-567812345678"]
+
+    def test_accepts_uuid_objects(self):
+        import uuid
+
+        u = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        f = SceneFilter(scene_uuids=[u])
+        assert f.scene_uuids == ["12345678-1234-5678-1234-567812345678"]
+
+    def test_rejects_invalid_uuid(self):
+        with pytest.raises(ValueError, match="Invalid UUID"):
+            SceneFilter(scene_uuids=["not-a-uuid"])
 
 
 class TestCategory1LogDiscovery:

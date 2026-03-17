@@ -12,7 +12,7 @@ import pyarrow as pa
 
 from py123d.api.scene.scene_filter import SceneFilter
 from py123d.api.scene.scene_metadata import SceneMetadata
-from py123d.common.utils.uuid_utils import convert_to_str_uuid
+from py123d.common.utils.uuid_utils import convert_to_bytes_uuid, convert_to_str_uuid
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,8 @@ def infer_iteration_duration_s(sync_table: pa.Table) -> float:
 
     timestamps_us = sync_table["sync.timestamp_us"].to_numpy()
     diffs_us = np.diff(timestamps_us)
+
+    # NOTE @DanielDauner: We are using the median of all timestamp diffs, in case of outliers that could affect mean.
     iteration_duration_s = float(np.median(diffs_us)) / 1_000_000.0
     return iteration_duration_s
 
@@ -69,9 +71,7 @@ def resolve_iteration_counts(filter: SceneFilter, iteration_duration_s: float) -
 
 
 def check_log_passes_metadata_filters(
-    log_metadata: LogMetadata,
-    sync_column_names: List[str],
-    filter: SceneFilter,
+    log_metadata: LogMetadata, sync_column_names: List[str], filter: SceneFilter
 ) -> bool:
     """Check whether a log passes all metadata-level filters (Category 2).
 
@@ -87,6 +87,7 @@ def check_log_passes_metadata_filters(
 
     if filter.has_map is True and map_meta is None:
         return False
+
     if filter.has_map is False and map_meta is not None:
         return False
 
@@ -124,22 +125,23 @@ def check_log_passes_metadata_filters(
 # --- Category 3a: Scene UUID pre-filtering ---
 
 
-def resolve_scene_uuid_indices(sync_table: pa.Table, scene_uuids: List[str]) -> Optional[Set[int]]:
-    """Look up sync table row indices for the given scene UUIDs.
+def scene_uuids_to_binary(scene_uuids: List[str]) -> pa.Array:
+    """Convert a list of UUID or UUID strings to a binary(16) Arrow array."""
+    return pa.array([convert_to_bytes_uuid(s) for s in scene_uuids], type=pa.binary(16))
+
+
+def resolve_scene_uuid_indices(sync_table: pa.Table, target_uuids_binary: pa.Array) -> Optional[Set[int]]:
+    """Look up sync table row indices matching the given binary UUID array.
+
+    Uses Arrow-native ``isin`` for efficient matching without per-row Python conversion.
 
     :param sync_table: The sync Arrow table.
-    :param scene_uuids: List of UUID strings to match.
+    :param target_uuids_binary: Pre-converted binary(16) Arrow array of target UUIDs.
     :return: Set of matching row indices, or None if no UUIDs were found.
     """
-    target_set = set(scene_uuids)
-    uuid_column = sync_table["sync.uuid"]
-    matching_indices: Set[int] = set()
-    for i in range(sync_table.num_rows):
-        row_uuid = convert_to_str_uuid(uuid_column[i].as_py())
-        if row_uuid in target_set:
-            matching_indices.add(i)
-
-    result: Optional[Set[int]] = matching_indices if len(matching_indices) > 0 else None
+    mask = pa.compute.is_in(sync_table["sync.uuid"], value_set=target_uuids_binary)  # type: ignore
+    indices = pa.compute.indices_nonzero(mask).to_pylist()  # type: ignore
+    result: Optional[Set[int]] = set(indices) if len(indices) > 0 else None
     return result
 
 
@@ -156,6 +158,9 @@ def generate_scene_metadatas(
 ) -> List[SceneMetadata]:
     """Generate candidate SceneMetadata objects via temporal slicing.
 
+    NOTE @DanielDauner: This function assumes that the sync table is sorted by time and that iteration duration
+    is constant. We also needs this function to return metadatas in order to apply scene-level filters in the next step.
+
     :param sync_table: The sync Arrow table.
     :param log_metadata: The log metadata.
     :param future_iterations: Number of future iterations per scene, or None for full log.
@@ -166,52 +171,61 @@ def generate_scene_metadatas(
     """
     num_log_iterations = sync_table.num_rows
     uuid_column = sync_table["sync.uuid"]
+    initial_idx = history_iterations
 
-    start_idx = history_iterations
-    end_idx = num_log_iterations - future_iterations if future_iterations is not None else num_log_iterations
-
-    # Mode A: No future duration — single scene spanning entire log
     if future_iterations is None:
-        num_future = max(end_idx - start_idx - 1, 0)
-        scene_metadatas = [
-            SceneMetadata(
-                dataset=log_metadata.dataset,
-                split=log_metadata.split,
-                initial_uuid=convert_to_str_uuid(uuid_column[start_idx].as_py()),
-                initial_idx=start_idx,
-                num_future_iterations=num_future,
-                num_history_iterations=history_iterations,
-                future_duration_s=num_future * iteration_duration_s,
-                history_duration_s=history_iterations * iteration_duration_s,
-                iteration_duration_s=iteration_duration_s,
+        # Mode A: No future duration — each scene spans from its start index to the end of the log.
+        # Without UUIDs: single scene from initial_idx.
+        # With UUIDs: one scene per UUID position.
+        if scene_uuid_indices is not None:
+            candidate_indices = sorted(idx for idx in scene_uuid_indices if idx >= initial_idx)
+        else:
+            candidate_indices = [initial_idx]
+
+        scene_metadatas: List[SceneMetadata] = []
+        for idx in candidate_indices:
+            num_future = max(num_log_iterations - idx - 1, 0)
+            scene_metadatas.append(
+                SceneMetadata(
+                    dataset=log_metadata.dataset,
+                    split=log_metadata.split,
+                    initial_uuid=convert_to_str_uuid(uuid_column[idx].as_py()),
+                    initial_idx=idx,
+                    num_future_iterations=num_future,
+                    num_history_iterations=history_iterations,
+                    future_duration_s=num_future * iteration_duration_s,
+                    history_duration_s=history_iterations * iteration_duration_s,
+                    iteration_duration_s=iteration_duration_s,
+                )
             )
-        ]
-        return scene_metadatas
 
-    # Mode B: With future duration — sliding window
-    step_idx = future_iterations if future_iterations > 0 else 1
-    scene_metadatas: List[SceneMetadata] = []
-
-    if scene_uuid_indices is not None:
-        # Only generate scenes at pre-filtered UUID positions
-        candidate_indices = sorted(idx for idx in scene_uuid_indices if start_idx <= idx < end_idx)
     else:
-        candidate_indices = list(range(start_idx, end_idx, step_idx))
+        # Mode B: With future duration — each scene has fixed future and history iteration counts.
+        # Without UUIDs: sliding window.
+        # With UUIDs: scenes start at each UUID position, but only if a full future can fit until the end of the log.
+        end_idx = num_log_iterations - future_iterations
+        step_idx = max(future_iterations, 1)
+        scene_metadatas: List[SceneMetadata] = []
 
-    for idx in candidate_indices:
-        scene_metadatas.append(
-            SceneMetadata(
-                dataset=log_metadata.dataset,
-                split=log_metadata.split,
-                initial_uuid=convert_to_str_uuid(uuid_column[idx].as_py()),
-                initial_idx=idx,
-                num_future_iterations=future_iterations,
-                num_history_iterations=history_iterations,
-                future_duration_s=future_iterations * iteration_duration_s,
-                history_duration_s=history_iterations * iteration_duration_s,
-                iteration_duration_s=iteration_duration_s,
+        if scene_uuid_indices is not None:
+            candidate_indices = sorted(idx for idx in scene_uuid_indices if initial_idx <= idx < end_idx)
+        else:
+            candidate_indices = list(range(initial_idx, end_idx, step_idx))
+
+        for idx in candidate_indices:
+            scene_metadatas.append(
+                SceneMetadata(
+                    dataset=log_metadata.dataset,
+                    split=log_metadata.split,
+                    initial_uuid=convert_to_str_uuid(uuid_column[idx].as_py()),
+                    initial_idx=idx,
+                    num_future_iterations=future_iterations,
+                    num_history_iterations=history_iterations,
+                    future_duration_s=future_iterations * iteration_duration_s,
+                    history_duration_s=history_iterations * iteration_duration_s,
+                    iteration_duration_s=iteration_duration_s,
+                )
             )
-        )
 
     return scene_metadatas
 
@@ -219,7 +233,7 @@ def generate_scene_metadatas(
 # --- Category 3c: Scene-level filtering ---
 
 
-def filter_scenes(
+def filter_scene_metadata_candidates(
     scene_metadatas: List[SceneMetadata],
     filter: SceneFilter,
     sync_table: pa.Table,
@@ -231,7 +245,18 @@ def filter_scenes(
     :param sync_table: The sync Arrow table.
     :return: Filtered list of SceneMetadata objects.
     """
-    # 1. Timestamp threshold: enforce minimum time gap between consecutive scenes
+
+    # 1. Required scene modalities: verify no nulls in scene's frame range
+    if filter.required_scene_modalities is not None:
+        sync_column_names = set(sync_table.column_names)
+        modality_keys = [k for k in filter.required_scene_modalities if k in sync_column_names]
+        if modality_keys:
+            scene_metadatas = [
+                s for s in scene_metadatas if _scene_has_complete_modalities(s, sync_table, modality_keys)
+            ]
+
+    # 2. Timestamp threshold: enforce minimum time gap between consecutive scenes
+    #    timestamp_threshold_s takes priority over iteration_threshold.
     if filter.timestamp_threshold_s is not None:
         timestamps_us = sync_table["sync.timestamp_us"].to_numpy()
         filtered: List[SceneMetadata] = []
@@ -242,15 +267,15 @@ def filter_scenes(
                     continue
             filtered.append(scene)
         scene_metadatas = filtered
-
-    # 2. Required scene modalities: verify no nulls in scene's frame range
-    if filter.required_scene_modalities is not None:
-        sync_column_names = set(sync_table.column_names)
-        modality_keys = [k for k in filter.required_scene_modalities if k in sync_column_names]
-        if modality_keys:
-            scene_metadatas = [
-                s for s in scene_metadatas if _scene_has_complete_modalities(s, sync_table, modality_keys)
-            ]
+    elif filter.iteration_threshold is not None:
+        filtered = []
+        for scene in scene_metadatas:
+            if len(filtered) > 0:
+                iteration_delta = scene.initial_idx - filtered[-1].initial_idx
+                if iteration_delta < filter.iteration_threshold:
+                    continue
+            filtered.append(scene)
+        scene_metadatas = filtered
 
     return scene_metadatas
 

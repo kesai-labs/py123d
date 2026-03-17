@@ -4,14 +4,17 @@ from functools import partial
 from pathlib import Path
 from typing import List, Optional, Union
 
+import pyarrow as pa
+
 from py123d.api.scene.arrow.arrow_scene_api import ArrowSceneAPI
 from py123d.api.scene.arrow.utils.scene_builder_utils import (
     check_log_passes_metadata_filters,
-    filter_scenes,
+    filter_scene_metadata_candidates,
     generate_scene_metadatas,
     infer_iteration_duration_s,
     resolve_iteration_counts,
     resolve_scene_uuid_indices,
+    scene_uuids_to_binary,
 )
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_builder import SceneBuilder
@@ -59,9 +62,16 @@ class ArrowSceneBuilder(SceneBuilder):
             return []
 
         # Categories 2 & 3: Metadata filtering + scene generation (parallelized across logs)
+        # Pre-convert scene UUIDs to binary once (shared across all executor workers)
+        target_uuids_binary = scene_uuids_to_binary(filter.scene_uuids) if filter.scene_uuids is not None else None
         scenes_scattered: List[List[SceneAPI]] = executor_map_queued(
             executor,
-            partial(_extract_scenes_from_log_dir, filter=filter, maps_root=self._maps_root),
+            partial(
+                _extract_scenes_from_log_dir,
+                filter=filter,
+                maps_root=self._maps_root,
+                target_uuids_binary=target_uuids_binary,
+            ),
             log_paths,
         )
         scenes = [scene for scene_list in scenes_scattered for scene in scene_list]
@@ -115,16 +125,18 @@ def _extract_scenes_from_log_dir(
     log_dir: Path,
     filter: SceneFilter,
     maps_root: Optional[Path],
+    target_uuids_binary: Optional[pa.Array] = None,
 ) -> List[SceneAPI]:
     """Extract scenes from a single log directory (Categories 2 & 3).
 
     :param log_dir: Path to the log directory.
     :param filter: The scene filter.
     :param maps_root: Root directory for map files.
+    :param target_uuids_binary: Pre-converted binary(16) Arrow array of target UUIDs, or None.
     :return: List of SceneAPI objects for this log.
     """
     try:
-        scene_metadatas = _get_scene_metadatas_from_log(log_dir, filter)
+        scene_metadatas = _get_scene_metadatas_from_log(log_dir, filter, target_uuids_binary)
     except Exception as e:
         logger.warning("Error extracting scenes from %s: %s", log_dir, e)
         logger.debug("Full traceback for %s:", log_dir, exc_info=True)
@@ -136,7 +148,11 @@ def _extract_scenes_from_log_dir(
     return scenes
 
 
-def _get_scene_metadatas_from_log(log_dir: Path, filter: SceneFilter) -> List[SceneMetadata]:
+def _get_scene_metadatas_from_log(
+    log_dir: Path,
+    filter: SceneFilter,
+    target_uuids_binary: Optional[pa.Array] = None,
+) -> List[SceneMetadata]:
     """Get scene metadatas from a log directory using the three-phase pipeline.
 
     Phase 1 (Category 2): Log-level metadata filtering
@@ -156,18 +172,23 @@ def _get_scene_metadatas_from_log(log_dir: Path, filter: SceneFilter) -> List[Sc
 
     # Phase 2: Category 3a — UUID pre-filtering (skip full scan if UUIDs specified)
     scene_uuid_indices = None
-    if filter.scene_uuids is not None:
-        scene_uuid_indices = resolve_scene_uuid_indices(sync_table, filter.scene_uuids)
+    if target_uuids_binary is not None:
+        scene_uuid_indices = resolve_scene_uuid_indices(sync_table, target_uuids_binary)
         if scene_uuid_indices is None:
             return []
 
     # Phase 2: Category 3b — candidate scene generation
     candidates = generate_scene_metadatas(
-        sync_table, log_metadata, future_iterations, history_iterations, iteration_duration_s, scene_uuid_indices
+        sync_table,
+        log_metadata,
+        future_iterations,
+        history_iterations,
+        iteration_duration_s,
+        scene_uuid_indices,
     )
 
     # Phase 3: Category 3c — scene-level filtering
-    result = filter_scenes(candidates, filter, sync_table)
+    result = filter_scene_metadata_candidates(candidates, filter, sync_table)
     return result
 
 
@@ -193,7 +214,7 @@ def _apply_post_filters(scenes: List[SceneAPI], filter: SceneFilter) -> List[Sce
         end = start + chunk_size if filter.chunk_idx < filter.num_chunks - 1 else len(scenes)
         scenes = scenes[start:end]
 
-    # 4.3 Shuffle and max
+    # 4.3 Shuffle and cap max number of scenes
     if filter.shuffle:
         random.shuffle(scenes)
 

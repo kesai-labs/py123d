@@ -17,7 +17,6 @@ history_duration_s: null
 future_num_iterations: null
 history_num_iterations: null
 timestamp_threshold_s: null
-ego_displacement_minimum_m: null
 
 # Category 4: Post-filtering
 max_num_scenes: null

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from py123d.api.scene.scene_api import SceneAPI
+from py123d.common.utils.uuid_utils import convert_to_str_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -64,17 +65,26 @@ class SceneFilter:
     history_duration_s: Optional[float] = None
     """History duration of each scene in seconds."""
 
+    timestamp_threshold_s: Optional[float] = None
+    """Minimum time between the start timestamps of two consecutive scenes in seconds."""
+
+    # TODO: Implement in the future.
+    # iteration_stride: int = 1
+    # """Redefines the unit of one iteration by skipping every N raw log frames.
+    # A stride of 1 (default) uses the native log frequency.
+    # A stride of 5 on a 10 Hz log yields an effective 2 Hz iteration rate.
+    # Only affects fields expressed in iterations (future_num_iterations,
+    # history_num_iterations, iteration_threshold); duration-based fields
+    # (future_duration_s etc.) are unaffected."""
+
     future_num_iterations: Optional[int] = None
     """Number of iterations in the future for each scene, ignored if future_duration_s is provided."""
 
     history_num_iterations: Optional[int] = None
     """Number of iterations in the history for each scene, ignored if history_duration_s is provided."""
 
-    timestamp_threshold_s: Optional[float] = None
-    """Minimum time between the start timestamps of two consecutive scenes in seconds."""
-
-    ego_displacement_minimum_m: Optional[float] = None
-    """Minimum displacement of the ego vehicle in meters between the start timestamps of two consecutive scenes."""
+    iteration_threshold: Optional[float] = None
+    """Minimum number of iterations between two consecutive scenes, ignored if timestamp_threshold_s is provided."""
 
     required_scene_modalities: Optional[List[str]] = None
     """List of modality ids or keys that must be present in a scene for it to be included."""
@@ -125,6 +135,8 @@ class SceneFilter:
         self.log_locations = _deduplicate_optional(self.log_locations)
 
         # 3. Category
+        if self.scene_uuids is not None:
+            self.scene_uuids = [convert_to_str_uuid(s) for s in self.scene_uuids]
         self.scene_uuids = _deduplicate_optional(self.scene_uuids)
         self.required_scene_modalities = _deduplicate_optional(self.required_scene_modalities)
 
@@ -132,11 +144,13 @@ class SceneFilter:
             logger.warning("Both future_duration_s and future_num_iterations set; future_duration_s takes priority.")
         if self.history_duration_s is not None and self.history_num_iterations is not None:
             logger.warning("Both history_duration_s and history_num_iterations set; history_duration_s takes priority.")
+        if self.timestamp_threshold_s is not None and self.iteration_threshold is not None:
+            logger.warning(
+                "Both timestamp_threshold_s and iteration_threshold set; timestamp_threshold_s takes priority."
+            )
 
         # Passing any required log modalities upward to category 2, for earlier log-level filtering.
         _required_log_modalities = self.required_log_modalities or []
-        if self.ego_displacement_minimum_m is not None:
-            _required_log_modalities += ["ego_pose_se3"]
         if self.required_scene_modalities is not None:
             _required_log_modalities += self.required_scene_modalities
         self.required_log_modalities = _deduplicate_optional(_required_log_modalities)
