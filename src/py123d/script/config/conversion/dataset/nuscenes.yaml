@@ -2,7 +2,7 @@ parser:
   _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
   _convert_: 'all'
 
-  splits: ["nuscenes_train", "nuscenes_val"]
+  splits: ["nuscenes_train", "nuscenes_val", "nuscenes_test"]
   nuscenes_data_root: ${dataset_paths.nuscenes_data_root}
   nuscenes_map_root: ${dataset_paths.nuscenes_map_root}
 

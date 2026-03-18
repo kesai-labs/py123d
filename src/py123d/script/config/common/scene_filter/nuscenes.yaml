@@ -1,0 +1,30 @@
+_target_: py123d.api.scene.scene_filter.SceneFilter
+_convert_: 'all'
+
+datasets: ["nuscenes"]
+split_types: null
+split_names: null
+log_names: null
+
+has_map: null
+map_has_z: null
+map_locations: null
+map_version: null
+log_locations: null
+log_version: null
+
+scene_uuids: null
+target_iteration_duration_s: null
+future_duration_s: null
+history_duration_s: null
+timestamp_threshold_s: null
+target_iteration_stride: null
+future_num_iterations: null
+history_num_iterations: null
+iteration_threshold: null
+required_scene_modalities: null
+
+num_chunks: null
+chunk_idx: null
+max_num_scenes: null
+shuffle: False
