@@ -60,6 +60,15 @@ class MapAPI(abc.ABC):
         """
 
     @abc.abstractmethod
+    def get_all_map_objects_in_layers(self, layers: List[MapLayer]) -> Iterator[BaseMapObject]:
+        """Returns an iterator of all :class:`~p123d.datatypes.map_objects.base_map_object.BaseMapObject` in
+            the specified layers.
+
+        :param layers: A list of map layers.
+        :return: An iterator of all map objects in the specified layers
+        """
+
+    @abc.abstractmethod
     def get_map_objects_in_radius(
         self,
         point: Union[Point2D, Point3D],

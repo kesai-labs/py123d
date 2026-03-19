@@ -131,6 +131,11 @@ class ArrowMapAPI(MapAPI):
             )
             yield map_object
 
+    def get_all_map_objects_in_layers(self, layers: List[MapLayer]) -> Iterator[BaseMapObject]:
+        """Inherited, see superclass."""
+        for layer in layers:
+            yield from self.get_all_map_objects_in_layer(layer)
+
     def get_map_objects_in_radius(
         self,
         point: Union[Point2D, Point3D],
