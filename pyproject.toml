@@ -42,7 +42,7 @@ dependencies = [
     "hydra_colorlog",
     "hydra-core",
     "trimesh",
-    "viser",
+    "viser>=1.0.24",
     "laspy[lazrs]",
     "DracoPy",
     "omegaconf",

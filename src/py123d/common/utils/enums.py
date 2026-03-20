@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import sys
-from typing import Union
+from typing import List, Optional, Sequence, Type, Union
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -56,3 +56,14 @@ class SerialIntEnum(enum.Enum):
             return cls.deserialize(value)
         else:
             raise ValueError(f"Invalid value for {cls.__name__}: {value}")
+
+
+def resolve_enum_arguments(
+    serial_enum_cls: Type[SerialIntEnum], input: Optional[Sequence[Union[int, str, SerialIntEnum]]]
+) -> Optional[List[SerialIntEnum]]:
+    """Resolve a list of arbitrary enum representations to proper enum instances."""
+    if input is None:
+        return None
+    if not isinstance(input, (list, tuple)):
+        raise TypeError(f"input must be a list of {serial_enum_cls.__name__}, got {type(input)}")
+    return [serial_enum_cls.from_arbitrary(value) for value in input]

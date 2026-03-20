@@ -32,7 +32,7 @@ log_writer:
   sync_config:
     _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
     _convert_: 'all'
-    reference_column: lidar.lidar_merged.timestamp_us
+    reference_column: box_detections_se3.timestamp_us
     direction: "forward" # "forward" or "backward"
 
 map_writer:

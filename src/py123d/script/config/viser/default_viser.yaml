@@ -21,57 +21,20 @@ viser_config:
   _target_: py123d.visualization.viser.viser_config.ViserConfig
   _convert_: 'all'
 
-  # Server
-  server_host: "localhost"
-  server_port: 8080
-  server_label: "123D Viser Server"
-  server_verbose: true
+  server:
+    host: "localhost"
+    port: 8080
+    label: "123D Viser Server"
+    verbose: true
 
-  # Theme
-  theme_control_layout: "floating" # ["floating", "collapsible", "fixed"]
-  theme_control_width: "large" # ["small", "medium", "large"]
-  theme_dark_mode: false
-  theme_show_logo: true
-  theme_show_share_button: true
-  # theme_brand_color: # Loads ellis blue by default
+  theme:
+    control_layout: "collapsible" # ["floating", "collapsible", "fixed"]
+    control_width: "large" # ["small", "medium", "large"]
+    dark_mode: true
+    show_logo: true
+    show_share_button: true
 
-  # Play Controls
-  is_playing: false
-  playback_speed: 1.0
-
-  # Map
-  map_visible: true
-  map_radius: 200.0
-  map_non_road_z_offset: 0.1
-  map_requery: true
-
-  # Bounding boxes
-  bounding_box_visible: true
-  bounding_box_type: "mesh" # ["mesh", "lines"]
-  bounding_box_line_width: 4.0
-
-  # Pinhole Cameras
-  # -> Frustum
-  camera_frustum_visible: true
-  # camera_frustum_types: null # Loads all by default
-  camera_frustum_scale: 1.0
-  camera_frustum_image_scale: 4
-
-  # -> GUI
-  camera_gui_visible: true
-  # camera_gui_types: null # Loads front camera by default
-  camera_gui_image_scale: 4
-
-  # Fisheye MEI Cameras
-  # -> Frustum
-  fisheye_frustum_visible: true
-  fisheye_mei_camera_frustum_visible: true
-  # fisheye_mei_camera_frustum_types: [] # Loads all by default
-  fisheye_frustum_scale: 1.0
-  fisheye_frustum_image_scale: 4
-
-  # Lidar
-  lidar_visible: true
-  # lidar_ids: [] # Loads all by default
-  lidar_point_size: 0.05
-  lidar_point_shape: "circle" # ["square", "diamond", "circle", "rounded", "sparkle"]
+  playback:
+    is_playing: false
+    speed: 1.0
+    atomic: false

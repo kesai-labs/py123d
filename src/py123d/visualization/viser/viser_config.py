@@ -1,99 +1,68 @@
 from dataclasses import dataclass, field
-from typing import List, Literal, Optional, Tuple, Union
+from typing import Literal, Optional, Tuple
 
-from py123d.common.utils.enums import SerialIntEnum
-from py123d.datatypes.sensors.base_camera import ALL_FISHEYE_MEI_CAMERA_IDS, ALL_PINHOLE_CAMERA_IDS, CameraID
-from py123d.datatypes.sensors.lidar import LidarID
 from py123d.visualization.color.color import ELLIS_5
+from py123d.visualization.viser.camera_gui_controller import CameraGuiConfig
+from py123d.visualization.viser.elements.box_detections_se3_element import DetectionConfig
+from py123d.visualization.viser.elements.camera_frustum_element import CameraFrustumConfig
+from py123d.visualization.viser.elements.ego_state_se3_element import EgoConfig
+from py123d.visualization.viser.elements.lidar_element import LidarConfig
+from py123d.visualization.viser.elements.map_element import MapConfig
+from py123d.visualization.viser.playback_controller import PlaybackConfig
+from py123d.visualization.viser.render_controller import RenderConfig
+
+CONTRAST_COLOR = (255, 255, 255)
+
+
+@dataclass
+class ServerConfig:
+    host: str = "localhost"
+    port: int = 8080
+    label: str = "123D Viser Server"
+    verbose: bool = True
+
+
+@dataclass
+class ThemeConfig:
+    control_layout: Literal["floating", "collapsible", "fixed"] = "floating"
+    control_width: Literal["small", "medium", "large"] = "large"
+    dark_mode: bool = False
+    show_logo: bool = True
+    show_share_button: bool = True
+    brand_color: Optional[Tuple[int, int, int]] = ELLIS_5[0].rgb
+
+
+_SUB_CONFIG_FIELDS = {
+    "server": ServerConfig,
+    "theme": ThemeConfig,
+    "playback": PlaybackConfig,
+    "map": MapConfig,
+    "ego": EgoConfig,
+    "detection": DetectionConfig,
+    "camera_frustum": CameraFrustumConfig,
+    "camera_gui": CameraGuiConfig,
+    "lidar": LidarConfig,
+    "render": RenderConfig,
+}
 
 
 @dataclass
 class ViserConfig:
-    # Server
-    server_host: str = "localhost"
-    server_port: int = 8080
-    server_label: str = "123D Viser Server"
-    server_verbose: bool = True
-
-    # Theme
-    theme_control_layout: Literal["floating", "collapsible", "fixed"] = "floating"
-    theme_control_width: Literal["small", "medium", "large"] = "large"
-    theme_dark_mode: bool = False
-    theme_show_logo: bool = True
-    theme_show_share_button: bool = True
-    theme_brand_color: Optional[Tuple[int, int, int]] = ELLIS_5[4].rgb
-
-    # Play Controls
-    is_playing: bool = False
-    playback_speed: float = 1.0  # Multiplier for real-time speed
-
-    # Map
-    map_visible: bool = True
-    map_radius: float = 200.0  # [m]
-    map_non_road_z_offset: float = 0.1  # small z-translation to place crosswalks, parking, etc. on top of the road
-    map_requery: bool = True  # Re-query map when ego vehicle moves out of current map bounds
-
-    # Bounding boxes
-    bounding_box_visible: bool = True
-    bounding_box_type: Literal["mesh", "lines"] = "mesh"
-    bounding_box_line_width: float = 4.0
-
-    # Pinhole Cameras
-    # -> Frustum
-    camera_frustum_visible: bool = True
-    camera_frustum_types: List[CameraID] = field(default_factory=lambda: ALL_PINHOLE_CAMERA_IDS.copy())
-    camera_frustum_scale: float = 1.0
-    camera_frustum_image_scale: int = 4  # Downscale denominator for the camera image
-
-    # -> GUI
-    camera_gui_visible: bool = True
-    camera_gui_types: List[CameraID] = field(default_factory=lambda: [CameraID.PCAM_F0].copy())
-    camera_gui_image_scale: int = 4  # Downscale denominator for the camera image shown in the GUI
-
-    # Fisheye MEI Cameras
-    # -> Frustum
-    fisheye_frustum_visible: bool = True
-    fisheye_mei_camera_frustum_visible: bool = True
-    fisheye_mei_camera_frustum_types: List[CameraID] = field(default_factory=lambda: ALL_FISHEYE_MEI_CAMERA_IDS.copy())
-    fisheye_frustum_scale: float = 1.0
-    fisheye_frustum_image_scale: int = 4  # Downscale denominator for the camera image shown on the frustum
-
-    # Lidar
-    lidar_visible: bool = True
-    lidar_ids: List[LidarID] = field(default_factory=lambda: [LidarID.LIDAR_MERGED])
-    lidar_point_size: float = 0.05
-    lidar_point_shape: Literal["square", "diamond", "circle", "rounded", "sparkle"] = "circle"
-    lidar_point_color: Literal["none", "distance", "intensity", "channel", "timestamps", "range", "elongation"] = "none"
-
-    # internal use
-    _force_map_update: bool = False
+    server: ServerConfig = field(default_factory=ServerConfig)
+    theme: ThemeConfig = field(default_factory=ThemeConfig)
+    playback: PlaybackConfig = field(default_factory=PlaybackConfig)
+    map: MapConfig = field(default_factory=MapConfig)
+    ego: EgoConfig = field(default_factory=EgoConfig)
+    detection: DetectionConfig = field(default_factory=DetectionConfig)
+    camera_frustum: CameraFrustumConfig = field(default_factory=CameraFrustumConfig)
+    camera_gui: CameraGuiConfig = field(default_factory=CameraGuiConfig)
+    lidar: LidarConfig = field(default_factory=LidarConfig)
+    render: RenderConfig = field(default_factory=RenderConfig)
 
     def __post_init__(self):
-        def _resolve_enum_arguments(
-            serial_enum_cls: SerialIntEnum, input: Optional[List[Union[int, str, SerialIntEnum]]]
-        ) -> List[SerialIntEnum]:
-            if input is None:
-                return None
-            assert isinstance(input, list), f"input must be a list of {serial_enum_cls.__name__}"
-            return [serial_enum_cls.from_arbitrary(value) for value in input]
-
-        self.camera_frustum_types = _resolve_enum_arguments(
-            CameraID,
-            self.camera_frustum_types,
-        )
-        self.camera_gui_types = _resolve_enum_arguments(
-            CameraID,
-            self.camera_gui_types,
-        )
-        self.fisheye_mei_camera_frustum_types = _resolve_enum_arguments(
-            CameraID,
-            self.fisheye_mei_camera_frustum_types,
-        )
-        self.lidar_ids = _resolve_enum_arguments(
-            LidarID,
-            self.lidar_ids,
-        )
-
-        self.camera_gui_image_scale = int(self.camera_gui_image_scale)
-        self.camera_frustum_image_scale = int(self.camera_frustum_image_scale)
-        self.fisheye_frustum_image_scale = int(self.fisheye_frustum_image_scale)
+        # Hydra instantiate with _convert_='all' produces plain dicts for nested configs.
+        # Convert them to the proper dataclass types.
+        for field_name, config_cls in _SUB_CONFIG_FIELDS.items():
+            value = getattr(self, field_name)
+            if isinstance(value, dict):
+                setattr(self, field_name, config_cls(**value))

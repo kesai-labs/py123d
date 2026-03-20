@@ -37,7 +37,6 @@ from py123d.parser.nuscenes.utils.nuscenes_map_utils import (
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,
-    split_polygon_by_grid,
 )
 
 check_dependencies(["nuscenes"], optional_name="nuscenes")
@@ -359,14 +358,14 @@ def _extract_nuscenes_carparks(nuscenes_map: NuScenesMap) -> List[Carpark]:
 
 def _extract_nuscenes_generic_drivables(nuscenes_map: NuScenesMap) -> List[GenericDrivable]:
     """Extract generic drivable area data from a nuScenes map."""
-    cell_size = 20.0
+    # cell_size = 20.0
     drivable_polygons = []
     for drivable_area_record in nuscenes_map.drivable_area:
         drivable_area = nuscenes_map.get("drivable_area", drivable_area_record["token"])
         for polygon_token in drivable_area["polygon_tokens"]:
             polygon = nuscenes_map.extract_polygon(polygon_token)
-            split_polygons = split_polygon_by_grid(polygon, cell_size=cell_size)
-            drivable_polygons.extend(split_polygons)
+            # split_polygons = split_polygon_by_grid(polygon, cell_size=cell_size)
+            drivable_polygons.append(polygon)
 
     return [GenericDrivable(object_id=idx, shapely_polygon=geometry) for idx, geometry in enumerate(drivable_polygons)]
 
