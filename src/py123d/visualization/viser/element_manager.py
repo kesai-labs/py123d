@@ -36,6 +36,11 @@ class ElementManager:
             except Exception:
                 logger.warning("Failed to update element '%s' at iteration %d", element.name, iteration, exc_info=True)
 
+    def notify_dark_mode_changed(self, dark_mode: bool) -> None:
+        """Notify all registered elements that dark mode has changed."""
+        for element in self._elements:
+            element.on_dark_mode_changed(dark_mode)
+
     def remove_all(self) -> None:
         """Remove all scene handles from all registered elements."""
         for element in self._elements:

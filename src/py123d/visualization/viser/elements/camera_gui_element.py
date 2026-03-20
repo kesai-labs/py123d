@@ -1,13 +1,26 @@
 import logging
-from typing import Dict, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 import viser
 
+from py123d.common.utils.enums import resolve_enum_arguments
 from py123d.datatypes.sensors.base_camera import CameraID
 from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
-from py123d.visualization.viser.viser_config import CameraGuiConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CameraGuiConfig:
+    visible: bool = True
+    types: List[CameraID] = field(default_factory=lambda: [CameraID.PCAM_F0])
+    image_scale: int = 4
+
+    def __post_init__(self):
+        self.types = resolve_enum_arguments(CameraID, self.types)
+        self.image_scale = int(self.image_scale)
+
 
 _IMAGE_SCALE_OPTIONS = ("1", "2", "4", "8")
 

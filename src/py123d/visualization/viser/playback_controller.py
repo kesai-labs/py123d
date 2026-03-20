@@ -1,14 +1,21 @@
 import logging
 import time
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 import viser
 
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.visualization.viser.elements.base_element import ElementContext
-from py123d.visualization.viser.viser_config import PlaybackConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PlaybackConfig:
+    is_playing: bool = False
+    speed: float = 1.0
+    atomic: bool = True
 
 
 class PlaybackController:
@@ -31,6 +38,7 @@ class PlaybackController:
         self._gui_timestep: Optional[viser.GuiSliderHandle] = None
         self._gui_playing: Optional[viser.GuiCheckboxHandle] = None
         self._gui_speed: Optional[viser.GuiSliderHandle] = None
+        self._gui_atomic: Optional[viser.GuiCheckboxHandle] = None
 
     @property
     def current_iteration(self) -> int:
@@ -71,13 +79,22 @@ class PlaybackController:
                 "Playback speed", min=0.1, max=10.0, step=0.1, initial_value=self._config.speed
             )
             gui_speed_options = self._server.gui.add_button_group("Options.", ("0.5", "1.0", "2.0", "5.0", "10.0"))
+            self._gui_atomic = self._server.gui.add_checkbox("Atomic Updates", self._config.atomic)
+
+            @self._gui_atomic.on_update
+            def _on_atomic_changed(_) -> None:
+                self._config.atomic = self._gui_atomic.value
 
             # Timestep change -> update all elements
             @self._gui_timestep.on_update
             def _on_timestep_changed(_) -> None:
                 if self._on_iteration_changed is not None:
                     start = time.perf_counter()
-                    self._on_iteration_changed(self._gui_timestep.value)
+                    if self._gui_atomic.value:
+                        with self._server.atomic():
+                            self._on_iteration_changed(self._gui_timestep.value)
+                    else:
+                        self._on_iteration_changed(self._gui_timestep.value)
                     rendering_time = time.perf_counter() - start
 
                     base_frame_time = scene.log_metadata.timestep_seconds

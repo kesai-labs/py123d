@@ -1,17 +1,33 @@
 import logging
-from typing import Dict, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Literal, Optional
 
 import numpy as np
 import viser
 
+from py123d.common.utils.enums import resolve_enum_arguments
 from py123d.datatypes.sensors.lidar import LidarID
 from py123d.geometry import PoseSE3Index
 from py123d.geometry.transform.transform_se3 import rel_to_abs_points_3d_array
 from py123d.visualization.matplotlib.lidar import get_lidar_pc_color
 from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
-from py123d.visualization.viser.viser_config import LidarConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LidarConfig:
+    visible: bool = True
+    ids: List[LidarID] = field(default_factory=lambda: [LidarID.LIDAR_MERGED])
+    point_size: float = 0.02
+    point_shape: Literal["square", "diamond", "circle", "rounded", "sparkle"] = "circle"
+    point_color: Literal[
+        "none", "height", "distance", "ids", "intensity", "channel", "timestamps", "range", "elongation"
+    ] = "none"
+    stride_step: int = 1
+
+    def __post_init__(self):
+        self.ids = resolve_enum_arguments(LidarID, self.ids)
 
 
 class LidarElement(ViewerElement):
@@ -27,6 +43,7 @@ class LidarElement(ViewerElement):
         self._gui_lidar_id: Optional[viser.GuiDropdownHandle] = None
         self._gui_point_size: Optional[viser.GuiInputHandle] = None
         self._gui_stride_step: Optional[viser.GuiInputHandle] = None
+        self._dark_mode: bool = context.dark_mode
         self._current_iteration: int = 0
 
     @property
@@ -41,7 +58,7 @@ class LidarElement(ViewerElement):
         self._gui_visible = server.gui.add_checkbox("Visible", self._config.visible)
         self._gui_coloring = server.gui.add_dropdown(
             "Coloring",
-            ("none", "distance", "ids", "intensity", "channel", "timestamps", "range", "elongation"),
+            ("none", "height", "distance", "ids", "intensity", "channel", "timestamps", "range", "elongation"),
             initial_value=self._config.point_color,
         )
         self._gui_lidar_id = server.gui.add_dropdown(
@@ -90,7 +107,7 @@ class LidarElement(ViewerElement):
         lidar = self._context.scene.get_lidar_at_iteration(iteration, lidar_id=active_id)
         if lidar is not None:
             points = rel_to_abs_points_3d_array(ego_pose, lidar.xyz)
-            colors = get_lidar_pc_color(lidar, feature=self._config.point_color)
+            colors = get_lidar_pc_color(lidar, feature=self._config.point_color, dark_mode=self._dark_mode)
         else:
             points = np.zeros((0, 3), dtype=np.float32)
             colors = np.zeros((0, 3), dtype=np.uint8)
@@ -137,6 +154,10 @@ class LidarElement(ViewerElement):
 
     def _on_stride_step_changed(self, _) -> None:
         self._config.stride_step = self._gui_stride_step.value
+        self.update(self._current_iteration)
+
+    def on_dark_mode_changed(self, dark_mode: bool) -> None:
+        self._dark_mode = dark_mode
         self.update(self._current_iteration)
 
     def _downsample(self, points: np.ndarray, colors: np.ndarray) -> tuple:

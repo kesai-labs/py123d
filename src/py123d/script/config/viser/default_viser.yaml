@@ -37,26 +37,4 @@ viser_config:
   playback:
     is_playing: false
     speed: 1.0
-
-  map:
-    visible: true
-    radius: 200.0
-    non_road_z_offset: 0.1
-    requery: true
-
-  detection:
-    visible: true
-    type: "mesh+lines" # ["mesh", "lines"]
-    line_width: 4.0
-
-
-  camera_gui:
-    visible: true
-    # types: null # Loads front camera by default
-    image_scale: 4
-
-  lidar:
-    visible: true
-    # ids: null # Loads merged by default
-    point_size: 0.05
-    point_shape: "circle" # ["square", "diamond", "circle", "rounded", "sparkle"]
+    atomic: true

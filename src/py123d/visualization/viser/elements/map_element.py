@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -6,16 +7,31 @@ import trimesh
 import viser
 
 from py123d.api import SceneAPI
+from py123d.common.utils.enums import resolve_enum_arguments
 from py123d.datatypes.map_objects.base_map_objects import BaseMapLineObject, BaseMapSurfaceObject
 from py123d.datatypes.map_objects.map_layer_types import MapLayer, StopZoneType
 from py123d.datatypes.map_objects.map_objects import Lane, StopZone
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
-from py123d.geometry import Point3D, Point3DIndex
+from py123d.geometry import Point3D, Point3DIndex, Polyline3D
 from py123d.visualization.color.default import CENTERLINE_CONFIG, MAP_SURFACE_CONFIG
 from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
-from py123d.visualization.viser.viser_config import MapConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MapConfig:
+    visible: bool = True
+    radius: float = 200.0
+    non_road_z_offset: float = 0.1
+    opacity: float = 1.0
+    requery: bool = True
+    centerline_dash_length: float = 1 / 3
+    visible_layers: List[MapLayer] = field(default_factory=lambda: [])
+
+    def __post_init__(self):
+        self.visible_layers = resolve_enum_arguments(MapLayer, self.visible_layers)
+
 
 _MAP_DISPLAY_LAYERS: List[MapLayer] = [
     MapLayer.LANE,
@@ -113,6 +129,7 @@ class MapElement(ViewerElement):
             current_ego_state,
             self._config.radius,
             self._config.non_road_z_offset,
+            self._config.centerline_dash_length,
         )
         self._last_query_position = current_ego_state.center_se3.point_3d
         self._force_update = False
@@ -123,13 +140,13 @@ class MapElement(ViewerElement):
         for map_layer, mesh in map_data["surfaces"].items():
             layer_cb = self._gui_layer_checkboxes.get(map_layer)
             is_visible = self._gui_visible.value and (layer_cb is None or layer_cb.value)
-            base_color = MAP_SURFACE_CONFIG[map_layer].fill_color.rgb
-            color = _blend_color(base_color, opacity)
+            color = MAP_SURFACE_CONFIG[map_layer].fill_color.rgb
             self._handles[f"surface/{map_layer.serialize()}"] = self._server.scene.add_mesh_simple(
                 f"/map/{map_layer.serialize()}",
                 vertices=mesh.vertices.astype(np.float32),
                 faces=mesh.faces.astype(np.uint32),
                 color=color,
+                opacity=opacity,
                 flat_shading=False,
                 side="double",
                 cast_shadow=False,
@@ -210,19 +227,27 @@ class MapElement(ViewerElement):
         self.update(self._current_iteration)
 
 
-def _blend_color(
-    color: Tuple[int, int, int], opacity: float, background: Tuple[int, int, int] = (255, 255, 255)
-) -> Tuple[int, int, int]:
-    """Blend a color toward a background color based on opacity (1.0 = original, 0.0 = background)."""
-    r = int(color[0] * opacity + background[0] * (1.0 - opacity))
-    g = int(color[1] * opacity + background[1] * (1.0 - opacity))
-    b = int(color[2] * opacity + background[2] * (1.0 - opacity))
-    return (r, g, b)
-
-
 def _polyline_to_segments(points: np.ndarray) -> np.ndarray:
     """Convert a polyline (N, 3) to line segments (N-1, 2, 3) for viser."""
     return np.stack([points[:-1], points[1:]], axis=1)
+
+
+def _polyline_to_dashed_segments(polyline: Polyline3D, dash_length: float) -> np.ndarray:
+    """Resample a polyline at fixed intervals and return every other segment to produce dashes.
+
+    :param polyline: The 3D polyline to dash.
+    :param dash_length: Length of each dash (and gap) in world units (meters).
+    :return: (M, 2, 3) dashed line segments.
+    """
+    total_length = polyline.length
+    if total_length < 1e-6 or dash_length <= 0:
+        return _polyline_to_segments(polyline.array)
+
+    sample_distances = np.arange(0, total_length, dash_length, dtype=np.float64)
+    resampled = np.asarray(polyline.interpolate(sample_distances), dtype=np.float64)
+
+    segments = _polyline_to_segments(resampled)
+    return segments[::2]
 
 
 def _get_map_data(
@@ -231,6 +256,7 @@ def _get_map_data(
     current_ego_state: EgoStateSE3,
     radius: float,
     non_road_z_offset: float,
+    centerline_dash_length: float = 1.0,
 ) -> dict:
     output: dict = {"surfaces": {}, "road_edges": None, "centerlines": None}
 
@@ -311,7 +337,7 @@ def _get_map_data(
             if len(pts) >= 2:
                 all_segments.append(_polyline_to_segments(pts))
         if len(all_segments) > 0:
-            output["road_edges"] = np.concatenate(all_segments, axis=0).astype(np.float32)
+            output["road_edges"] = np.concatenate(all_segments, axis=0).astype(np.float64)
 
     # Lane centerlines (extracted from Lane objects saved before lane/lane_group pop)
     if len(lane_objects) > 0:
@@ -319,12 +345,14 @@ def _get_map_data(
         for lane_obj in lane_objects:
             if not isinstance(lane_obj, Lane):
                 continue
-            pts = lane_obj.centerline_3d.array.copy()
-            pts -= scene_center_array
-            pts[..., Point3DIndex.Z] += _LINE_Z_OFFSET + z_offset_no_z
-            if len(pts) >= 2:
-                all_segments.append(_polyline_to_segments(pts))
+            centerline = lane_obj.centerline_3d
+            if len(centerline.array) < 2:
+                continue
+            dashed = _polyline_to_dashed_segments(centerline, dash_length=centerline_dash_length)
+            dashed[..., :3] -= scene_center_array
+            dashed[..., Point3DIndex.Z] += _LINE_Z_OFFSET + z_offset_no_z
+            all_segments.append(dashed)
         if len(all_segments) > 0:
-            output["centerlines"] = np.concatenate(all_segments, axis=0).astype(np.float32)
+            output["centerlines"] = np.concatenate(all_segments, axis=0).astype(np.float64)
 
     return output

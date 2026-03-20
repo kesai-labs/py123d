@@ -20,9 +20,10 @@ class ElementContext:
     initial_ego_state: EgoStateSE3
     num_frames: int
     scene_center_array: npt.NDArray[np.float64]
+    dark_mode: bool = False
 
     @staticmethod
-    def from_scene(scene: SceneAPI) -> "ElementContext":
+    def from_scene(scene: SceneAPI, dark_mode: bool = False) -> "ElementContext":
         """Create an ElementContext from a SceneAPI instance."""
         initial_ego_state = scene.get_ego_state_se3_at_iteration(0)
         if initial_ego_state is None:
@@ -33,6 +34,7 @@ class ElementContext:
             initial_ego_state=initial_ego_state,
             num_frames=scene.number_of_iterations,
             scene_center_array=scene_center_array,
+            dark_mode=dark_mode,
         )
 
 
@@ -55,3 +57,6 @@ class ViewerElement(abc.ABC):
     @abc.abstractmethod
     def remove(self) -> None:
         """Remove all scene handles and clean up. Called before scene switch."""
+
+    def on_dark_mode_changed(self, dark_mode: bool) -> None:
+        """Called when the viewer's dark mode setting changes. Override to adapt colors."""

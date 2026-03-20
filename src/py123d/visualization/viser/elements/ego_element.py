@@ -1,0 +1,139 @@
+import logging
+from dataclasses import dataclass
+from typing import Dict, Literal, Optional, Union
+
+import numpy as np
+import trimesh
+import trimesh.visual.material
+import viser
+
+from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
+from py123d.geometry.geometry_index import BoundingBoxSE3Index, Corners3DIndex, PoseSE3Index
+from py123d.geometry.utils.bounding_box_utils import (
+    bbse3_array_to_corners_array,
+    corners_array_to_3d_mesh,
+    corners_array_to_edge_lines,
+)
+from py123d.visualization.color.default import BOX_DETECTION_CONFIG
+from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EgoConfig:
+    visible: bool = True
+    type: Literal["mesh", "lines", "mesh+lines"] = "mesh+lines"
+    line_width: float = 2.0
+    opacity: float = 0.5
+
+
+class EgoElement(ViewerElement):
+    """Visualizes the ego vehicle bounding box in the scene."""
+
+    def __init__(self, context: ElementContext, config: EgoConfig) -> None:
+        self._context = context
+        self._config = config
+        self._server: Optional[viser.ViserServer] = None
+        self._handles: Dict[str, Optional[Union[viser.GlbHandle, viser.LineSegmentsHandle]]] = {
+            "mesh": None,
+            "lines": None,
+        }
+        self._gui_visible: Optional[viser.GuiCheckboxHandle] = None
+        self._gui_type: Optional[viser.GuiDropdownHandle] = None
+        self._gui_opacity: Optional[viser.GuiSliderHandle] = None
+        self._current_iteration: int = 0
+
+    @property
+    def name(self) -> str:
+        return "Ego Vehicle"
+
+    def create_gui(self, server: viser.ViserServer) -> None:
+        self._server = server
+        self._gui_visible = server.gui.add_checkbox("Visible", self._config.visible)
+        self._gui_type = server.gui.add_dropdown(
+            "Type", ("mesh", "lines", "mesh+lines"), initial_value=self._config.type
+        )
+        self._gui_opacity = server.gui.add_slider(
+            "Opacity", min=0.0, max=1.0, step=0.05, initial_value=self._config.opacity
+        )
+        self._gui_visible.on_update(self._on_visibility_changed)
+        self._gui_type.on_update(self._on_type_changed)
+        self._gui_opacity.on_update(self._on_opacity_changed)
+
+    def update(self, iteration: int) -> None:
+        assert self._server is not None, "Server must be set before updating element."
+        assert self._gui_visible is not None, "GUI must be created before updating element."
+        assert self._gui_type is not None, "GUI must be created before updating element."
+        assert self._gui_opacity is not None, "GUI must be created before updating element."
+        self._current_iteration = iteration
+        visible_handle_keys = []
+        display_type = self._gui_type.value
+
+        if self._gui_visible.value:
+            ego_vehicle_state = self._context.scene.get_ego_state_se3_at_iteration(iteration)
+            assert ego_vehicle_state is not None, "Ego vehicle state must be available at the specified iteration."
+            box_se3_array = np.array([ego_vehicle_state.bounding_box_se3.array])
+            box_se3_array[..., BoundingBoxSE3Index.XYZ] -= self._context.initial_ego_state.center_se3.array[
+                PoseSE3Index.XYZ
+            ]
+            box_corners_array = bbse3_array_to_corners_array(box_se3_array)
+
+            if display_type in {"mesh", "mesh+lines"}:
+                opacity = self._gui_opacity.value
+                alpha = int(np.clip(opacity * 255, 0, 255))
+                box_vertices, box_faces = corners_array_to_3d_mesh(box_corners_array)
+                r, g, b, _ = BOX_DETECTION_CONFIG[DefaultBoxDetectionLabel.EGO].fill_color.rgba
+                vertex_colors = np.tile(np.array([r, g, b, alpha]), (len(Corners3DIndex), 1))
+                mesh = trimesh.Trimesh(vertices=box_vertices, faces=box_faces)
+                mesh.visual.vertex_colors = vertex_colors  # type: ignore
+                mesh.visual.material = trimesh.visual.material.PBRMaterial(alphaMode="BLEND")  # type: ignore
+                self._handles["mesh"] = self._server.scene.add_mesh_trimesh(
+                    "ego_mesh", mesh=mesh, visible=True, cast_shadow=False
+                )
+                visible_handle_keys.append("mesh")
+
+            if display_type in {"lines", "mesh+lines"}:
+                box_outlines = corners_array_to_edge_lines(box_corners_array)
+                box_colors = np.zeros(box_outlines.shape, dtype=np.float32)
+                box_colors[0, ...] = BOX_DETECTION_CONFIG[DefaultBoxDetectionLabel.EGO].fill_color.rgb_norm
+                box_outlines = box_outlines.reshape(-1, *box_outlines.shape[2:])
+                box_colors = box_colors.reshape(-1, *box_colors.shape[2:])
+                self._handles["lines"] = self._server.scene.add_line_segments(
+                    "ego_lines",
+                    points=box_outlines,
+                    colors=box_colors,
+                    line_width=self._config.line_width,
+                    visible=True,
+                )
+                visible_handle_keys.append("lines")
+
+        for key in self._handles:
+            if key not in visible_handle_keys and self._handles[key] is not None:
+                self._handles[key].visible = False  # type: ignore
+
+    def remove(self) -> None:
+        for handle in self._handles.values():
+            if handle is not None:
+                handle.remove()
+        self._handles = {"mesh": None, "lines": None}
+
+    def _on_visibility_changed(self, _) -> None:
+        assert self._gui_visible is not None, "GUI must be created before handling visibility change."
+        self._config.visible = self._gui_visible.value
+        if self._gui_visible.value:
+            self.update(self._current_iteration)
+        else:
+            for handle in self._handles.values():
+                if handle is not None:
+                    handle.visible = False
+
+    def _on_type_changed(self, _) -> None:
+        assert self._gui_type is not None, "GUI must be created before handling type change."
+        self._config.type = self._gui_type.value
+        self.update(self._current_iteration)
+
+    def _on_opacity_changed(self, _) -> None:
+        assert self._gui_opacity is not None, "GUI must be created before handling opacity change."
+        self._config.opacity = self._gui_opacity.value
+        self.update(self._current_iteration)

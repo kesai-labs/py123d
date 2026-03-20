@@ -7,9 +7,10 @@ from viser.theme import TitlebarButton, TitlebarConfig, TitlebarImage
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.visualization.viser.element_manager import ElementManager
 from py123d.visualization.viser.elements.base_element import ElementContext
+from py123d.visualization.viser.elements.box_detections_se3_element import DetectionElement
 from py123d.visualization.viser.elements.camera_frustum_element import CameraFrustumElement
 from py123d.visualization.viser.elements.camera_gui_element import CameraGuiElement
-from py123d.visualization.viser.elements.detection_element import DetectionElement
+from py123d.visualization.viser.elements.ego_element import EgoElement
 from py123d.visualization.viser.elements.lidar_element import LidarElement
 from py123d.visualization.viser.elements.map_element import MapElement
 from py123d.visualization.viser.playback_controller import PlaybackController
@@ -81,7 +82,7 @@ def _build_viser_server(config: ViserConfig) -> viser.ViserServer:
 
     server.scene.configure_environment_map(
         hdri=HDRI,
-        environment_intensity=0.25,  # down from default 1.0
+        environment_intensity=0.5,  # down from default 1.0
     )
     return server, titlebar_theme
 
@@ -108,10 +109,10 @@ class ViserViewer:
 
     def _run_scene(self, scene: SceneAPI) -> None:
         """Set up and run the viewer for a single scene. Blocks until scene switch."""
-        context = ElementContext.from_scene(scene)
+        context = ElementContext.from_scene(scene, dark_mode=self._dark_mode)
 
         # Build elements based on available data
-        element_manager = self._build_elements(context)
+        self._element_manager = self._build_elements(context)
 
         # Build controllers
         playback = PlaybackController(self._server, self._config.playback, context)
@@ -119,7 +120,7 @@ class ViserViewer:
 
         # Create GUI in order: Playback -> Modality Tabs -> Render -> Settings
         playback.create_gui(scene)
-        element_manager.create_all_gui(self._server)
+        self._element_manager.create_all_gui(self._server)
         render.create_gui()
         self._create_settings_gui()
 
@@ -130,16 +131,16 @@ class ViserViewer:
         )
 
         # Wire iteration callback
-        playback.set_on_iteration_changed(element_manager.update_all)
+        playback.set_on_iteration_changed(self._element_manager.update_all)
 
         # Initial render at frame 0
-        element_manager.update_all(0)
+        self._element_manager.update_all(0)
 
         # Blocking playback loop -- returns on Next Scene
         playback.run_loop()
 
         # Cleanup and advance to next scene
-        element_manager.remove_all()
+        self._element_manager.remove_all()
         self._server.flush()
         self._server.gui.reset()
         self._server.scene.reset()
@@ -164,6 +165,7 @@ class ViserViewer:
                     show_share_button=theme.show_share_button,
                     brand_color=theme.brand_color,
                 )
+                self._element_manager.notify_dark_mode_changed(gui_dark_mode.value)
 
     def _build_elements(self, context: ElementContext) -> ElementManager:
         """Conditionally register elements based on what the scene supports."""
@@ -179,6 +181,7 @@ class ViserViewer:
         if len(scene.available_camera_ids) > 0:
             manager.register(CameraGuiElement(context, self._config.camera_gui))
 
+        manager.register(EgoElement(context, self._config.ego))
         manager.register(DetectionElement(context, self._config.detection))
 
         if scene.get_map_api() is not None:

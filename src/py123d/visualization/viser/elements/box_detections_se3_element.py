@@ -1,5 +1,6 @@
 import logging
-from typing import Dict, List, Optional, Union
+from dataclasses import dataclass
+from typing import Dict, List, Literal, Optional, Union
 
 import numpy as np
 import trimesh
@@ -7,7 +8,6 @@ import trimesh.visual.material
 import viser
 
 from py123d.api.scene.scene_api import SceneAPI
-from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry.geometry_index import BoundingBoxSE3Index, Corners3DIndex, PoseSE3Index
 from py123d.geometry.utils.bounding_box_utils import (
@@ -17,9 +17,16 @@ from py123d.geometry.utils.bounding_box_utils import (
 )
 from py123d.visualization.color.default import BOX_DETECTION_CONFIG
 from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
-from py123d.visualization.viser.viser_config import DetectionConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DetectionConfig:
+    visible: bool = True
+    type: Literal["mesh", "lines", "mesh+lines"] = "mesh+lines"
+    line_width: float = 2.0
+    opacity: float = 0.5
 
 
 class DetectionElement(ViewerElement):
@@ -56,6 +63,12 @@ class DetectionElement(ViewerElement):
         self._gui_opacity.on_update(self._on_opacity_changed)
 
     def update(self, iteration: int) -> None:
+        assert self._server is not None, "Server must be set before updating element."
+        assert self._gui_visible is not None, "GUI must be created before updating element."
+        assert self._gui_type is not None, "GUI must be created before updating element."
+        assert self._gui_opacity is not None, "GUI must be created before updating element"
+        # assert self._context.initial_ego_state is not None, "Initial ego state must be set in context."
+
         self._current_iteration = iteration
         visible_handle_keys: List[str] = []
         display_type = self._gui_type.value
@@ -88,7 +101,7 @@ class DetectionElement(ViewerElement):
 
         for key in self._handles:
             if key not in visible_handle_keys and self._handles[key] is not None:
-                self._handles[key].visible = False
+                self._handles[key].visible = False  # type: ignore
 
     def remove(self) -> None:
         for handle in self._handles.values():
@@ -97,6 +110,7 @@ class DetectionElement(ViewerElement):
         self._handles = {"mesh": None, "lines": None}
 
     def _on_visibility_changed(self, _) -> None:
+        assert self._gui_visible is not None, "GUI must be created before handling visibility change."
         if self._gui_visible.value:
             self.update(self._current_iteration)
         else:
@@ -105,10 +119,12 @@ class DetectionElement(ViewerElement):
                     handle.visible = False
 
     def _on_type_changed(self, _) -> None:
+        assert self._gui_type is not None, "GUI must be created before handling type change."
         self._config.type = self._gui_type.value
         self.update(self._current_iteration)
 
     def _on_opacity_changed(self, _) -> None:
+        assert self._gui_opacity is not None, "GUI must be created before handling opacity change."
         self._config.opacity = self._gui_opacity.value
         self.update(self._current_iteration)
 
@@ -116,7 +132,6 @@ class DetectionElement(ViewerElement):
 def _get_bounding_box_meshes(
     scene: SceneAPI, iteration: int, initial_ego_state: EgoStateSE3, opacity: float = 1.0
 ) -> trimesh.Trimesh:
-    ego_vehicle_state = scene.get_ego_state_se3_at_iteration(iteration)
     box_detections = scene.get_box_detections_se3_at_iteration(iteration)
 
     if box_detections is None:
@@ -124,8 +139,8 @@ def _get_bounding_box_meshes(
     else:
         box_detections_list = box_detections.box_detections
 
-    boxes = [bd.bounding_box_se3 for bd in box_detections_list] + [ego_vehicle_state.bounding_box_se3]
-    boxes_labels = [bd.attributes.default_label for bd in box_detections_list] + [DefaultBoxDetectionLabel.EGO]
+    boxes = [bd.bounding_box_se3 for bd in box_detections_list]
+    boxes_labels = [bd.attributes.default_label for bd in box_detections_list]
 
     box_se3_array = np.array([box.array for box in boxes])
     box_se3_array[..., BoundingBoxSE3Index.XYZ] -= initial_ego_state.center_se3.array[PoseSE3Index.XYZ]
@@ -142,19 +157,18 @@ def _get_bounding_box_meshes(
     vertex_colors = np.repeat(box_colors, len(Corners3DIndex), axis=0)
 
     mesh = trimesh.Trimesh(vertices=box_vertices, faces=box_faces)
-    mesh.visual.vertex_colors = vertex_colors
-    mesh.visual.material = trimesh.visual.material.PBRMaterial(alphaMode="BLEND")
+    mesh.visual.vertex_colors = vertex_colors  # type: ignore
+    mesh.visual.material = trimesh.visual.material.PBRMaterial(alphaMode="BLEND")  # type: ignore
 
     return mesh
 
 
 def _get_bounding_box_outlines(scene: SceneAPI, iteration: int, initial_ego_state: EgoStateSE3) -> tuple:
-    ego_vehicle_state = scene.get_ego_state_se3_at_iteration(iteration)
     box_detections = scene.get_box_detections_se3_at_iteration(iteration)
 
     box_detections_list = box_detections.box_detections if box_detections is not None else []
-    boxes = [bd.bounding_box_se3 for bd in box_detections_list] + [ego_vehicle_state.bounding_box_se3]
-    boxes_labels = [bd.attributes.default_label for bd in box_detections_list] + [DefaultBoxDetectionLabel.EGO]
+    boxes = [bd.bounding_box_se3 for bd in box_detections_list]
+    boxes_labels = [bd.attributes.default_label for bd in box_detections_list]
 
     box_se3_array = np.array([box.array for box in boxes])
     box_se3_array[..., BoundingBoxSE3Index.XYZ] -= initial_ego_state.center_se3.array[PoseSE3Index.XYZ]
