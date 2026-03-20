@@ -10,7 +10,7 @@ from py123d.visualization.viser.elements.base_element import ElementContext
 from py123d.visualization.viser.elements.box_detections_se3_element import DetectionElement
 from py123d.visualization.viser.elements.camera_frustum_element import CameraFrustumElement
 from py123d.visualization.viser.elements.camera_gui_element import CameraGuiElement
-from py123d.visualization.viser.elements.ego_element import EgoElement
+from py123d.visualization.viser.elements.ego_state_se3_element import EgoElement
 from py123d.visualization.viser.elements.lidar_element import LidarElement
 from py123d.visualization.viser.elements.map_element import MapElement
 from py123d.visualization.viser.playback_controller import PlaybackController
@@ -30,7 +30,7 @@ HDRI: Literal[
     "studio",
     "sunset",
     "warehouse",
-] = "studio"
+] = "park"
 
 
 def _build_titlebar() -> TitlebarConfig:

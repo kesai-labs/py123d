@@ -13,7 +13,7 @@ from py123d.datatypes.map_objects.map_layer_types import MapLayer, StopZoneType
 from py123d.datatypes.map_objects.map_objects import Lane, StopZone
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry import Point3D, Point3DIndex, Polyline3D
-from py123d.visualization.color.default import CENTERLINE_CONFIG, MAP_SURFACE_CONFIG
+from py123d.visualization.color.default import MAP_SURFACE_CONFIG
 from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
 
 logger = logging.getLogger(__name__)
@@ -44,8 +44,10 @@ _MAP_DISPLAY_LAYERS: List[MapLayer] = [
     MapLayer.STOP_ZONE,
 ]
 
-_ROAD_EDGE_COLOR: Tuple[int, int, int] = (200, 200, 200)
-_CENTERLINE_COLOR: Tuple[int, int, int] = CENTERLINE_CONFIG.line_color.rgb
+_ROAD_EDGE_COLOR_DARK: Tuple[int, int, int] = (255, 255, 255)
+_ROAD_EDGE_COLOR_LIGHT: Tuple[int, int, int] = (0, 0, 0)
+_CENTERLINE_COLOR_DARK: Tuple[int, int, int] = (255, 255, 255)
+_CENTERLINE_COLOR_LIGHT: Tuple[int, int, int] = (0, 0, 0)
 _LINE_Z_OFFSET: float = 0.15
 
 
@@ -66,6 +68,7 @@ class MapElement(ViewerElement):
         self._gui_layer_checkboxes: Dict[MapLayer, viser.GuiCheckboxHandle] = {}
         self._gui_road_edges: Optional[viser.GuiCheckboxHandle] = None
         self._gui_centerlines: Optional[viser.GuiCheckboxHandle] = None
+        self._dark_mode: bool = context.dark_mode
 
     @property
     def name(self) -> str:
@@ -148,16 +151,17 @@ class MapElement(ViewerElement):
                 color=color,
                 opacity=opacity,
                 flat_shading=False,
-                side="double",
+                side="front",
                 cast_shadow=False,
                 receive_shadow=False,
                 visible=is_visible,
             )
 
         # Road edge lines
+        road_edge_color = _ROAD_EDGE_COLOR_DARK if self._dark_mode else _ROAD_EDGE_COLOR_LIGHT
         road_edge_segments = map_data["road_edges"]
         if road_edge_segments is not None and len(road_edge_segments) > 0:
-            colors = np.full(road_edge_segments.shape, np.array(_ROAD_EDGE_COLOR) / 255.0, dtype=np.float32)
+            colors = np.full(road_edge_segments.shape, np.array(road_edge_color) / 255.0, dtype=np.float32)
             self._handles["lines/road_edges"] = self._server.scene.add_line_segments(
                 "/map/road_edges",
                 points=road_edge_segments,
@@ -167,9 +171,10 @@ class MapElement(ViewerElement):
             )
 
         # Lane centerlines
+        centerline_color = _CENTERLINE_COLOR_DARK if self._dark_mode else _CENTERLINE_COLOR_LIGHT
         centerline_segments = map_data["centerlines"]
         if centerline_segments is not None and len(centerline_segments) > 0:
-            colors = np.full(centerline_segments.shape, np.array(_CENTERLINE_COLOR) / 255.0, dtype=np.float32)
+            colors = np.full(centerline_segments.shape, np.array(centerline_color) / 255.0, dtype=np.float32)
             self._handles["lines/centerlines"] = self._server.scene.add_line_segments(
                 "/map/centerlines",
                 points=centerline_segments,
@@ -223,6 +228,11 @@ class MapElement(ViewerElement):
 
     def _on_radius_preset_clicked(self, event) -> None:
         self._gui_radius.value = float(event.target.value)
+        self._force_update = True
+        self.update(self._current_iteration)
+
+    def on_dark_mode_changed(self, dark_mode: bool) -> None:
+        self._dark_mode = dark_mode
         self._force_update = True
         self.update(self._current_iteration)
 

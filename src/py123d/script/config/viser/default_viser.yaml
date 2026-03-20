@@ -37,4 +37,4 @@ viser_config:
   playback:
     is_playing: false
     speed: 1.0
-    atomic: true
+    atomic: false

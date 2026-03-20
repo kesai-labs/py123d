@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class PlaybackConfig:
     is_playing: bool = False
     speed: float = 1.0
-    atomic: bool = True
+    atomic: bool = False
 
 
 class PlaybackController:

@@ -5,7 +5,7 @@ from py123d.visualization.color.color import ELLIS_5
 from py123d.visualization.viser.elements.box_detections_se3_element import DetectionConfig
 from py123d.visualization.viser.elements.camera_frustum_element import CameraFrustumConfig
 from py123d.visualization.viser.elements.camera_gui_element import CameraGuiConfig
-from py123d.visualization.viser.elements.ego_element import EgoConfig
+from py123d.visualization.viser.elements.ego_state_se3_element import EgoConfig
 from py123d.visualization.viser.elements.lidar_element import LidarConfig
 from py123d.visualization.viser.elements.map_element import MapConfig
 from py123d.visualization.viser.playback_controller import PlaybackConfig

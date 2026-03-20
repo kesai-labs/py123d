@@ -27,6 +27,7 @@ class DetectionConfig:
     type: Literal["mesh", "lines", "mesh+lines"] = "mesh+lines"
     line_width: float = 2.0
     opacity: float = 0.5
+    show_center_frames: bool = False
 
 
 class DetectionElement(ViewerElement):
@@ -40,9 +41,11 @@ class DetectionElement(ViewerElement):
             "mesh": None,
             "lines": None,
         }
+        self._frame_handles: List[viser.FrameHandle] = []
         self._gui_visible: Optional[viser.GuiCheckboxHandle] = None
         self._gui_type: Optional[viser.GuiDropdownHandle] = None
         self._gui_opacity: Optional[viser.GuiSliderHandle] = None
+        self._gui_show_center_frames: Optional[viser.GuiCheckboxHandle] = None
         self._current_iteration: int = 0
 
     @property
@@ -58,9 +61,11 @@ class DetectionElement(ViewerElement):
         self._gui_opacity = server.gui.add_slider(
             "Opacity", min=0.0, max=1.0, step=0.05, initial_value=self._config.opacity
         )
+        self._gui_show_center_frames = server.gui.add_checkbox("Show Center Frames", self._config.show_center_frames)
         self._gui_visible.on_update(self._on_visibility_changed)
         self._gui_type.on_update(self._on_type_changed)
         self._gui_opacity.on_update(self._on_opacity_changed)
+        self._gui_show_center_frames.on_update(self._on_show_center_frames_changed)
 
     def update(self, iteration: int) -> None:
         assert self._server is not None, "Server must be set before updating element."
@@ -99,6 +104,8 @@ class DetectionElement(ViewerElement):
                 )
                 visible_handle_keys.append("lines")
 
+        self._update_center_frames(iteration)
+
         for key in self._handles:
             if key not in visible_handle_keys and self._handles[key] is not None:
                 self._handles[key].visible = False  # type: ignore
@@ -108,6 +115,7 @@ class DetectionElement(ViewerElement):
             if handle is not None:
                 handle.remove()
         self._handles = {"mesh": None, "lines": None}
+        self._remove_center_frames()
 
     def _on_visibility_changed(self, _) -> None:
         assert self._gui_visible is not None, "GUI must be created before handling visibility change."
@@ -117,6 +125,7 @@ class DetectionElement(ViewerElement):
             for handle in self._handles.values():
                 if handle is not None:
                     handle.visible = False
+            self._remove_center_frames()
 
     def _on_type_changed(self, _) -> None:
         assert self._gui_type is not None, "GUI must be created before handling type change."
@@ -127,6 +136,44 @@ class DetectionElement(ViewerElement):
         assert self._gui_opacity is not None, "GUI must be created before handling opacity change."
         self._config.opacity = self._gui_opacity.value
         self.update(self._current_iteration)
+
+    def _on_show_center_frames_changed(self, _) -> None:
+        assert self._gui_show_center_frames is not None, "GUI must be created before handling center frames change."
+        self._config.show_center_frames = self._gui_show_center_frames.value
+        self.update(self._current_iteration)
+
+    def _remove_center_frames(self) -> None:
+        for handle in self._frame_handles:
+            handle.remove()
+        self._frame_handles.clear()
+
+    def _update_center_frames(self, iteration: int) -> None:
+        assert self._server is not None
+        assert self._gui_visible is not None
+        assert self._gui_show_center_frames is not None
+
+        self._remove_center_frames()
+
+        if not self._gui_visible.value or not self._gui_show_center_frames.value:
+            return
+
+        box_detections = self._context.scene.get_box_detections_se3_at_iteration(iteration)
+        box_detections_list = box_detections.box_detections if box_detections is not None else []
+
+        for i, bd in enumerate(box_detections_list):
+            box_array = bd.bounding_box_se3.array
+            position = box_array[BoundingBoxSE3Index.X : BoundingBoxSE3Index.Z + 1].copy()
+            position -= self._context.initial_ego_state.center_se3.array[PoseSE3Index.XYZ]
+            wxyz = box_array[BoundingBoxSE3Index.QW : BoundingBoxSE3Index.QZ + 1]
+
+            frame_handle = self._server.scene.add_frame(
+                f"box_detection_frames/{i}",
+                axes_length=0.5,
+                axes_radius=0.01,
+                position=position,
+                wxyz=wxyz,
+            )
+            self._frame_handles.append(frame_handle)
 
 
 def _get_bounding_box_meshes(

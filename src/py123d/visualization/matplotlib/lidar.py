@@ -81,9 +81,9 @@ def get_lidar_pc_color(
     if feature == "none":
         return default_color
     elif feature == "height":
-        return _continuous_colormap(point_cloud_3d[:, 2], cmap_name="viridis", vmin=-2.0, vmax=6.0)
+        return _continuous_colormap(-point_cloud_3d[:, 2], cmap_name="viridis", vmin=-6.0, vmax=2.0)
     elif feature == "distance":
-        distances = np.linalg.norm(point_cloud_3d, axis=-1)
+        distances = -np.linalg.norm(point_cloud_3d, axis=-1)
         return _continuous_colormap(distances)
 
     # Features that require point_cloud_features to be present

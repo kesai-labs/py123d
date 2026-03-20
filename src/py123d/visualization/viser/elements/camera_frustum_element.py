@@ -136,7 +136,7 @@ class CameraFrustumElement(ViewerElement):
                 else:
                     self._frame_handles[camera_type] = self._server.scene.add_frame(
                         f"camera_frames/{camera_type.serialize()}",
-                        axes_length=self._config.frustum_scale * 0.5,
+                        axes_length=0.5,
                         axes_radius=0.01,
                         position=camera_position,
                         wxyz=camera_quaternion,
