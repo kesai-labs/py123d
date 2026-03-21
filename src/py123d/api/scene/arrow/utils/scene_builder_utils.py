@@ -21,6 +21,61 @@ logger = logging.getLogger(__name__)
 # --- Shared utilities ---
 
 
+def infer_iteration_duration_from_timestamps_us(timestamps_us: np.ndarray) -> float:
+    """Infer iteration duration from a 1-D array of timestamps in microseconds.
+
+    Uses the median of consecutive diffs to be robust against outliers.
+
+    :param timestamps_us: Sorted int64 timestamp array.
+    :return: Median iteration duration in seconds.
+    :raises ValueError: If the array has fewer than 2 elements.
+    """
+    if len(timestamps_us) < 2:
+        raise ValueError("Cannot infer iteration duration from fewer than 2 timestamps.")
+    diffs_us = np.diff(timestamps_us)
+    iteration_duration_s = float(np.median(diffs_us)) / 1_000_000.0
+    return iteration_duration_s
+
+
+def compute_stride_from_duration(
+    target_duration_s: float,
+    raw_duration_s: float,
+    tolerance: float = 0.15,
+) -> Optional[int]:
+    """Compute an integer stride from a target iteration duration and the raw duration.
+
+    Returns ``None`` if the target cannot be achieved within *tolerance*
+    (e.g. upsampling or deviation exceeds the threshold).
+
+    :param target_duration_s: Desired iteration duration in seconds.
+    :param raw_duration_s: Raw (native) iteration duration in seconds.
+    :param tolerance: Maximum relative deviation allowed (default 15 %).
+    :return: The integer stride, or ``None`` if infeasible.
+    """
+    raw_stride = target_duration_s / raw_duration_s
+    stride = round(raw_stride)
+    result: Optional[int] = stride
+
+    if stride < 1:
+        logger.debug(
+            "Cannot upsample: target_duration_s=%.4fs < raw duration=%.4fs.",
+            target_duration_s,
+            raw_duration_s,
+        )
+        result = None
+    elif abs(raw_stride - stride) / stride > tolerance:
+        logger.debug(
+            "Target duration %.4fs not achievable with raw duration %.4fs (computed stride=%d, deviation=%.1f%%).",
+            target_duration_s,
+            raw_duration_s,
+            stride,
+            abs(raw_stride - stride) / stride * 100,
+        )
+        result = None
+
+    return result
+
+
 def infer_iteration_duration_s(sync_table: pa.Table) -> float:
     """Infer iteration duration from the sync table's timestamp column using the median of consecutive diffs.
 
@@ -30,13 +85,8 @@ def infer_iteration_duration_s(sync_table: pa.Table) -> float:
     """
     if sync_table.num_rows < 2:
         raise ValueError("Cannot infer iteration duration from a sync table with fewer than 2 rows.")
-
     timestamps_us = sync_table["sync.timestamp_us"].to_numpy()
-    diffs_us = np.diff(timestamps_us)
-
-    # NOTE @DanielDauner: We are using the median of all timestamp diffs, in case of outliers that could affect mean.
-    iteration_duration_s = float(np.median(diffs_us)) / 1_000_000.0
-    return iteration_duration_s
+    return infer_iteration_duration_from_timestamps_us(timestamps_us)
 
 
 def resolve_iteration_stride(filter: SceneFilter, raw_iteration_duration_s: float) -> Optional[int]:
@@ -49,29 +99,9 @@ def resolve_iteration_stride(filter: SceneFilter, raw_iteration_duration_s: floa
     :param raw_iteration_duration_s: Raw (native) iteration duration in seconds.
     :return: The resolved stride, or None if the target is infeasible.
     """
-    _STRIDE_TOLERANCE = 0.15  # 15% relative deviation tolerance
-
     stride: Optional[int] = 1
     if filter.target_iteration_duration_s is not None:
-        raw_stride = filter.target_iteration_duration_s / raw_iteration_duration_s
-        stride = round(raw_stride)
-        if stride < 1:
-            logger.debug(
-                "Cannot upsample: target_iteration_duration_s=%.4fs < raw iteration duration=%.4fs. Skipping log.",
-                filter.target_iteration_duration_s,
-                raw_iteration_duration_s,
-            )
-            stride = None
-        elif abs(raw_stride - stride) / stride > _STRIDE_TOLERANCE:
-            logger.debug(
-                "Target iteration duration %.4fs not achievable with raw duration %.4fs "
-                "(computed stride=%d, deviation=%.1f%%). Skipping log.",
-                filter.target_iteration_duration_s,
-                raw_iteration_duration_s,
-                stride,
-                abs(raw_stride - stride) / stride * 100,
-            )
-            stride = None
+        stride = compute_stride_from_duration(filter.target_iteration_duration_s, raw_iteration_duration_s)
     elif filter.target_iteration_stride is not None:
         stride = filter.target_iteration_stride
 

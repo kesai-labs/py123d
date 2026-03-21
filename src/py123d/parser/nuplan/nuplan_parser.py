@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import pickle
-from itertools import groupby
 from pathlib import Path
 from typing import Dict, Final, Iterator, List, Optional, Tuple, Union
 
@@ -321,13 +320,24 @@ class NuplanLogParser(BaseLogParser):
             )
 
     def _iter_box_detections_se3(self, modality_metadata: BoxDetectionsSE3Metadata) -> Iterator[BoxDetectionsSE3]:
-        """Yields all box detection frames at native lidar rate."""
-        for timestamp, rows in groupby(
-            iter_all_box_detections_from_db(str(self._source_log_path)),
-            key=lambda r: r["timestamp"],
-        ):
+        """Yields all box detection frames at native lidar rate.
+
+        Iterates over all lidar_pc timestamps so that timestamps with no box detections still produce an
+        empty ``BoxDetectionsSE3`` entry. This prevents temporal gaps in the reference modality when used
+        with async conversion.
+        """
+        # Build a mapping: lidar_pc timestamp -> list of box detection rows.
+        boxes_by_timestamp: Dict[int, list] = {}
+        for row in iter_all_box_detections_from_db(str(self._source_log_path)):
+            boxes_by_timestamp.setdefault(row["timestamp"], []).append(row)
+
+        # Iterate over ALL lidar_pc timestamps (sorted), yielding empty detections where no boxes exist.
+        for lidar_row in iter_all_lidar_pc_from_db(str(self._source_log_path)):
+            timestamp = lidar_row["timestamp"]
+            detection_rows = boxes_by_timestamp.get(timestamp, [])
+
             box_detections: List[BoxDetectionSE3] = []
-            for row in rows:
+            for row in detection_rows:
                 quaternion = EulerAngles(roll=DEFAULT_ROLL, pitch=DEFAULT_PITCH, yaw=row["yaw"]).quaternion
                 bounding_box = BoundingBoxSE3(
                     center_se3=PoseSE3(
@@ -360,17 +370,28 @@ class NuplanLogParser(BaseLogParser):
             )
 
     def _iter_traffic_lights(self) -> Iterator[TrafficLightDetections]:
-        """Yields all traffic light detection frames at native lidar rate."""
-        for timestamp, rows in groupby(
-            iter_all_traffic_lights_from_db(str(self._source_log_path)),
-            key=lambda r: r["timestamp"],
-        ):
+        """Yields all traffic light detection frames at native lidar rate.
+
+        Iterates over all lidar_pc timestamps so that timestamps with no traffic light detections still
+        produce an empty ``TrafficLightDetections`` entry. This prevents temporal gaps in the sync table
+        during async conversion.
+        """
+        # Build a mapping: lidar_pc timestamp -> list of traffic light rows.
+        tl_by_timestamp: Dict[int, list] = {}
+        for row in iter_all_traffic_lights_from_db(str(self._source_log_path)):
+            tl_by_timestamp.setdefault(row["timestamp"], []).append(row)
+
+        # Iterate over ALL lidar_pc timestamps, yielding empty detections where none exist.
+        for lidar_row in iter_all_lidar_pc_from_db(str(self._source_log_path)):
+            timestamp = lidar_row["timestamp"]
+            detection_rows = tl_by_timestamp.get(timestamp, [])
+
             detections: List[TrafficLightDetection] = [
                 TrafficLightDetection(
                     lane_id=int(row["lane_connector_id"]),
                     status=NUPLAN_TRAFFIC_STATUS_DICT[row["status"]],
                 )
-                for row in rows
+                for row in detection_rows
             ]
             yield TrafficLightDetections(detections=detections, timestamp=Timestamp.from_us(timestamp))
 

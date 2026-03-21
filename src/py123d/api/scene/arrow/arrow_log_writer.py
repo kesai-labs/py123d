@@ -1,8 +1,9 @@
-import bisect
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
+import numpy as np
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
@@ -13,6 +14,10 @@ from py123d.api.scene.arrow.modalities.arrow_ego_state_se3 import ArrowEgoStateS
 from py123d.api.scene.arrow.modalities.arrow_lidar import ArrowLidarWriter
 from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections import ArrowTrafficLightDetectionsWriter
 from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig
+from py123d.api.scene.arrow.utils.scene_builder_utils import (
+    compute_stride_from_duration,
+    infer_iteration_duration_from_timestamps_us,
+)
 from py123d.api.scene.base_log_writer import BaseLogWriter
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
@@ -25,6 +30,8 @@ from py123d.datatypes.sensors.base_camera import BaseCameraMetadata
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata, LidarMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.parser.base_dataset_parser import ModalitiesSync
+
+logger = logging.getLogger(__name__)
 
 # Sync table column names (plain strings replacing the deleted ModalitySchema)
 _SYNC_COL_UUID = "sync.uuid"
@@ -47,10 +54,17 @@ class SyncConfig:
         e.g. ``"lidar.lidar_merged.timestamp_us"``.
     :param direction: Sync direction. ``"forward"`` uses intervals ``[ref_i, ref_{i+1})``,
         ``"backward"`` uses intervals ``(ref_{i-1}, ref_i]``.
+    :param target_iteration_stride: Optional integer stride to thin the sync table.
+        A stride of 2 keeps every other reference timestamp.
+    :param target_iteration_duration_s: Optional target iteration duration in seconds.
+        If set, stride is computed from the raw iteration duration.
+        Takes priority over ``target_iteration_stride``.
     """
 
     reference_column: str
     direction: Literal["forward", "backward"] = "forward"
+    target_iteration_stride: Optional[int] = None
+    target_iteration_duration_s: Optional[float] = None
 
     def __post_init__(self):
         # Validate reference_column format: must contain at least one dot
@@ -59,6 +73,17 @@ class SyncConfig:
             raise ValueError(f"reference_column must be '<modality>.<timestamp_field>', got '{self.reference_column}'")
         if not parts[1].endswith("timestamp_us"):
             raise ValueError(f"reference_column timestamp field must end with 'timestamp_us', got '{parts[1]}'")
+
+        # Validate stride parameters
+        if self.target_iteration_stride is not None and self.target_iteration_stride < 1:
+            raise ValueError(f"target_iteration_stride must be >= 1, got {self.target_iteration_stride}.")
+        if self.target_iteration_duration_s is not None and self.target_iteration_duration_s <= 0:
+            raise ValueError(f"target_iteration_duration_s must be > 0, got {self.target_iteration_duration_s}.")
+        if self.target_iteration_stride is not None and self.target_iteration_duration_s is not None:
+            logger.warning(
+                "Both target_iteration_stride and target_iteration_duration_s set in SyncConfig; "
+                "target_iteration_duration_s takes priority."
+            )
 
     @property
     def reference_modality(self) -> str:
@@ -350,6 +375,31 @@ class ArrowLogWriter(BaseLogWriter):
 
         self._write_sync_arrow_file(schema, normalized_rows)
 
+    def _resolve_sync_stride(self, ref_ts_array: np.ndarray) -> int:
+        """Resolve the effective stride for sync table thinning.
+
+        :param ref_ts_array: The reference modality timestamp array.
+        :return: Integer stride (1 means no thinning).
+        :raises ValueError: If duration-based stride is infeasible.
+        """
+        assert self._sync_config is not None
+        effective_stride: int = 1
+
+        if self._sync_config.target_iteration_duration_s is not None:
+            raw_duration_s = infer_iteration_duration_from_timestamps_us(ref_ts_array)
+            computed = compute_stride_from_duration(self._sync_config.target_iteration_duration_s, raw_duration_s)
+            if computed is None:
+                raise ValueError(
+                    f"Cannot achieve target_iteration_duration_s="
+                    f"{self._sync_config.target_iteration_duration_s}s "
+                    f"with raw iteration duration={raw_duration_s}s."
+                )
+            effective_stride = computed
+        elif self._sync_config.target_iteration_stride is not None:
+            effective_stride = self._sync_config.target_iteration_stride
+
+        return effective_stride
+
     def _build_deferred_sync_table(self) -> None:
         """Build the sync table by reading timestamps from the written Arrow files.
 
@@ -362,6 +412,10 @@ class ArrowLogWriter(BaseLogWriter):
         Which one to use is determined by the :attr:`SyncConfig.reference_column` when
         the lidar is the reference modality. For non-reference lidar addons, the first
         ``*timestamp_us`` column is used.
+
+        When ``target_iteration_stride`` or ``target_iteration_duration_s`` is set in
+        :class:`SyncConfig`, the sync table is thinned by keeping only every *stride*-th
+        reference timestamp.
         """
         assert self._state is not None
         assert self._sync_config is not None, "SyncConfig is required for deferred sync."
@@ -370,46 +424,56 @@ class ArrowLogWriter(BaseLogWriter):
         ref_timestamp_field = self._sync_config.reference_timestamp_field
         direction = self._sync_config.direction
 
-        # Read timestamps from all written Arrow files
-        timestamp_logs: Dict[str, List[Tuple[int, int]]] = {}  # modality_key -> [(row_idx, ts_us)]
+        # Read timestamps from all written Arrow files using memory-mapped I/O.
+        modality_timestamps: Dict[str, np.ndarray] = {}  # modality_key -> int64 timestamps
 
         for arrow_path in sorted(self._state.log_dir.glob("*.arrow")):
-            if arrow_path.name == "sync.arrow":
+            if arrow_path.name in {"sync.arrow", "map.arrow"}:
                 continue
 
             modality_key = arrow_path.stem
-            reader = pa.ipc.open_file(arrow_path)
+
+            source = pa.memory_map(str(arrow_path), "r")
+            reader = pa.ipc.open_file(source)
             table = reader.read_all()
 
             # Find the timestamp column: use the specific field for the reference modality,
             # otherwise pick the first column ending in "timestamp_us".
-            ts_col_name = None
+            ts_col_name: Optional[str] = None
             if modality_key == ref_modality_key:
                 ts_col_name = f"{modality_key}.{ref_timestamp_field}"
             else:
                 for col_name in table.column_names:
-                    if col_name.endswith("timestamp_us"):
+                    if col_name.endswith(".timestamp_us"):
                         ts_col_name = col_name
                         break
 
-            if ts_col_name is not None and ts_col_name not in table.column_names:
+            if ts_col_name is None or ts_col_name not in table.column_names:
                 raise ValueError(
-                    f"Timestamp column '{ts_col_name}' not found in '{arrow_path.name}'. "
+                    f"Timestamp column '{ts_col_name}' not found in '{arrow_path}'. "
                     f"Available columns: {table.column_names}"
                 )
-            if ts_col_name is None:
-                continue
 
-            timestamps = table.column(ts_col_name).to_pylist()
-            timestamp_logs[modality_key] = [(i, ts) for i, ts in enumerate(timestamps)]
+            ts_array = table.column(ts_col_name).to_numpy()
+            if len(ts_array) > 1 and not np.all(np.diff(ts_array) >= 0):
+                raise ValueError(
+                    f"Timestamps in '{arrow_path}' column '{ts_col_name}' are not monotonically non-decreasing."
+                )
+            modality_timestamps[modality_key] = ts_array
 
-        # Extract reference timestamps
-        ref_entries = timestamp_logs.get(ref_modality_key, [])
-        if not ref_entries:
-            return
+        # Extract reference timestamps.
+        if ref_modality_key not in modality_timestamps:
+            raise ValueError(
+                f"Reference modality '{ref_modality_key}' not found among written Arrow files "
+                f"({list(modality_timestamps.keys())}). Cannot build sync table."
+            )
 
-        ref_timestamps_us = [ts for _, ts in ref_entries]
-        addon_names = list(timestamp_logs.keys())
+        ref_ts_array = modality_timestamps[ref_modality_key]
+        sync_modality_keys = list(modality_timestamps.keys())
+
+        # Resolve stride and compute which reference indices to keep.
+        effective_stride = self._resolve_sync_stride(ref_ts_array)
+        kept_ref_indices = np.arange(0, len(ref_ts_array), effective_stride)
 
         # Build schema: uuid, timestamp_us, then one int64 column per modality.
         uuid_type = _get_uuid_arrow_type()
@@ -417,38 +481,41 @@ class ArrowLogWriter(BaseLogWriter):
             pa.field(_SYNC_COL_UUID, uuid_type),
             pa.field(_SYNC_COL_TIMESTAMP_US, pa.int64()),
         ]
-        for addon in addon_names:
-            fields.append(pa.field(addon, pa.int64()))
+        for modality_key in sync_modality_keys:
+            fields.append(pa.field(modality_key, pa.int64()))
         schema = pa.schema(fields)
 
-        # Pre-extract sorted timestamp arrays for efficient bisect lookups
-        addon_timestamps: Dict[str, List[int]] = {}
-        for addon in addon_names:
-            addon_timestamps[addon] = [ts for _, ts in timestamp_logs[addon]]
-
-        # Build one sync row per reference timestamp, picking the single closest
+        # Build one sync row per kept reference timestamp, picking the single closest
         # modality observation within the interval defined by the sync direction.
         sync_rows: List[Dict[str, Any]] = []
-        for ref_idx, (_, ref_ts) in enumerate(ref_entries):
+        for kept_pos in range(len(kept_ref_indices)):
+            ref_idx = int(kept_ref_indices[kept_pos])
+            ref_ts = int(ref_ts_array[ref_idx])
             sync_addon_data: Dict[str, Optional[int]] = {}
 
-            for addon in addon_names:
-                ts_list = addon_timestamps[addon]
+            for modality_key in sync_modality_keys:
+                ts_arr = modality_timestamps[modality_key]
 
                 if direction == "forward":
-                    # Interval: [ref_ts, next_ref_ts) — pick first (closest to sync ts)
-                    next_ts = ref_timestamps_us[ref_idx + 1] if ref_idx + 1 < len(ref_entries) else None
-                    lo = bisect.bisect_left(ts_list, ref_ts)
-                    hi = bisect.bisect_left(ts_list, next_ts) if next_ts is not None else len(ts_list)
-                    best_idx = timestamp_logs[addon][lo][0] if lo < hi else None
+                    # Interval: [ref_ts, next_kept_ref_ts) — pick first (closest to sync ts)
+                    lo = int(np.searchsorted(ts_arr, ref_ts, side="left"))
+                    if kept_pos + 1 < len(kept_ref_indices):
+                        next_ref_ts = int(ref_ts_array[int(kept_ref_indices[kept_pos + 1])])
+                        hi = int(np.searchsorted(ts_arr, next_ref_ts, side="left"))
+                    else:
+                        hi = len(ts_arr)
+                    best_idx = lo if lo < hi else None
                 else:
-                    # Interval: (prev_ref_ts, ref_ts] — pick last (closest to sync ts)
-                    prev_ts = ref_timestamps_us[ref_idx - 1] if ref_idx > 0 else None
-                    lo = bisect.bisect_right(ts_list, prev_ts) if prev_ts is not None else 0
-                    hi = bisect.bisect_right(ts_list, ref_ts)
-                    best_idx = timestamp_logs[addon][hi - 1][0] if lo < hi else None
+                    # Interval: (prev_kept_ref_ts, ref_ts] — pick last (closest to sync ts)
+                    if kept_pos > 0:
+                        prev_ref_ts = int(ref_ts_array[int(kept_ref_indices[kept_pos - 1])])
+                        lo = int(np.searchsorted(ts_arr, prev_ref_ts, side="right"))
+                    else:
+                        lo = 0
+                    hi = int(np.searchsorted(ts_arr, ref_ts, side="right"))
+                    best_idx = hi - 1 if lo < hi else None
 
-                sync_addon_data[addon] = best_idx
+                sync_addon_data[modality_key] = best_idx
 
             sync_uuid = create_deterministic_uuid(
                 split=self._state.log_metadata.split,
@@ -460,8 +527,8 @@ class ArrowLogWriter(BaseLogWriter):
                 _SYNC_COL_UUID: [sync_uuid.bytes],
                 _SYNC_COL_TIMESTAMP_US: [ref_ts],
             }
-            for addon, best_index in sync_addon_data.items():
-                sync_row[addon] = [best_index]
+            for modality_key, best_index in sync_addon_data.items():
+                sync_row[modality_key] = [best_index]
             sync_rows.append(sync_row)
 
         self._write_sync_arrow_file(schema, sync_rows)

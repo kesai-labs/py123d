@@ -35,8 +35,13 @@ log_writer:
   sync_config:
     _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
     _convert_: 'all'
-    reference_column: lidar.lidar_merged.timestamp_us
+
+    # NOTE: we use the box detections as reference which are equal to lidar timestamp, but
+    # also work if sensor data is missing.
+    reference_column: box_detections_se3.timestamp_us
     direction: "forward" # "forward" or "backward"
+    # NOTE: We use use 10Hz for indexing, native 20Hz modalities will still be included.
+    target_iteration_duration_s: 0.1
 
 map_writer:
   _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter

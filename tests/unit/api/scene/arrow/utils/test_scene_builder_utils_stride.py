@@ -7,7 +7,9 @@ import pyarrow as pa
 
 from py123d.api.scene.arrow.utils.scene_builder_utils import (
     _scene_has_complete_modalities,
+    compute_stride_from_duration,
     generate_scene_metadatas,
+    infer_iteration_duration_from_timestamps_us,
     resolve_iteration_counts,
     resolve_iteration_stride,
 )
@@ -49,6 +51,52 @@ def _make_sync_table(
             "camera.front": pa.array(camera_indices, type=pa.int64()),
         },
     )
+
+
+# --- TestInferIterationDurationFromTimestampsUs ---
+
+
+class TestInferIterationDurationFromTimestampsUs:
+    def test_uniform_timestamps(self):
+        ts = np.array([0, 100_000, 200_000, 300_000], dtype=np.int64)
+        assert infer_iteration_duration_from_timestamps_us(ts) == 0.1
+
+    def test_non_uniform_uses_median(self):
+        ts = np.array([0, 100_000, 200_000, 1_000_000], dtype=np.int64)
+        assert infer_iteration_duration_from_timestamps_us(ts) == 0.1  # median of [0.1, 0.1, 0.8]
+
+    def test_single_timestamp_raises(self):
+        import pytest
+
+        ts = np.array([100_000], dtype=np.int64)
+        with pytest.raises(ValueError, match="fewer than 2"):
+            infer_iteration_duration_from_timestamps_us(ts)
+
+
+# --- TestComputeStrideFromDuration ---
+
+
+class TestComputeStrideFromDuration:
+    def test_exact_match(self):
+        assert compute_stride_from_duration(0.5, 0.1) == 5
+
+    def test_stride_1_on_matching(self):
+        assert compute_stride_from_duration(0.1, 0.1) == 1
+
+    def test_upsampling_returns_none(self, caplog):
+        with caplog.at_level(logging.DEBUG):
+            assert compute_stride_from_duration(0.05, 0.1) is None
+        assert "Cannot upsample" in caplog.text
+
+    def test_within_tolerance(self):
+        # 0.48 / 0.1 = 4.8 → round to 5, deviation = 4% < 15%
+        assert compute_stride_from_duration(0.48, 0.1) == 5
+
+    def test_tolerance_exceeded_returns_none(self, caplog):
+        # 0.24 / 0.1 = 2.4 → round to 2, deviation = 20% > 15%
+        with caplog.at_level(logging.DEBUG):
+            assert compute_stride_from_duration(0.24, 0.1) is None
+        assert "not achievable" in caplog.text
 
 
 # --- TestResolveIterationStride ---

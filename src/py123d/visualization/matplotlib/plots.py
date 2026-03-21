@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.visualization.matplotlib.observation import add_scene_on_ax
+from py123d.visualization.matplotlib.timestamps import plot_scene_timestamps  # noqa: F401
 
 
 def plot_scene_at_iteration(scene: SceneAPI, iteration: int = 0, radius: float = 80) -> Tuple[plt.Figure, plt.Axes]:

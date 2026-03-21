@@ -7,7 +7,14 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from py123d.api.scene.arrow.arrow_scene_builder import _parse_valid_log_dirs
+from py123d.api.scene.arrow.arrow_scene_builder import (
+    ArrowSceneBuilder,
+    _apply_post_filters,
+    _discover_split_names,
+    _extract_scenes_from_log_dir,
+    _extract_scenes_from_log_dirs,
+    _parse_valid_log_dirs,
+)
 from py123d.api.scene.arrow.utils.scene_builder_utils import (
     _get_columns_matching_type,
     _is_modality_pattern,
@@ -22,6 +29,7 @@ from py123d.api.scene.arrow.utils.scene_builder_utils import (
 )
 from py123d.api.scene.scene_filter import SceneFilter, _validate_modality_requirement
 from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.common.execution import SequentialExecutor
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 
@@ -794,8 +802,6 @@ class TestCategory1LogDiscovery:
 
 class TestCategory4PostFiltering:
     def test_chunking(self):
-        from py123d.api.scene.arrow.arrow_scene_builder import _apply_post_filters
-
         # Create mock scenes (just need list length behavior)
         scenes = [None] * 10  # type: ignore
 
@@ -808,9 +814,242 @@ class TestCategory4PostFiltering:
         assert len(result) == 4  # last chunk gets remainder
 
     def test_max_num_scenes(self):
-        from py123d.api.scene.arrow.arrow_scene_builder import _apply_post_filters
-
         scenes = [None] * 10  # type: ignore
         f = SceneFilter(max_num_scenes=3)
         result = _apply_post_filters(scenes, f)
         assert len(result) == 3
+
+    def test_custom_filter_fn(self):
+        scenes = list(range(10))  # type: ignore[list-item]
+        f = SceneFilter(custom_filter_fns=[lambda s: s % 2 == 0])
+        result = _apply_post_filters(scenes, f)  # type: ignore[arg-type]
+        assert result == [0, 2, 4, 6, 8]
+
+    def test_multiple_custom_filter_fns(self):
+        scenes = list(range(10))  # type: ignore[list-item]
+        f = SceneFilter(custom_filter_fns=[lambda s: s % 2 == 0, lambda s: s > 3])
+        result = _apply_post_filters(scenes, f)  # type: ignore[arg-type]
+        assert result == [4, 6, 8]
+
+    def test_shuffle_changes_order(self):
+        import random
+
+        random.seed(42)
+        scenes = list(range(20))  # type: ignore[list-item]
+        f = SceneFilter(shuffle=True)
+        result = _apply_post_filters(list(scenes), f)  # type: ignore[arg-type]
+        assert len(result) == 20
+        assert set(result) == set(scenes)
+        # With seed 42 and 20 elements, the shuffled order should differ from sorted
+        assert result != scenes
+
+    def test_shuffle_then_max(self):
+        import random
+
+        random.seed(0)
+        scenes = list(range(20))  # type: ignore[list-item]
+        f = SceneFilter(shuffle=True, max_num_scenes=5)
+        result = _apply_post_filters(list(scenes), f)  # type: ignore[arg-type]
+        assert len(result) == 5
+
+    def test_empty_scenes(self):
+        result = _apply_post_filters([], SceneFilter())
+        assert result == []
+
+    def test_chunking_middle_chunk(self):
+        scenes = [None] * 10  # type: ignore
+        f = SceneFilter(num_chunks=3, chunk_idx=1)
+        result = _apply_post_filters(scenes, f)
+        assert len(result) == 3
+
+
+class TestDiscoverSplitNames:
+    def test_discovers_train_val(self, tmp_path):
+        logs_root = tmp_path / "logs"
+        (logs_root / "dataset-a_train").mkdir(parents=True)
+        (logs_root / "dataset-a_val").mkdir(parents=True)
+        (logs_root / "dataset-b_test").mkdir(parents=True)
+        # A non-directory file should be skipped
+        (logs_root / "stray_file.txt").touch()
+
+        result = _discover_split_names(logs_root, SceneFilter())
+        assert sorted(result) == ["dataset-a_train", "dataset-a_val", "dataset-b_test"]
+
+    def test_filter_by_dataset(self, tmp_path):
+        logs_root = tmp_path / "logs"
+        (logs_root / "dataset-a_train").mkdir(parents=True)
+        (logs_root / "dataset-b_val").mkdir(parents=True)
+
+        result = _discover_split_names(logs_root, SceneFilter(datasets=["dataset-a"]))
+        assert result == ["dataset-a_train"]
+
+    def test_filter_by_split_type(self, tmp_path):
+        logs_root = tmp_path / "logs"
+        (logs_root / "dataset-a_train").mkdir(parents=True)
+        (logs_root / "dataset-a_val").mkdir(parents=True)
+        (logs_root / "dataset-a_test").mkdir(parents=True)
+
+        result = _discover_split_names(logs_root, SceneFilter(split_types=["val"]))
+        assert result == ["dataset-a_val"]
+
+    def test_skips_non_matching_split_types(self, tmp_path):
+        logs_root = tmp_path / "logs"
+        (logs_root / "dataset-a_train").mkdir(parents=True)
+
+        result = _discover_split_names(logs_root, SceneFilter(split_types=["val"]))
+        assert result == []
+
+
+class TestExtractScenesFromLogDir:
+    def test_extracts_scenes_single_log(self, tmp_path):
+        log_dir = _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        scenes = _extract_scenes_from_log_dir(log_dir, SceneFilter(), maps_root=tmp_path / "maps")
+        assert len(scenes) == 1  # full log, no windowing → one scene
+
+    def test_returns_empty_on_error(self, tmp_path):
+        # Create a log dir with an invalid sync.arrow (empty file)
+        log_dir = tmp_path / "logs" / "test-dataset_train" / "bad_log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "sync.arrow").write_bytes(b"not valid arrow data")
+
+        scenes = _extract_scenes_from_log_dir(log_dir, SceneFilter(), maps_root=tmp_path / "maps")
+        assert scenes == []
+
+    def test_with_future_duration(self, tmp_path):
+        log_dir = _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        f = SceneFilter(future_duration_s=0.5)  # 5 iterations at 10Hz
+        scenes = _extract_scenes_from_log_dir(log_dir, f, maps_root=tmp_path / "maps")
+        assert len(scenes) > 1
+        for s in scenes:
+            assert s.scene_metadata.num_future_iterations == 5
+
+
+class TestExtractScenesFromLogDirs:
+    def test_batch_extraction(self, tmp_path):
+        log_dir_1 = _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        log_dir_2 = _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_002")
+
+        scenes = _extract_scenes_from_log_dirs(
+            [log_dir_1, log_dir_2], filter=SceneFilter(), maps_root=tmp_path / "maps"
+        )
+        assert len(scenes) == 2  # one scene per log (full log, no windowing)
+
+    def test_empty_list(self):
+        scenes = _extract_scenes_from_log_dirs([], filter=SceneFilter(), maps_root=None)
+        assert scenes == []
+
+
+class TestArrowSceneBuilderInit:
+    def test_init_with_explicit_paths(self, tmp_path):
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        logs_root.mkdir()
+        maps_root.mkdir()
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        assert builder._logs_root == logs_root
+        assert builder._maps_root == maps_root
+
+    def test_init_accepts_string_paths(self, tmp_path):
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        logs_root.mkdir()
+        maps_root.mkdir()
+
+        builder = ArrowSceneBuilder(logs_root=str(logs_root), maps_root=str(maps_root))
+        assert builder._logs_root == logs_root
+        assert builder._maps_root == maps_root
+
+
+class TestArrowSceneBuilderGetScenes:
+    def test_get_scenes_returns_scenes(self, tmp_path):
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_002")
+
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        maps_root.mkdir(exist_ok=True)
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        executor = SequentialExecutor()
+        scenes = builder.get_scenes(SceneFilter(), executor)
+        assert len(scenes) == 2
+
+    def test_get_scenes_with_dataset_filter(self, tmp_path):
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        _write_demo_log(tmp_path, split_name="other-dataset_val", log_name="log_002")
+
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        maps_root.mkdir(exist_ok=True)
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        executor = SequentialExecutor()
+        scenes = builder.get_scenes(SceneFilter(datasets=["test-dataset"]), executor)
+        assert len(scenes) == 1
+
+    def test_get_scenes_empty_when_no_logs(self, tmp_path):
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        logs_root.mkdir()
+        maps_root.mkdir()
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        executor = SequentialExecutor()
+        scenes = builder.get_scenes(SceneFilter(), executor)
+        assert scenes == []
+
+    def test_get_scenes_with_max_num_scenes(self, tmp_path):
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_002")
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_003")
+
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        maps_root.mkdir(exist_ok=True)
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        executor = SequentialExecutor()
+        scenes = builder.get_scenes(SceneFilter(max_num_scenes=2), executor)
+        assert len(scenes) == 2
+
+    def test_get_scenes_with_log_name_filter(self, tmp_path):
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_002")
+
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        maps_root.mkdir(exist_ok=True)
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        executor = SequentialExecutor()
+        scenes = builder.get_scenes(SceneFilter(log_names=["log_002"]), executor)
+        assert len(scenes) == 1
+
+    def test_get_scenes_with_split_names_filter(self, tmp_path):
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+        _write_demo_log(tmp_path, split_name="test-dataset_val", log_name="log_002")
+
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        maps_root.mkdir(exist_ok=True)
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        executor = SequentialExecutor()
+        scenes = builder.get_scenes(SceneFilter(split_names=["test-dataset_val"]), executor)
+        assert len(scenes) == 1
+
+    def test_get_scenes_with_future_duration(self, tmp_path):
+        _write_demo_log(tmp_path, split_name="test-dataset_train", log_name="log_001")
+
+        logs_root = tmp_path / "logs"
+        maps_root = tmp_path / "maps"
+        maps_root.mkdir(exist_ok=True)
+
+        builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
+        executor = SequentialExecutor()
+        # 20 rows at 10Hz, future_duration=0.5s → 5 iterations per window
+        scenes = builder.get_scenes(SceneFilter(future_duration_s=0.5), executor)
+        assert len(scenes) > 1
+        for s in scenes:
+            assert s.scene_metadata.num_future_iterations == 5

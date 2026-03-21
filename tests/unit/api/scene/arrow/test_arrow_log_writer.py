@@ -309,8 +309,8 @@ class TestDeferredSync:
         sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
         assert sync_table.num_rows == 5
 
-    def test_no_reference_exits_early(self, tmp_path: Path):
-        """If reference modality is missing, no sync.arrow is written."""
+    def test_no_reference_raises(self, tmp_path: Path):
+        """If reference modality is missing, raise ValueError."""
         config = LogWriterConfig()
         sync_cfg = SyncConfig(reference_column="lidar.lidar_merged.timestamp_us")
         writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
@@ -319,7 +319,343 @@ class TestDeferredSync:
 
         # Write ego data, but reference is lidar (which we don't write)
         writer.write_async(_make_ego(100_000))
+        with pytest.raises(ValueError, match="Reference modality.*not found"):
+            writer.close()
+
+    def test_forward_sync_indices_are_correct(self, tmp_path: Path):
+        """Verify forward sync picks the first observation in [ref_ts, next_ref_ts)."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(reference_column="ego_state_se3.timestamp_us", direction="forward")
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        # Ego timestamps: 0, 100_000, 200_000, 300_000, 400_000
+        for i in range(5):
+            writer.write_async(_make_ego(i * 100_000))
+
+        # Traffic lights at 50_000, 150_000, 250_000 (shifted by half an interval)
+        from py123d.datatypes import TrafficLightDetection, TrafficLightDetections, TrafficLightStatus
+
+        tl_meta = make_traffic_light_metadata()
+        for ts_us in [50_000, 150_000, 250_000]:
+            tl = TrafficLightDetections(
+                detections=[TrafficLightDetection(lane_id=1, status=TrafficLightStatus.GREEN)],
+                timestamp=Timestamp.from_us(ts_us),
+                metadata=tl_meta,
+            )
+            writer.write_async(tl)
         writer.close()
 
         log_dir = tmp_path / log_meta.split / log_meta.log_name
-        assert not (log_dir / "sync.arrow").exists()
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        tl_col = sync_table.column(tl_meta.modality_key).to_pylist()
+
+        # Forward: [0, 100k) -> tl@50k (idx 0), [100k, 200k) -> tl@150k (idx 1),
+        #          [200k, 300k) -> tl@250k (idx 2), [300k, 400k) -> None, [400k, inf) -> None
+        assert tl_col == [0, 1, 2, None, None]
+
+    def test_backward_sync_indices_are_correct(self, tmp_path: Path):
+        """Verify backward sync picks the last observation in (prev_ref_ts, ref_ts]."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(reference_column="ego_state_se3.timestamp_us", direction="backward")
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(5):
+            writer.write_async(_make_ego(i * 100_000))
+
+        from py123d.datatypes import TrafficLightDetection, TrafficLightDetections, TrafficLightStatus
+
+        tl_meta = make_traffic_light_metadata()
+        for ts_us in [50_000, 150_000, 250_000]:
+            tl = TrafficLightDetections(
+                detections=[TrafficLightDetection(lane_id=1, status=TrafficLightStatus.GREEN)],
+                timestamp=Timestamp.from_us(ts_us),
+                metadata=tl_meta,
+            )
+            writer.write_async(tl)
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        tl_col = sync_table.column(tl_meta.modality_key).to_pylist()
+
+        # Backward: (-inf, 0] -> None, (0, 100k] -> tl@50k (idx 0),
+        #           (100k, 200k] -> tl@150k (idx 1), (200k, 300k] -> tl@250k (idx 2), (300k, 400k] -> None
+        assert tl_col == [None, 0, 1, 2, None]
+
+    def test_self_sync_identity(self, tmp_path: Path):
+        """Reference modality synced against itself should produce identity mapping (0, 1, 2, ...)."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(reference_column="ego_state_se3.timestamp_us", direction="forward")
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        n = 10
+        for i in range(n):
+            writer.write_async(_make_ego(i * 100_000))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        ego_col = sync_table.column("ego_state_se3").to_pylist()
+        assert ego_col == list(range(n))
+
+    def test_non_monotonic_timestamps_raise(self, tmp_path: Path):
+        """Non-monotonic timestamps are caught during close (writer validates before sync build)."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(reference_column="ego_state_se3.timestamp_us")
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        writer.write_async(_make_ego(100_000))
+        writer.write_async(_make_ego(0))
+
+        with pytest.raises(ValueError, match="monotonically"):
+            writer.close()
+
+    def test_sync_timestamps_column(self, tmp_path: Path):
+        """Sync table timestamp_us column should match reference modality timestamps."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(reference_column="ego_state_se3.timestamp_us", direction="forward")
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        expected_ts = [0, 100_000, 200_000]
+        for ts in expected_ts:
+            writer.write_async(_make_ego(ts))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        actual_ts = sync_table.column("sync.timestamp_us").to_pylist()
+        assert actual_ts == expected_ts
+
+
+# ===========================================================================
+# Deferred sync table — stride / thinning
+# ===========================================================================
+
+
+class TestDeferredSyncStride:
+    def test_stride_2_thins_sync_table(self, tmp_path: Path):
+        """Stride=2 on 10 ego frames should produce 5 sync rows."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us", direction="forward", target_iteration_stride=2
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(10):
+            writer.write_async(_make_ego(i * 100_000))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        assert sync_table.num_rows == 5
+
+    def test_stride_timestamps_column(self, tmp_path: Path):
+        """Sync timestamps should correspond to kept reference timestamps only."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us", direction="forward", target_iteration_stride=2
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(10):
+            writer.write_async(_make_ego(i * 100_000))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        actual_ts = sync_table.column("sync.timestamp_us").to_pylist()
+        assert actual_ts == [0, 200_000, 400_000, 600_000, 800_000]
+
+    def test_duration_based_stride(self, tmp_path: Path):
+        """target_iteration_duration_s=0.1 on a 20Hz log should produce stride=2."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us",
+            direction="forward",
+            target_iteration_duration_s=0.1,
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        # 20 frames at 50ms intervals = 20Hz
+        for i in range(20):
+            writer.write_async(_make_ego(i * 50_000))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        assert sync_table.num_rows == 10
+
+    def test_duration_takes_priority_over_stride(self, tmp_path: Path):
+        """When both are set, target_iteration_duration_s wins."""
+        config = LogWriterConfig()
+        # duration=0.2s on 10Hz → stride=2; explicit stride=5 should be ignored
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us",
+            direction="forward",
+            target_iteration_stride=5,
+            target_iteration_duration_s=0.2,
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(10):
+            writer.write_async(_make_ego(i * 100_000))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        assert sync_table.num_rows == 5  # stride=2, not stride=5
+
+    def test_stride_1_no_thinning(self, tmp_path: Path):
+        """Stride=1 should produce the same result as no stride."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us", direction="forward", target_iteration_stride=1
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(5):
+            writer.write_async(_make_ego(i * 100_000))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        assert sync_table.num_rows == 5
+
+    def test_self_sync_with_stride(self, tmp_path: Path):
+        """Reference modality against itself with stride=2 should produce 0, 2, 4, ... indices."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us", direction="forward", target_iteration_stride=2
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(10):
+            writer.write_async(_make_ego(i * 100_000))
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        ego_col = sync_table.column("ego_state_se3").to_pylist()
+        assert ego_col == [0, 2, 4, 6, 8]
+
+    def test_stride_forward_indices(self, tmp_path: Path):
+        """Forward sync with stride=2: wider intervals should capture more observations."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us", direction="forward", target_iteration_stride=2
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        # Ego at 0, 100k, 200k, 300k, 400k, 500k (6 frames, stride=2 → kept: 0, 200k, 400k)
+        for i in range(6):
+            writer.write_async(_make_ego(i * 100_000))
+
+        # Traffic lights at 50k, 150k, 250k, 350k, 450k
+        from py123d.datatypes import TrafficLightDetection, TrafficLightDetections, TrafficLightStatus
+
+        tl_meta = make_traffic_light_metadata()
+        for ts_us in [50_000, 150_000, 250_000, 350_000, 450_000]:
+            tl = TrafficLightDetections(
+                detections=[TrafficLightDetection(lane_id=1, status=TrafficLightStatus.GREEN)],
+                timestamp=Timestamp.from_us(ts_us),
+                metadata=tl_meta,
+            )
+            writer.write_async(tl)
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        tl_col = sync_table.column(tl_meta.modality_key).to_pylist()
+
+        # Kept ref timestamps: 0, 200k, 400k
+        # Forward intervals: [0, 200k) → tl@50k (idx 0), [200k, 400k) → tl@250k (idx 2), [400k, inf) → tl@450k (idx 4)
+        assert tl_col == [0, 2, 4]
+
+    def test_stride_backward_indices(self, tmp_path: Path):
+        """Backward sync with stride=2: wider intervals should capture observations."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us", direction="backward", target_iteration_stride=2
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(6):
+            writer.write_async(_make_ego(i * 100_000))
+
+        from py123d.datatypes import TrafficLightDetection, TrafficLightDetections, TrafficLightStatus
+
+        tl_meta = make_traffic_light_metadata()
+        for ts_us in [50_000, 150_000, 250_000, 350_000, 450_000]:
+            tl = TrafficLightDetections(
+                detections=[TrafficLightDetection(lane_id=1, status=TrafficLightStatus.GREEN)],
+                timestamp=Timestamp.from_us(ts_us),
+                metadata=tl_meta,
+            )
+            writer.write_async(tl)
+        writer.close()
+
+        log_dir = tmp_path / log_meta.split / log_meta.log_name
+        sync_table = pa.ipc.open_file(str(log_dir / "sync.arrow")).read_all()
+        tl_col = sync_table.column(tl_meta.modality_key).to_pylist()
+
+        # Kept ref timestamps: 0, 200k, 400k
+        # Backward intervals: (-inf, 0] → None, (0, 200k] → tl@150k (idx 1), (200k, 400k] → tl@350k (idx 3)
+        assert tl_col == [None, 1, 3]
+
+    def test_infeasible_duration_raises(self, tmp_path: Path):
+        """target_iteration_duration_s smaller than raw duration should raise ValueError."""
+        config = LogWriterConfig()
+        sync_cfg = SyncConfig(
+            reference_column="ego_state_se3.timestamp_us",
+            direction="forward",
+            target_iteration_duration_s=0.01,  # 10ms on a 10Hz (100ms) log → impossible
+        )
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+
+        for i in range(5):
+            writer.write_async(_make_ego(i * 100_000))
+
+        with pytest.raises(ValueError, match="Cannot achieve target_iteration_duration_s"):
+            writer.close()
+
+    def test_stride_validation_in_sync_config(self):
+        """Invalid stride/duration values should raise at SyncConfig construction."""
+        with pytest.raises(ValueError, match="target_iteration_stride must be >= 1"):
+            SyncConfig(reference_column="ego_state_se3.timestamp_us", target_iteration_stride=0)
+
+        with pytest.raises(ValueError, match="target_iteration_stride must be >= 1"):
+            SyncConfig(reference_column="ego_state_se3.timestamp_us", target_iteration_stride=-1)
+
+        with pytest.raises(ValueError, match="target_iteration_duration_s must be > 0"):
+            SyncConfig(reference_column="ego_state_se3.timestamp_us", target_iteration_duration_s=0.0)
+
+        with pytest.raises(ValueError, match="target_iteration_duration_s must be > 0"):
+            SyncConfig(reference_column="ego_state_se3.timestamp_us", target_iteration_duration_s=-1.0)
