@@ -96,12 +96,11 @@ def _parse_valid_log_dirs(logs_root: Path, filter: SceneFilter) -> List[Path]:
     log_paths: List[Path] = []
     for split_name in split_names:
         split_dir = logs_root / split_name
-        if not split_dir.exists():
-            continue
-        for log_path in split_dir.iterdir():
-            if log_path.is_dir() and (log_path / "sync.arrow").exists():
-                if filter.log_names is None or log_path.name in filter.log_names:
-                    log_paths.append(log_path)
+        if split_dir.exists():
+            for log_path in split_dir.iterdir():
+                if log_path.is_dir() and (log_path / "sync.arrow").exists():
+                    if filter.log_names is None or log_path.name in filter.log_names:
+                        log_paths.append(log_path)
     return log_paths
 
 
