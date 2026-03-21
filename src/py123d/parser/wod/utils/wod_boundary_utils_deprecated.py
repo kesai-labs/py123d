@@ -172,8 +172,8 @@ def fill_lane_boundaries(
     """Welcome to insanity.
 
     :param lane_data: List of of WaymoLaneData helper class
-    :param road_lines: List of AbstractRoadLine objects
-    :param road_edges: List of AbstractRoadEdge objects
+    :param road_lines: List of RoadLine objects
+    :param road_edges: List of RoadEdge objects
     :return: Tuple of left and right lane boundaries as 3D polylines
     """
 

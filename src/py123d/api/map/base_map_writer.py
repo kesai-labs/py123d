@@ -4,8 +4,8 @@ from abc import abstractmethod
 from py123d.datatypes import BaseMapObject, MapMetadata
 
 
-class AbstractMapWriter(abc.ABC):
-    """Abstract base class for map writers."""
+class BaseMapWriter(abc.ABC):
+    """Base class for map writers."""
 
     @abstractmethod
     def reset(self, map_metadata: MapMetadata) -> bool:

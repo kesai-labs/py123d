@@ -7,8 +7,8 @@ from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.parser.base_dataset_parser import ModalitiesSync
 
 
-class AbstractLogWriter(abc.ABC):
-    """Abstract base class for log writers.
+class BaseLogWriter(abc.ABC):
+    """Base class for log writers.
 
     A log writer is responsible for specifying the output format of a converted log.
     This includes how data is organized, how it is serialized, and how it is stored.

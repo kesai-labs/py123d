@@ -6,8 +6,8 @@ import msgpack
 import numpy as np
 import pyarrow as pa
 
-from py123d.api.map.abstract_map_writer import AbstractMapWriter
 from py123d.api.map.arrow.arrow_id_utils import ToIntMapping
+from py123d.api.map.base_map_writer import BaseMapWriter
 from py123d.api.utils.arrow_helper import write_arrow_table
 from py123d.common.utils.msgpack_utils import msgpack_encode_with_numpy
 from py123d.datatypes import (
@@ -30,8 +30,8 @@ from py123d.datatypes.map_objects.base_map_objects import BaseMapObject
 from py123d.geometry import Point2DIndex, Point3DIndex, Polyline2D, Polyline3D
 
 
-class ArrowMapWriter(AbstractMapWriter):
-    """Abstract base class for map writers."""
+class ArrowMapWriter(BaseMapWriter):
+    """Arrow-based map writer."""
 
     def __init__(
         self,

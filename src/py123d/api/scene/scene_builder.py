@@ -17,5 +17,5 @@ class SceneBuilder(abc.ABC):
 
         :param filter: SceneFilter object to filter the scenes.
         :param executor: Executor to parallelize the scene extraction.
-        :return: Iterator over AbstractScene objects.
+        :return: List of SceneAPI objects.
         """

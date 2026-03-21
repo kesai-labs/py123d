@@ -3,7 +3,7 @@ import pytest
 from py123d.datatypes.metadata.base_metadata import BaseMetadata
 
 
-class TestAbstractMetadata:
+class TestBaseMetadata:
     """Tests for the BaseMetadata ABC contract."""
 
     def test_cannot_instantiate_directly(self):
@@ -32,7 +32,7 @@ class TestAbstractMetadata:
         with pytest.raises(TypeError):
             MissingFromDict()
 
-    def test_concrete_subclass_is_instance_of_abstract_metadata(self):
+    def test_concrete_subclass_is_instance_of_base_metadata(self):
         """A fully implemented subclass is an instance of BaseMetadata."""
 
         class ConcreteMetadata(BaseMetadata):

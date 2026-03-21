@@ -15,6 +15,7 @@ Each dataset entry includes installation instructions, available data types, kno
    nuplan
    nuscenes
    pandaset
+   physical-ai-av
    wod_motion
    wod_perception
    template

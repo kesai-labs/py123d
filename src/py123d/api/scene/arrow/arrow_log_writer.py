@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import pyarrow as pa
 
-from py123d.api.scene.abstract_log_writer import AbstractLogWriter
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
 from py123d.api.scene.arrow.modalities.arrow_box_detections_se3 import ArrowBoxDetectionsSE3Writer
 from py123d.api.scene.arrow.modalities.arrow_camera import ArrowCameraWriter
@@ -14,6 +13,7 @@ from py123d.api.scene.arrow.modalities.arrow_ego_state_se3 import ArrowEgoStateS
 from py123d.api.scene.arrow.modalities.arrow_lidar import ArrowLidarWriter
 from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections import ArrowTrafficLightDetectionsWriter
 from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig
+from py123d.api.scene.base_log_writer import BaseLogWriter
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
 from py123d.datatypes import LogMetadata
@@ -74,7 +74,7 @@ class ArrowLogWriterState:
     sync_rows: Optional[List[Dict[str, Union[bytes, int, List[int]]]]] = None
 
 
-class ArrowLogWriter(AbstractLogWriter):
+class ArrowLogWriter(BaseLogWriter):
     def __init__(
         self,
         log_writer_config: LogWriterConfig,
