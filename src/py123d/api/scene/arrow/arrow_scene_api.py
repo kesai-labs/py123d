@@ -18,9 +18,7 @@ from py123d.api.scene.arrow.modalities.sync_utils import (
     get_modality_table,
     get_sync_table,
 )
-from py123d.api.scene.arrow.utils.arrow_scene_caches import (
-    _get_complete_log_scene_metadata,
-)
+from py123d.api.scene.arrow.utils.arrow_scene_caches import _get_complete_log_scene_metadata
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_metadata_utils import LogDirectoryMetadata, parse_log_directory_metadata

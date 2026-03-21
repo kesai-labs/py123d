@@ -21,13 +21,12 @@ from py123d.datatypes.metadata.log_metadata import LogMetadata
 # --- Helpers ---
 
 
-def _make_log_metadata(timestep_seconds: float = 0.1) -> LogMetadata:
+def _make_log_metadata() -> LogMetadata:
     return LogMetadata(
         dataset="test-dataset",
         split="test-dataset_train",
         log_name="log_001",
         location="boston",
-        timestep_seconds=timestep_seconds,
         map_metadata=None,
     )
 
@@ -108,7 +107,7 @@ def log_dir_10hz(tmp_path) -> Path:
     """Create a 10Hz log with 50 frames (5 seconds)."""
     log_dir = tmp_path / "log"
     log_dir.mkdir()
-    meta = _make_log_metadata(timestep_seconds=0.1)
+    meta = _make_log_metadata()
     _write_sync_arrow(log_dir, num_rows=50, timestep_us=100_000, log_metadata=meta)
     _write_ego_arrow(log_dir, num_rows=50, timestep_us=100_000)
     return log_dir

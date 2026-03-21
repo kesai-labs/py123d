@@ -222,7 +222,6 @@ class WODPerceptionLogParser(BaseLogParser):
             split=self._split,
             log_name=str(initial_frame.context.name),
             location=str(initial_frame.context.stats.location),
-            timestep_seconds=0.1,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

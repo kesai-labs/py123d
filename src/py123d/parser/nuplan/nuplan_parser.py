@@ -214,7 +214,6 @@ class NuplanLogParser(BaseLogParser):
             split=self._split,
             log_name=log_name,
             location=location,
-            timestep_seconds=TARGET_DT,
             map_metadata=MapMetadata(
                 dataset="nuplan",
                 location=location,

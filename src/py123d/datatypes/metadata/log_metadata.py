@@ -10,7 +10,7 @@ from py123d.datatypes.metadata.map_metadata import MapMetadata
 class LogMetadata(BaseMetadata):
     """Class to hold metadata information about a log."""
 
-    __slots__ = ("_dataset", "_split", "_log_name", "_location", "_timestep_seconds", "_map_metadata", "_version")
+    __slots__ = ("_dataset", "_split", "_log_name", "_location", "_map_metadata", "_version")
 
     def __init__(
         self,
@@ -18,7 +18,6 @@ class LogMetadata(BaseMetadata):
         split: str,
         log_name: str,
         location: Optional[str],
-        timestep_seconds: float,
         map_metadata: Optional[MapMetadata] = None,
         version: str = str(py123d.__version__),
     ):
@@ -28,7 +27,6 @@ class LogMetadata(BaseMetadata):
         :param split: Data split name, typically ``{dataset_name}_{train/val/test}``.
         :param log_name: Name of the log file.
         :param location: Location of the log data.
-        :param timestep_seconds: The time interval between consecutive frames in seconds.
         """
 
         # Basic log info
@@ -36,7 +34,6 @@ class LogMetadata(BaseMetadata):
         self._split = split
         self._log_name = log_name
         self._location = location
-        self._timestep_seconds = timestep_seconds
 
         # Map metadata
         self._map_metadata: Optional[MapMetadata] = map_metadata
@@ -63,11 +60,6 @@ class LogMetadata(BaseMetadata):
     def location(self) -> Optional[str]:
         """Location of the log data."""
         return self._location
-
-    @property
-    def timestep_seconds(self) -> float:
-        """The time interval between consecutive frames in seconds."""
-        return self._timestep_seconds
 
     @property
     def version(self) -> str:
@@ -98,7 +90,6 @@ class LogMetadata(BaseMetadata):
             split=data_dict["split"],
             log_name=data_dict["log_name"],
             location=data_dict.get("location"),
-            timestep_seconds=data_dict["timestep_seconds"],
             version=data_dict.get("version", "unknown"),
             map_metadata=map_metadata,
         )
@@ -113,7 +104,6 @@ class LogMetadata(BaseMetadata):
             "split": self._split,
             "log_name": self._log_name,
             "location": self._location,
-            "timestep_seconds": self._timestep_seconds,
             "version": self._version,
             "map_metadata": self._map_metadata.to_dict() if self._map_metadata is not None else None,
         }
@@ -121,6 +111,5 @@ class LogMetadata(BaseMetadata):
     def __repr__(self) -> str:
         return (
             f"LogMetadata(dataset={self.dataset}, split={self.split}, log_name={self.log_name}, "
-            f"location={self.location}, timestep_seconds={self.timestep_seconds}, "
-            f"version={self.version})"
+            f"location={self.location}, version={self.version})"
         )

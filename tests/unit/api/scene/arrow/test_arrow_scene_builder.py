@@ -33,7 +33,6 @@ def _make_log_metadata(
     split: str = "test-dataset_train",
     log_name: str = "log_001",
     location: Optional[str] = "boston",
-    timestep_seconds: float = 0.1,
     map_metadata: Optional[MapMetadata] = None,
 ) -> LogMetadata:
     return LogMetadata(
@@ -41,7 +40,6 @@ def _make_log_metadata(
         split=split,
         log_name=log_name,
         location=location,
-        timestep_seconds=timestep_seconds,
         map_metadata=map_metadata,
     )
 

@@ -130,7 +130,6 @@ class Av2SensorLogParser(BaseLogParser):
             split=self._split,
             log_name=self._source_log_path.name,
             location=map_metadata.location,
-            timestep_seconds=0.1,
             map_metadata=map_metadata,
         )
 

@@ -109,7 +109,7 @@ class PlaybackController:
                         self._on_iteration_changed(self._gui_timestep.value)
                     rendering_time = time.perf_counter() - start
 
-                    base_frame_time = scene.log_metadata.timestep_seconds
+                    base_frame_time = scene.scene_metadata.iteration_duration_s
                     target_frame_time = base_frame_time / self._gui_speed.value
                     sleep_time = target_frame_time - rendering_time
 

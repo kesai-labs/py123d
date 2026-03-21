@@ -128,7 +128,6 @@ class PandasetLogParser(BaseLogParser):
             split=self._split,
             log_name=self._source_log_path.name,
             location=None,  # TODO: Add location information.
-            timestep_seconds=0.1,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

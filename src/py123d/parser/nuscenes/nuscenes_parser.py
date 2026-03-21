@@ -213,7 +213,6 @@ class NuScenesLogParser(BaseLogParser):
             split=self._split,
             log_name=self._scene_name,
             location=self._location,
-            timestep_seconds=self._target_dt,
         )
 
     # ------------------------------------------------------------------------------------------------------------------

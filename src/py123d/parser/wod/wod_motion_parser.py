@@ -197,7 +197,6 @@ class WODMotionLogParser(BaseLogParser):
             split=self._split,
             log_name=self._scenario_id,
             location=None,
-            timestep_seconds=0.1,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

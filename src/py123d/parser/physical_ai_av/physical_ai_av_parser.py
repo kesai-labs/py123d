@@ -142,7 +142,6 @@ class PhysicalAIAVLogParser(BaseLogParser):
             split=self._split,
             log_name=self._clip_id,
             location=None,
-            timestep_seconds=0.1,
         )
 
     # ------------------------------------------------------------------------------------------------------------------

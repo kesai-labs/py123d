@@ -24,7 +24,6 @@ def _make_log_metadata() -> LogMetadata:
         split="test-dataset_train",
         log_name="log_001",
         location="boston",
-        timestep_seconds=0.1,
         map_metadata=None,
     )
 

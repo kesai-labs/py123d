@@ -235,7 +235,6 @@ class Kitti360LogParser(BaseLogParser):
             split=self._split,
             log_name=self._log_name,
             location=self._log_name,
-            timestep_seconds=KITTI360_DT,
             map_metadata=MapMetadata(
                 dataset="kitti360",
                 split=self._split,
