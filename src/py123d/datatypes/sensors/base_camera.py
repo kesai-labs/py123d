@@ -30,9 +30,15 @@ class CameraModel(SerialIntEnum):
     FISHEYE_MEI = 1
     """Fisheye camera using the MEI (mirror) model."""
 
+    FTHETA = 2
+    """F-theta polynomial camera model."""
+
 
 class CameraID(SerialIntEnum):
     """Enumeration of camera IDs. These are unique within a sensor rig and can be used as modality IDs for camera metadata."""
+
+    # Pinhole cameras
+    # ------------------------------------------------------------------------------------------------------------------
 
     PCAM_F0 = 0
     """Front pinhole camera."""
@@ -64,11 +70,38 @@ class CameraID(SerialIntEnum):
     PCAM_STEREO_R = 9
     """Right pinhole stereo camera."""
 
+    # Fisheye MEI cameras
+    # ------------------------------------------------------------------------------------------------------------------
+
     FMCAM_L = 10
     """Left-facing fisheye MEI camera."""
 
     FMCAM_R = 11
     """Right-facing fisheye MEI camera."""
+
+    # F-theta cameras
+    # ------------------------------------------------------------------------------------------------------------------
+
+    FTCAM_F0 = 12
+    """Front F-theta camera."""
+
+    FTCAM_TELE_F0 = 13
+    """Front telephoto F-theta camera."""
+
+    FTCAM_TELE_B0 = 18
+    """Back telephoto F-theta camera."""
+
+    FTCAM_L0 = 14
+    """Left F-theta camera, first from front to back."""
+
+    FTCAM_L1 = 15
+    """Left F-theta camera, second from front to back."""
+
+    FTCAM_R0 = 16
+    """Right F-theta camera, first from front to back."""
+
+    FTCAM_R1 = 17
+    """Right F-theta camera, second from front to back."""
 
 
 ALL_PINHOLE_CAMERA_IDS = [
@@ -87,6 +120,16 @@ ALL_PINHOLE_CAMERA_IDS = [
 ALL_FISHEYE_MEI_CAMERA_IDS = [
     CameraID.FMCAM_L,
     CameraID.FMCAM_R,
+]
+
+ALL_FTHETA_CAMERA_IDS = [
+    CameraID.FTCAM_F0,
+    CameraID.FTCAM_TELE_F0,
+    CameraID.FTCAM_TELE_B0,
+    CameraID.FTCAM_L0,
+    CameraID.FTCAM_L1,
+    CameraID.FTCAM_R0,
+    CameraID.FTCAM_R1,
 ]
 
 # ---------------------------------------------------------------------------

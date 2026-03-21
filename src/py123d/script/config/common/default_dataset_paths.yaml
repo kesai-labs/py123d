@@ -31,3 +31,6 @@ dataset_paths:
   nuscenes_data_root: ${oc.env:NUSCENES_DATA_ROOT,null}
   nuscenes_map_root: ${dataset_paths.nuscenes_data_root}
   nuscenes_sensor_root: ${dataset_paths.nuscenes_data_root}
+
+  # Physical AI AV defaults
+  physical_ai_av_data_root: ${oc.env:PHYSICAL_AI_AV_DATA_ROOT,null}

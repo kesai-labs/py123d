@@ -7,6 +7,7 @@ from typing import Iterator, List, Optional, Union
 from py123d.datatypes import BaseMapObject, LogMetadata, MapMetadata, Timestamp
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.sensors.fisheye_mei_camera import FisheyeMEICameraMetadata
+from py123d.datatypes.sensors.ftheta_camera import FThetaCameraMetadata
 from py123d.datatypes.sensors.lidar import LidarMergedMetadata, LidarMetadata
 from py123d.datatypes.sensors.pinhole_camera import PinholeCameraMetadata
 from py123d.geometry.pose import PoseSE3
@@ -138,7 +139,7 @@ class ParsedCamera(BaseModality):
 
     def __init__(
         self,
-        metadata: Union[PinholeCameraMetadata, FisheyeMEICameraMetadata],
+        metadata: Union[PinholeCameraMetadata, FisheyeMEICameraMetadata, FThetaCameraMetadata],
         timestamp: Timestamp,
         camera_to_global_se3: PoseSE3,
         dataset_root: Optional[Union[str, Path]] = None,

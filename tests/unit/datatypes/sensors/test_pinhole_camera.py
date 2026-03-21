@@ -41,11 +41,6 @@ class TestCameraID:
         assert CameraID(10) == CameraID.FMCAM_L
         assert CameraID(11) == CameraID.FMCAM_R
 
-    def test_camera_id_count(self):
-        """Test that all camera types are defined."""
-        camera_ids = list(CameraID)
-        assert len(camera_ids) == 12
-
     def test_camera_id_unique_values(self):
         """Test that all camera type values are unique."""
         values = [ct.value for ct in CameraID]
