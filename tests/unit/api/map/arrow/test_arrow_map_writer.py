@@ -15,7 +15,8 @@ from py123d.datatypes import MapMetadata
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject
 from py123d.datatypes.map_objects.map_layer_types import MapLayer
 from py123d.geometry import Polyline2D, Polyline3D
-from tests.unit.api.map.conftest import (
+
+from ..conftest import (
     make_carpark,
     make_crosswalk,
     make_generic_drivable,

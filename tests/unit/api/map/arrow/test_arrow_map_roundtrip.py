@@ -33,7 +33,8 @@ from py123d.datatypes.map_objects.map_layer_types import (
     StopZoneType,
 )
 from py123d.geometry import Point2D, Polyline2D, Polyline3D
-from tests.unit.api.map.conftest import (
+
+from ..conftest import (
     make_carpark,
     make_crosswalk,
     make_generic_drivable,
@@ -577,26 +578,13 @@ class TestRoundTripEdgeCases:
         assert read.successor_ids == []
         assert read.speed_limit_mps is None
 
-    def test_bug5_duplicate_ids_in_same_layer(self, tmp_path: Path) -> None:
-        """BUG 5 PROBE: Two lanes with the same ID — which one survives? Is data corrupted?
-
-        The writer accepts both. The reader's _object_ids_to_row_idx dict will
-        overwrite the first with the second.
-        """
+    def test_duplicate_ids_in_same_layer_raises(self, tmp_path: Path) -> None:
+        """Writer should reject two objects with the same ID in the same layer."""
         lane1 = make_lane(object_id=1, y_offset=0.0, speed_limit_mps=10.0)
         lane2 = make_lane(object_id=1, y_offset=50.0, speed_limit_mps=20.0)
-        api = write_and_read_map(tmp_path, _meta(), [lane1, lane2])
 
-        # Writer stored both, but reader's dict maps ID 1 to the last row only
-        ids = api.get_all_map_object_ids_in_layer(MapLayer.LANE)
-        assert ids.count(1) >= 1  # at least one entry for ID 1
-
-        read = api.get_map_object_in_layer(1, MapLayer.LANE)
-        assert isinstance(read, Lane)
-        # We don't assert which one wins — just that it doesn't crash
-        # and that the returned object is self-consistent
-        assert read.object_id == 1
-        assert read.speed_limit_mps == pytest.approx(10.0) or read.speed_limit_mps == pytest.approx(20.0)
+        with pytest.raises(ValueError, match="Duplicate object ID 1 in layer LANE"):
+            write_and_read_map(tmp_path, _meta(), [lane1, lane2])
 
     def test_polyline2d_input_roundtrip(self, tmp_path: Path) -> None:
         """Surface object created with Polyline2D outline — should survive round-trip."""

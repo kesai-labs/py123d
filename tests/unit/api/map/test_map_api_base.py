@@ -10,7 +10,8 @@ from py123d.api.map.base_map_writer import BaseMapWriter
 from py123d.api.map.map_api import MapAPI
 from py123d.datatypes.map_objects import BaseMapObject, MapLayer
 from py123d.datatypes.metadata import MapMetadata
-from tests.unit.datatypes.map_objects.mock_map_api import MockMapAPI
+
+from ...datatypes.map_objects.mock_map_api import MockMapAPI
 
 
 class TestMapAPIAbstract:

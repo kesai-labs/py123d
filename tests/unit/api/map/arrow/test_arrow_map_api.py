@@ -36,7 +36,8 @@ from py123d.datatypes.map_objects.map_objects import (
 )
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.geometry import Point2D, Point3D
-from tests.unit.api.map.conftest import (
+
+from ..conftest import (
     make_carpark,
     make_crosswalk,
     make_generic_drivable,

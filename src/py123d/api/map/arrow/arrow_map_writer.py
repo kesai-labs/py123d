@@ -341,6 +341,11 @@ class ArrowMapWriter(BaseMapWriter):
         :param surface_object: surface map object to write
         """
         self._assert_initialized()
+        if surface_object.object_id in self._map_data[layer]["id"]:
+            raise ValueError(
+                f"Duplicate object ID {surface_object.object_id!r} in layer {layer.name}. "
+                f"Object IDs must be unique within each map layer."
+            )
         self._map_data[layer]["id"].append(surface_object.object_id)
         if isinstance(surface_object.outline, Polyline3D):
             self._map_data[layer]["outline"].append(surface_object.outline.array)
@@ -362,6 +367,11 @@ class ArrowMapWriter(BaseMapWriter):
         :param line_object: line map object to write
         """
         self._assert_initialized()
+        if line_object.object_id in self._map_data[layer]["id"]:
+            raise ValueError(
+                f"Duplicate object ID {line_object.object_id!r} in layer {layer.name}. "
+                f"Object IDs must be unique within each map layer."
+            )
         self._map_data[layer]["id"].append(line_object.object_id)
         self._map_data[layer]["wkb"].append(line_object.shapely_linestring.wkb)
 
