@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 import viser
 
-from py123d.datatypes import CameraID, FisheyeMEICameraMetadata, PinholeCameraMetadata
+from py123d.datatypes import CameraID, FisheyeMEICameraMetadata, FThetaCameraMetadata, PinholeCameraMetadata
 from py123d.datatypes.sensors.base_camera import ALL_FISHEYE_MEI_CAMERA_IDS, ALL_PINHOLE_CAMERA_IDS
 from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
 from py123d.visualization.viser.utils.view_utils import decompose_camera_pose, get_scene_center_pose
@@ -104,11 +104,16 @@ class CameraFrustumElement(ViewerElement):
 
             camera_position, camera_quaternion = decompose_camera_pose(camera, scene_center_pose)
 
-            # Determine FOV based on camera model
+            # Determine FOV and aspect ratio based on camera model
             if isinstance(camera.metadata, PinholeCameraMetadata):
                 fov = camera.metadata.fov_y
+                aspect = camera.metadata.aspect_ratio
             elif isinstance(camera.metadata, FisheyeMEICameraMetadata):
                 fov = self._config.fisheye_fov
+                aspect = camera.metadata.aspect_ratio
+            elif isinstance(camera.metadata, FThetaCameraMetadata):
+                fov = camera.metadata.fov_y
+                aspect = camera.metadata.aspect_ratio  # or camera.metadata.aspect_ratio
             else:
                 raise ValueError(f"Unsupported camera metadata type: {type(camera.metadata)}")
 
@@ -120,7 +125,7 @@ class CameraFrustumElement(ViewerElement):
                 self._frustum_handles[camera_type] = self._server.scene.add_camera_frustum(
                     f"camera_frustums/{camera_type.serialize()}",
                     fov=fov,  # type: ignore
-                    aspect=camera.metadata.aspect_ratio,
+                    aspect=aspect,
                     scale=self._config.frustum_scale,
                     image=camera.image,
                     position=camera_position,

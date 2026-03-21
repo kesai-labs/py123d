@@ -64,6 +64,15 @@ def load_point_cloud_data_from_path(
         assert lidar_metadatas is not None, "Lidar metadatas must be provided for nuScenes Lidar loading."
         lidar_pcs_dict = load_nuscenes_point_cloud_data_from_path(full_lidar_path, lidar_metadatas)
 
+    elif dataset == "physical-ai-av":
+        from py123d.parser.physical_ai_av.physical_ai_av_sensor_io import (
+            load_physical_ai_av_point_cloud_data_from_path,
+        )
+
+        assert index is not None, "Index (spin_index) must be provided for Physical AI AV LiDAR loading."
+        assert lidar_metadatas is not None, "Lidar metadatas must be provided for Physical AI AV LiDAR loading."
+        lidar_pcs_dict = load_physical_ai_av_point_cloud_data_from_path(full_lidar_path, index, lidar_metadatas)
+
     else:
         raise NotImplementedError(f"Loading Lidar data for dataset {dataset} is not implemented.")
 

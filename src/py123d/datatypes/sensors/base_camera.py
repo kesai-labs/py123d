@@ -30,6 +30,9 @@ class CameraModel(SerialIntEnum):
     FISHEYE_MEI = 1
     """Fisheye camera using the MEI (mirror) model."""
 
+    FTHETA = 2
+    """F-theta polynomial camera model."""
+
 
 class CameraID(SerialIntEnum):
     """Enumeration of camera IDs. These are unique within a sensor rig and can be used as modality IDs for camera metadata."""

@@ -357,3 +357,35 @@ class WODMotionBoxDetectionLabel(BoxDetectionLabel):
             WODMotionBoxDetectionLabel.TYPE_CYCLIST: DefaultBoxDetectionLabel.BICYCLE,
         }
         return mapping[self]
+
+
+@register_box_detection_label
+class PhysicalAIAVBoxDetectionLabel(BoxDetectionLabel):
+    """Semantic labels for Physical AI AV dataset obstacle detections (auto-labeled)."""
+
+    AUTOMOBILE = 0
+    PERSON = 1
+    BUS = 2
+    HEAVY_TRUCK = 3
+    OTHER_VEHICLE = 4
+    PROTRUDING_OBJECT = 5
+    RIDER = 6
+    STROLLER = 7
+    TRAILER = 8
+    ANIMAL = 9
+
+    def to_default(self) -> DefaultBoxDetectionLabel:
+        """Inherited, see superclass."""
+        mapping = {
+            PhysicalAIAVBoxDetectionLabel.AUTOMOBILE: DefaultBoxDetectionLabel.VEHICLE,
+            PhysicalAIAVBoxDetectionLabel.PERSON: DefaultBoxDetectionLabel.PERSON,
+            PhysicalAIAVBoxDetectionLabel.BUS: DefaultBoxDetectionLabel.VEHICLE,
+            PhysicalAIAVBoxDetectionLabel.HEAVY_TRUCK: DefaultBoxDetectionLabel.VEHICLE,
+            PhysicalAIAVBoxDetectionLabel.OTHER_VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
+            PhysicalAIAVBoxDetectionLabel.PROTRUDING_OBJECT: DefaultBoxDetectionLabel.GENERIC_OBJECT,
+            PhysicalAIAVBoxDetectionLabel.RIDER: DefaultBoxDetectionLabel.PERSON,
+            PhysicalAIAVBoxDetectionLabel.STROLLER: DefaultBoxDetectionLabel.PERSON,
+            PhysicalAIAVBoxDetectionLabel.TRAILER: DefaultBoxDetectionLabel.VEHICLE,
+            PhysicalAIAVBoxDetectionLabel.ANIMAL: DefaultBoxDetectionLabel.ANIMAL,
+        }
+        return mapping[self]
