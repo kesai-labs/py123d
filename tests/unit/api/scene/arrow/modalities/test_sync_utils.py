@@ -13,7 +13,7 @@ from py123d.api.scene.arrow.modalities.sync_utils import (
     get_modality_table,
     get_sync_table,
 )
-from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.datatypes.metadata import SceneMetadata
 
 from ...conftest import make_ego_metadata, make_log_metadata, write_ego_arrow, write_sync_arrow
 

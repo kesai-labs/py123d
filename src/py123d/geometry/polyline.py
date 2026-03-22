@@ -234,7 +234,7 @@ class PolylineSE2(ArrayMixin):
 
         :param distances: The distances along the polyline to interpolate.
         :param normalized: Whether the distances are normalized (0 to 1), defaults to False
-        :return: The interpolated StateSE2 or an array of interpolated states, according to
+        :return: The interpolated PoseSE2 or an array of interpolated states, according to
         """
         _interpolator = interp1d(self._progress, self._array, axis=0, bounds_error=False, fill_value=0.0)
         distances_ = distances * self.length if normalized else distances

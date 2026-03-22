@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
+import cv2
+import numpy as np
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
@@ -13,6 +15,7 @@ from py123d.common.io.camera.jpeg_camera_io import (
     load_image_from_jpeg_file,
     load_jpeg_binary_from_jpeg_file,
 )
+from py123d.common.io.camera.mp4_camera_io import MP4Writer, get_mp4_reader_from_path
 from py123d.common.io.camera.png_camera_io import (
     decode_image_from_png_binary,
     encode_image_as_png_binary,
@@ -36,12 +39,14 @@ CAMERA_CODEC_PA_DTYPES = {
     "path": pa.string(),
     "jpeg_binary": pa.binary(),
     "png_binary": pa.binary(),
+    "mp4": pa.int32(),
 }
 
 CAMERA_CODEC_MAX_BATCH_SIZES = {
     "path": 1000,
     "jpeg_binary": 10,
     "png_binary": 10,
+    "mp4": 1000,
 }
 
 
@@ -50,15 +55,17 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
         self,
         log_dir: Path,
         metadata: BaseModalityMetadata,
-        camera_codec: Literal["path", "jpeg_binary", "png_binary"] = "path",
+        camera_codec: Literal["path", "jpeg_binary", "png_binary", "mp4"] = "path",
         ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
         ipc_compression_level: Optional[int] = None,
     ) -> None:
         assert isinstance(metadata, BaseCameraMetadata), f"Expected BaseCameraMetadata subclass, got {type(metadata)}"
-        assert camera_codec in {"path", "jpeg_binary", "png_binary"}, f"Unsupported camera codec: {camera_codec}"
+        assert camera_codec in {"path", "jpeg_binary", "png_binary", "mp4"}, f"Unsupported camera codec: {camera_codec}"
 
         self._metadata = metadata
         self._camera_codec = camera_codec
+        self._log_dir = log_dir
+        self._mp4_writer: Optional[MP4Writer] = None
 
         data_type = CAMERA_CODEC_PA_DTYPES[camera_codec]
         max_batch_size = CAMERA_CODEC_MAX_BATCH_SIZES[camera_codec]
@@ -83,9 +90,15 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
     def write_modality(self, modality: BaseModality) -> None:
         assert isinstance(modality, (ParsedCamera, Camera)), f"Expected ParsedCamera or Camera, got {type(modality)}"
         if self._camera_codec == "jpeg_binary":
-            data = _get_jpeg_binary_from_camera_modality(modality)
+            data: Union[str, bytes, int] = _get_jpeg_binary_from_camera_modality(modality)
         elif self._camera_codec == "png_binary":
             data = _get_png_binary_from_camera_modality(modality)
+        elif self._camera_codec == "mp4":
+            image = _get_numpy_image_from_camera_modality(modality)
+            if self._mp4_writer is None:
+                mp4_path = self._log_dir / f"{self._metadata.modality_key}.mp4"
+                self._mp4_writer = MP4Writer(mp4_path)
+            data = self._mp4_writer.write_frame(image)
         elif self._camera_codec == "path":
             assert isinstance(modality, ParsedCamera), (
                 f"Path codec requires ParsedCamera with file path, got {type(modality)}"
@@ -102,6 +115,12 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
                 f"{self._metadata.modality_key}.camera_to_global_se3": [modality.camera_to_global_se3],
             }
         )
+
+    def close(self) -> None:
+        if self._mp4_writer is not None:
+            self._mp4_writer.close()
+            self._mp4_writer = None
+        super().close()
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -161,6 +180,32 @@ def _get_png_binary_from_camera_modality(camera_data: Union[ParsedCamera, Camera
         raise NotImplementedError(f"Unsupported camera type for png_binary codec: {type(camera_data)}")
 
 
+def _get_numpy_image_from_camera_modality(camera_data: Union[ParsedCamera, Camera]) -> np.ndarray:
+    """Extract an RGB numpy image from a camera modality for MP4 encoding."""
+    if isinstance(camera_data, Camera):
+        return camera_data.image
+    elif isinstance(camera_data, ParsedCamera):
+        if camera_data.has_byte_string:
+            byte_string = camera_data._byte_string
+            assert byte_string is not None
+            if is_jpeg_binary(byte_string):
+                return decode_image_from_jpeg_binary(byte_string)
+            elif is_png_binary(byte_string):
+                return decode_image_from_png_binary(byte_string)
+            else:
+                raise ValueError("ParsedCamera byte_string is neither JPEG nor PNG.")
+        elif camera_data.has_jpeg_file_path:
+            absolute_path = Path(camera_data._dataset_root) / camera_data.relative_path  # type: ignore
+            return load_image_from_jpeg_file(absolute_path)
+        elif camera_data.has_png_file_path:
+            absolute_path = Path(camera_data._dataset_root) / camera_data.relative_path  # type: ignore
+            return load_image_from_png_file(absolute_path)
+        else:
+            raise NotImplementedError("ParsedCamera must provide byte_string or file path for mp4 codec.")
+    else:
+        raise NotImplementedError(f"Unsupported camera type for mp4 codec: {type(camera_data)}")
+
+
 # ------------------------------------------------------------------------------------------------------------------
 # Reader
 # ------------------------------------------------------------------------------------------------------------------
@@ -176,10 +221,11 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         metadata: BaseModalityMetadata,
         dataset: str,
         scale: Optional[int] = None,
+        log_dir: Optional[Path] = None,
         **kwargs,
     ) -> Optional[Camera]:
         assert isinstance(metadata, BaseCameraMetadata)
-        return _deserialize_camera(table, index, metadata, dataset, scale=scale)
+        return _deserialize_camera(table, index, metadata, dataset, scale=scale, log_dir=log_dir)
 
     @staticmethod
     def read_column_at_index(
@@ -190,6 +236,7 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         dataset: str,
         deserialize: bool = False,
         scale: Optional[int] = None,
+        log_dir: Optional[Path] = None,
         **kwargs,
     ) -> Optional[Any]:
         column_at_iteration: Optional[Any] = None
@@ -202,6 +249,8 @@ class ArrowCameraReader(ArrowBaseModalityReader):
                     data=column_at_iteration,
                     dataset=dataset,
                     scale=scale,
+                    log_dir=log_dir,
+                    modality_key=metadata.modality_key,
                 )
             elif column == "camera_to_global_se3":
                 column_at_iteration = PoseSE3.from_list(column_at_iteration)
@@ -221,6 +270,7 @@ def _deserialize_camera(
     camera_metadata: BaseCameraMetadata,
     dataset: str,
     scale: Optional[int] = None,
+    log_dir: Optional[Path] = None,
 ) -> Optional[Camera]:
     """Deserialize a camera observation from Arrow table columns at the given row index."""
     modality_key = camera_metadata.modality_key
@@ -242,6 +292,8 @@ def _deserialize_camera(
         data=table_data,
         dataset=dataset,
         scale=scale,
+        log_dir=log_dir,
+        modality_key=modality_key,
     )
     camera_to_global_se3 = PoseSE3.from_list(camera_to_global_se3_data)
     assert image is not None, "Failed to load camera image from Arrow table data."
@@ -257,7 +309,10 @@ def _deserialize_data_column(
     data: Union[str, bytes, int],
     dataset: str,
     scale: Optional[int] = None,
+    log_dir: Optional[Path] = None,
+    modality_key: Optional[str] = None,
 ) -> Optional[Any]:
+    image: Optional[np.ndarray] = None
     if isinstance(data, str):
         sensor_root = get_dataset_paths().get_sensor_root(dataset)
         assert sensor_root is not None, f"Dataset path for sensor loading not found for dataset: {dataset}"
@@ -272,9 +327,14 @@ def _deserialize_data_column(
         else:
             raise ValueError("Camera binary data is neither in JPEG nor PNG format.")
     elif isinstance(data, int):
-        raise NotImplementedError(
-            "MP4 reading by frame index is not implemented in this version. This feature is intended for demonstration purposes and is not optimized for performance."
-        )
+        assert log_dir is not None, "log_dir is required for MP4 frame index deserialization."
+        assert modality_key is not None, "modality_key is required for MP4 frame index deserialization."
+        mp4_path = str(log_dir / f"{modality_key}.mp4")
+        reader = get_mp4_reader_from_path(mp4_path)
+        image = reader.get_frame(data)
+        if image is not None and scale is not None and scale > 1:
+            h, w = image.shape[:2]
+            image = cv2.resize(image, (w // scale, h // scale), interpolation=cv2.INTER_AREA)
     else:
         raise NotImplementedError(
             f"Only string file paths, bytes, or int frame indices are supported for camera data, got {type(data)}"

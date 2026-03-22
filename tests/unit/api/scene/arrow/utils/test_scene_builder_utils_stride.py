@@ -14,7 +14,7 @@ from py123d.api.scene.arrow.utils.scene_builder_utils import (
     resolve_iteration_stride,
 )
 from py123d.api.scene.scene_filter import SceneFilter
-from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 # --- Helpers ---

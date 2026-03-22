@@ -1,6 +1,6 @@
 Ego Metadata
 ^^^^^^^^^^^^
 
-.. autoclass:: py123d.datatypes.vehicle_state.EgoStateSE3Metadata
+.. autoclass:: py123d.datatypes.EgoStateSE3Metadata
    :members:
    :autoclasstoc:

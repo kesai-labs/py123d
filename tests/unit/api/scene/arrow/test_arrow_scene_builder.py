@@ -28,8 +28,8 @@ from py123d.api.scene.arrow.utils.scene_builder_utils import (
     scene_uuids_to_binary,
 )
 from py123d.api.scene.scene_filter import SceneFilter, _validate_modality_requirement
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.common.execution import SequentialExecutor
+from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 

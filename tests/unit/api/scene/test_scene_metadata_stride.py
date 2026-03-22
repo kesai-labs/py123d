@@ -1,6 +1,6 @@
 import uuid
 
-from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.datatypes.metadata import SceneMetadata
 
 
 def _make_metadata(stride: int = 1, num_future: int = 10, num_history: int = 2, initial_idx: int = 10) -> SceneMetadata:

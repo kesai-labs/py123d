@@ -11,8 +11,8 @@ import numpy as np
 import pyarrow as pa
 
 from py123d.api.scene.scene_filter import SceneFilter
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.common.utils.uuid_utils import convert_to_bytes_uuid, convert_to_str_uuid
+from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 logger = logging.getLogger(__name__)

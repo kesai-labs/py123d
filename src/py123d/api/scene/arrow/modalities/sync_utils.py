@@ -8,8 +8,8 @@ from typing import List, Optional
 
 import pyarrow as pa
 
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
+from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.time.timestamp import Timestamp
 
 

@@ -4,7 +4,7 @@ F-Theta Camera
 F-Theta Camera Metadata
 -----------------------
 
-.. autoclass:: py123d.datatypes.sensors.FThetaCameraMetadata
+.. autoclass:: py123d.datatypes.FThetaCameraMetadata
    :members:
    :exclude-members: __init__
    :no-inherited-members:
@@ -14,7 +14,7 @@ F-Theta Camera Metadata
 F-Theta Intrinsics Index
 ------------------------
 
-.. autoclass:: py123d.datatypes.sensors.FThetaIntrinsicsIndex
+.. autoclass:: py123d.datatypes.FThetaIntrinsicsIndex
    :members:
    :exclude-members: __init__, to_bytes, from_bytes
    :autoclasstoc:
@@ -23,7 +23,7 @@ F-Theta Intrinsics Index
 F-Theta Intrinsics
 ------------------
 
-.. autoclass:: py123d.datatypes.sensors.FThetaIntrinsics
+.. autoclass:: py123d.datatypes.FThetaIntrinsics
    :members:
    :exclude-members: __init__
    :no-inherited-members:

@@ -15,7 +15,7 @@ import pytest
 from pyarrow import ipc
 
 from py123d.api.scene.arrow.arrow_scene_api import ArrowSceneAPI
-from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 # --- Helpers ---

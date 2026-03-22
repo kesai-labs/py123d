@@ -12,3 +12,4 @@ Primitives
    05_bounding_boxes
    06_polylines
    07_indexing_enums
+   08_occupancy_map

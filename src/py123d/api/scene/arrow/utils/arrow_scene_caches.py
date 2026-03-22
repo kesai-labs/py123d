@@ -2,10 +2,10 @@ from pathlib import Path
 from typing import Final, Union
 
 from py123d.api.scene.arrow.utils.scene_builder_utils import infer_iteration_duration_s
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.common.utils.uuid_utils import convert_to_str_uuid
 from py123d.datatypes import LogMetadata
+from py123d.datatypes.metadata import SceneMetadata
 
 MAX_LRU_CACHED_LOG_METADATA: Final[int] = 1_000
 

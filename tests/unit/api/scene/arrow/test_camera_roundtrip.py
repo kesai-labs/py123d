@@ -1,4 +1,4 @@
-"""Roundtrip tests for Camera writer and reader with JPEG/PNG binary codecs."""
+"""Roundtrip tests for Camera writer and reader with JPEG/PNG/MP4 codecs."""
 
 from __future__ import annotations
 
@@ -139,3 +139,64 @@ class TestCameraReadColumn:
             0, table, metadata, "camera_to_global_se3", "test-dataset", deserialize=True
         )
         assert isinstance(pose, PoseSE3)
+
+
+class TestCameraMp4Roundtrip:
+    """Write camera data with MP4 codec, read back."""
+
+    def _write_and_read(self, log_dir: Path, cameras: list) -> pa.Table:
+        metadata = _make_camera_metadata()
+        writer = ArrowCameraWriter(log_dir=log_dir, metadata=metadata, camera_codec="mp4")
+        for cam in cameras:
+            writer.write_modality(cam)
+        writer.close()
+        file_path = log_dir / f"{metadata.modality_key}.arrow"
+        return pa.ipc.open_file(str(file_path)).read_all()
+
+    def test_single_frame(self, tmp_path: Path):
+        cam = _make_camera(1000)
+        table = self._write_and_read(tmp_path, [cam])
+        assert table.num_rows == 1
+
+        metadata = _make_camera_metadata()
+        result = ArrowCameraReader.read_at_index(0, table, metadata, "test-dataset", log_dir=tmp_path)
+        assert result is not None
+        assert isinstance(result, Camera)
+        assert result.timestamp.time_us == 1000
+        # MP4 is lossy, so just check shape
+        assert result.image.shape == (480, 640, 3)
+
+    def test_multiple_frames(self, tmp_path: Path):
+        cameras = [_make_camera(i * 100_000) for i in range(3)]
+        table = self._write_and_read(tmp_path, cameras)
+        assert table.num_rows == 3
+
+        metadata = _make_camera_metadata()
+        for i in range(3):
+            result = ArrowCameraReader.read_at_index(i, table, metadata, "test-dataset", log_dir=tmp_path)
+            assert result is not None
+            assert result.timestamp.time_us == i * 100_000
+            assert result.image.shape == (480, 640, 3)
+
+    def test_mp4_file_exists(self, tmp_path: Path):
+        cam = _make_camera(1000)
+        self._write_and_read(tmp_path, [cam])
+        metadata = _make_camera_metadata()
+        mp4_path = tmp_path / f"{metadata.modality_key}.mp4"
+        assert mp4_path.exists()
+
+    def test_data_column_stores_frame_indices(self, tmp_path: Path):
+        cameras = [_make_camera(i * 100_000) for i in range(3)]
+        table = self._write_and_read(tmp_path, cameras)
+        metadata = _make_camera_metadata()
+        data_col = table[f"{metadata.modality_key}.data"].to_pylist()
+        assert data_col == [0, 1, 2]
+
+    def test_pose_survives_roundtrip(self, tmp_path: Path):
+        cam = _make_camera(1000)
+        table = self._write_and_read(tmp_path, [cam])
+
+        metadata = _make_camera_metadata()
+        result = ArrowCameraReader.read_at_index(0, table, metadata, "test-dataset", log_dir=tmp_path)
+        assert result is not None
+        np.testing.assert_array_almost_equal(result.camera_to_global_se3, cam.camera_to_global_se3, decimal=10)

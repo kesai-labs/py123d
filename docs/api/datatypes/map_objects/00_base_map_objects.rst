@@ -1,14 +1,14 @@
 Base Map Objects
 ^^^^^^^^^^^^^^^^
 
-.. autoclass:: py123d.datatypes.map_objects.BaseMapObject
+.. autoclass:: py123d.datatypes.BaseMapObject
    :exclude-members: __init__
    :autoclasstoc:
 
-.. autoclass:: py123d.datatypes.map_objects.BaseMapSurfaceObject
+.. autoclass:: py123d.datatypes.BaseMapSurfaceObject
    :exclude-members: __init__
    :autoclasstoc:
 
-.. autoclass:: py123d.datatypes.map_objects.BaseMapLineObject
+.. autoclass:: py123d.datatypes.BaseMapLineObject
    :exclude-members: __init__
    :autoclasstoc:

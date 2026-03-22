@@ -1,10 +1,10 @@
 Dynamic State
 ^^^^^^^^^^^^^
 
-.. autoclass:: py123d.datatypes.vehicle_state.DynamicStateSE2
+.. autoclass:: py123d.datatypes.DynamicStateSE2
    :members:
    :autoclasstoc:
 
-.. autoclass:: py123d.datatypes.vehicle_state.DynamicStateSE3
+.. autoclass:: py123d.datatypes.DynamicStateSE3
    :members:
    :autoclasstoc:

@@ -1,6 +1,6 @@
 Time
 ----
 
-.. autoclass:: py123d.datatypes.time.Timestamp
+.. autoclass:: py123d.datatypes.Timestamp
    :exclude-members: __init__
    :autoclasstoc:

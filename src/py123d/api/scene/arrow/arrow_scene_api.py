@@ -20,7 +20,6 @@ from py123d.api.scene.arrow.modalities.sync_utils import (
 )
 from py123d.api.scene.arrow.utils.arrow_scene_caches import _get_complete_log_scene_metadata
 from py123d.api.scene.scene_api import SceneAPI
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_metadata_utils import LogDirectoryMetadata, parse_log_directory_metadata
 from py123d.common.utils.enums import SerialIntEnum
 from py123d.datatypes import (
@@ -32,6 +31,7 @@ from py123d.datatypes import (
     Timestamp,
     get_modality_key,
 )
+from py123d.datatypes.metadata import SceneMetadata
 
 MODALITY_READERS: Dict[ModalityType, Type[ArrowBaseModalityReader]] = {
     ModalityType.EGO_STATE_SE3: ArrowEgoStateSE3Reader,
@@ -231,6 +231,7 @@ class ArrowSceneAPI(SceneAPI):
                     table=modality_table,
                     metadata=modality_metadata,
                     dataset=self.dataset,
+                    log_dir=self._log_dir,
                     **kwargs,
                 )
         return modality
@@ -257,6 +258,7 @@ class ArrowSceneAPI(SceneAPI):
                 metadata=modality_metadata,
                 dataset=self.dataset,
                 criteria=criteria,
+                log_dir=self._log_dir,
                 **kwargs,
             )
         return modality
@@ -297,6 +299,7 @@ class ArrowSceneAPI(SceneAPI):
                     column=column,
                     dataset=self.dataset,
                     deserialize=deserialize,
+                    log_dir=self._log_dir,
                 )
 
         return modality

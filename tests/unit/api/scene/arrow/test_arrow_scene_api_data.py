@@ -9,7 +9,6 @@ import pytest
 
 from py123d.api.scene.arrow.arrow_scene_api import ArrowSceneAPI
 from py123d.api.scene.scene_api import checked_optional_cast
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.datatypes import (
     BoxDetectionsSE3,
     EgoStateSE3,
@@ -17,6 +16,7 @@ from py123d.datatypes import (
     Timestamp,
     TrafficLightDetections,
 )
+from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 
 from ..conftest import (

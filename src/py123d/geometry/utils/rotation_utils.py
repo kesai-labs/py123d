@@ -92,7 +92,7 @@ def get_euler_array_from_rotation_matrices(rotation_matrices: npt.NDArray[np.flo
     """Convert rotation matrices to Euler angles using Tait-Bryan ZYX convention (yaw-pitch-roll).
 
     :param rotation_matrices: Rotation matrices of shape (..., 3, 3)
-    :return: Euler angles of shape (..., 3), indexed by EulerAnglesIndex
+    :return: Euler angles of shape (..., 3), indexed by :class:`~py123d.geometry.EulerAnglesIndex`
     """
     assert rotation_matrices.ndim >= 2 and rotation_matrices.shape[-2:] == (3, 3)
 

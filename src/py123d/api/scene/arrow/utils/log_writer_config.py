@@ -14,7 +14,7 @@ class LogWriterConfig:
     exclude_modality_types: set[str] = field(default_factory=set)
 
     # Cameras
-    camera_store_option: Literal["path", "jpeg_binary", "png_binary"] = "path"
+    camera_store_option: Literal["path", "jpeg_binary", "png_binary", "mp4"] = "path"
 
     # Lidars
     lidar_store_option: Literal["path", "binary"] = "path"
@@ -28,6 +28,7 @@ class LogWriterConfig:
             "path",
             "jpeg_binary",
             "png_binary",
+            "mp4",
         }, f"Invalid camera store option, got {self.camera_store_option}."
 
         assert self.lidar_store_option in {

@@ -1,6 +1,6 @@
 Walkway
 ^^^^^^^
 
-.. autoclass:: py123d.datatypes.map_objects.Walkway
+.. autoclass:: py123d.datatypes.Walkway
    :exclude-members: __init__
    :autoclasstoc:

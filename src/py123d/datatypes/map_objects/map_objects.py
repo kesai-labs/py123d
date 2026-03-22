@@ -670,6 +670,11 @@ class StopZone(BaseMapSurfaceObject):
         self._lane_ids = list(lane_ids) if lane_ids is not None else []
 
     @property
+    def layer(self) -> MapLayer:
+        """The :class:`~py123d.datatypes.map_objects.map_layer_types.MapLayer` of the map object."""
+        return MapLayer.STOP_ZONE
+
+    @property
     def stop_zone_type(self) -> StopZoneType:
         """The type of the stop zone."""
         return self._stop_zone_type
@@ -678,11 +683,6 @@ class StopZone(BaseMapSurfaceObject):
     def lane_ids(self) -> List[MapObjectIDType]:
         """List of lane IDs this stop zone controls."""
         return self._lane_ids
-
-    @property
-    def layer(self) -> MapLayer:
-        """The :class:`~py123d.datatypes.map_objects.map_layer_types.MapLayer` of the map object."""
-        return MapLayer.STOP_ZONE
 
 
 class RoadEdge(BaseMapLineObject):

@@ -37,7 +37,11 @@ from py123d.datatypes.map_objects import (
     StopZoneType,
     Walkway,
 )
-from py123d.datatypes.metadata import BaseMetadata, MapMetadata
+from py123d.datatypes.metadata import BaseMetadata, MapMetadata, SceneMetadata
+
+# LogMetadata imported after all deps to avoid circular import
+# (log_metadata -> custom_modality -> metadata.base_metadata -> metadata/__init__ cycle)
+from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.modalities import (
     BaseModality,
     BaseModalityMetadata,
@@ -52,14 +56,14 @@ from py123d.datatypes.sensors import (
     CameraID,
     CameraMetadata,
     CameraModel,
-    FThetaCameraMetadata,
-    FThetaIntrinsics,
-    FThetaIntrinsicsIndex,
     FisheyeMEICameraMetadata,
     FisheyeMEIDistortion,
     FisheyeMEIDistortionIndex,
     FisheyeMEIProjection,
     FisheyeMEIProjectionIndex,
+    FThetaCameraMetadata,
+    FThetaIntrinsics,
+    FThetaIntrinsicsIndex,
     Lidar,
     LidarFeature,
     LidarID,
@@ -82,10 +86,6 @@ from py123d.datatypes.vehicle_state import (
     EgoStateSE3,
     EgoStateSE3Metadata,
 )
-
-# LogMetadata imported after all deps to avoid circular import
-# (log_metadata -> custom_modality -> metadata.base_metadata -> metadata/__init__ cycle)
-from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 __all__ = [
     # Custom
@@ -131,6 +131,7 @@ __all__ = [
     "BaseMetadata",
     "LogMetadata",
     "MapMetadata",
+    "SceneMetadata",
     # Modalities
     "BaseModality",
     "BaseModalityMetadata",

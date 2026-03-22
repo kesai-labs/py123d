@@ -25,10 +25,10 @@ def mph_to_mps(mph: float) -> float:
     return mph * 0.44704
 
 
-def mps_to_mph(mph: float) -> float:
+def mps_to_mph(mps: float) -> float:
     """
     Convert meters per second to miles per hour.
-    :param mph: miles per hour [mi/h]
-    :return: meters per second [m/s]
+    :param mps: meters per second [m/s]
+    :return: miles per hour [mi/h]
     """
-    return mph / 0.44704
+    return mps / 0.44704

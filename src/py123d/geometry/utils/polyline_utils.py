@@ -11,7 +11,7 @@ def get_linestring_yaws(linestring: LineString) -> npt.NDArray[np.float64]:
         will have the same heading as the second last coordinate.
 
     :param linestring: linestring as a shapely LineString.
-    :return: a list of headings associated to each starting coordinate.
+    :return: An array of headings associated to each starting coordinate.
     """
     coords: npt.NDArray[np.float64] = np.asarray(linestring.coords, dtype=np.float64)[..., Point2DIndex.XY]
     return get_points_2d_yaws(coords)

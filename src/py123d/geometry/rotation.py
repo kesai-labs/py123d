@@ -171,7 +171,7 @@ class Quaternion(ArrayMixin):
     def from_array(cls, array: npt.NDArray[np.float64], copy: bool = True) -> Quaternion:
         """Constructs a Quaternion from a numpy array.
 
-        :param arr: A 1D numpy array of shape (4,) containing the quaternion components [qw, qx, qy, qz].
+        :param array: A 1D numpy array of shape (4,) containing the quaternion components [qw, qx, qy, qz].
         :param copy: Whether to copy the array data, defaults to True.
         :return: A Quaternion instance.
         """

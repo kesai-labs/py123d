@@ -4,7 +4,6 @@ import abc
 from typing import Dict, List, Literal, Optional, Tuple, TypeVar, Union
 
 from py123d.api.map.map_api import MapAPI
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.common.utils.enums import SerialIntEnum
 from py123d.datatypes import (
     BaseCameraMetadata,
@@ -29,6 +28,7 @@ from py123d.datatypes import (
     TrafficLightDetections,
     TrafficLightDetectionsMetadata,
 )
+from py123d.datatypes.metadata import SceneMetadata
 
 T = TypeVar("T")
 
@@ -56,7 +56,7 @@ class SceneAPI(abc.ABC):
 
     @abc.abstractmethod
     def get_scene_metadata(self) -> SceneMetadata:
-        """Returns the :class:`~py123d.api.scene.scene_metadata.SceneMetadata` of the scene.
+        """Returns the :class:`~py123d.datatypes.metadata.SceneMetadata` of the scene.
 
         :return: The scene metadata.
         """
@@ -558,7 +558,7 @@ class SceneAPI(abc.ABC):
 
     @property
     def scene_metadata(self) -> SceneMetadata:
-        """The :class:`~py123d.api.scene.SceneMetadata` of the scene."""
+        """The :class:`~py123d.datatypes.metadata.SceneMetadata` of the scene."""
         return self.get_scene_metadata()
 
     @property

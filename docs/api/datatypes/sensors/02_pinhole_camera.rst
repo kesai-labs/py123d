@@ -4,7 +4,7 @@ Pinhole Camera
 Pinhole Metadata
 ----------------
 
-.. autoclass:: py123d.datatypes.sensors.PinholeCameraMetadata
+.. autoclass:: py123d.datatypes.PinholeCameraMetadata
    :members:
    :exclude-members: __init__
    :autoclasstoc:
@@ -13,7 +13,7 @@ Pinhole Metadata
 Pinhole Intrinsics
 ------------------
 
-.. autoclass:: py123d.datatypes.sensors.PinholeIntrinsics
+.. autoclass:: py123d.datatypes.PinholeIntrinsics
    :members:
    :exclude-members: __init__
    :no-inherited-members:
@@ -23,7 +23,7 @@ Pinhole Intrinsics
 Pinhole Distortion
 ------------------
 
-.. autoclass:: py123d.datatypes.sensors.PinholeDistortion
+.. autoclass:: py123d.datatypes.PinholeDistortion
    :members:
    :exclude-members: __init__
    :no-inherited-members:

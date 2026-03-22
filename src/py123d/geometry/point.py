@@ -139,6 +139,7 @@ class Point3D(ArrayMixin):
 
         :param array: A (3,) shaped numpy array representing the point coordinates (x,y,z).
         :param copy: Whether to copy the input array. Defaults to True.
+        :return: A new :class:`Point3D` instance.
         """
         assert array.ndim == 1
         assert array.shape[0] == len(Point3DIndex)

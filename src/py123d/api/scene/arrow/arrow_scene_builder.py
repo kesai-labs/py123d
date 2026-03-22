@@ -20,12 +20,12 @@ from py123d.api.scene.arrow.utils.scene_builder_utils import (
 from py123d.api.scene.scene_api import SceneAPI
 from py123d.api.scene.scene_builder import SceneBuilder
 from py123d.api.scene.scene_filter import SceneFilter
-from py123d.api.scene.scene_metadata import SceneMetadata
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
 from py123d.common.dataset_paths import get_dataset_paths
 from py123d.common.execution import Executor
 from py123d.common.execution.utils import executor_map_chunked_list
+from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from py123d.api.scene.scene_metadata import SceneMetadata
+from py123d.datatypes.metadata import SceneMetadata
 
 
 def _make(**kwargs) -> SceneMetadata:

@@ -7,7 +7,7 @@ def phase_unwrap(yaws: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         between successive output angles is less than or equal to pi radians in absolute value
 
     :param yaws: An array of yaws (radians)
-    :return The phase-unwrapped equivalent yaws.
+    :return: The phase-unwrapped equivalent yaws.
     """
     # There are some jumps in the heading (e.g. from -np.pi to +np.pi) which causes approximation of yaw to be very large.
     # We want unwrapped[j] = yaws[j] - 2*pi*adjustments[j] for some integer-valued adjustments making the absolute value of
@@ -23,6 +23,12 @@ def phase_unwrap(yaws: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
 
 
 def extract_linear_velocity_from_se2(poses_se2: npt.NDArray[np.float64], delta_t: float) -> npt.NDArray[np.float64]:
+    """Extracts scalar linear velocities from a sequence of SE2 poses using finite differences.
+
+    :param poses_se2: Array of SE2 poses of shape (N, 3), indexed by :class:`~py123d.geometry.PoseSE2Index`.
+    :param delta_t: Time step between successive poses in seconds.
+    :return: Array of scalar linear velocities of shape (N-1,).
+    """
     xys = poses_se2[..., :2]
     delta_xys = np.diff(xys, axis=0)
     distances = np.linalg.norm(delta_xys, axis=-1) / delta_t
@@ -31,6 +37,12 @@ def extract_linear_velocity_from_se2(poses_se2: npt.NDArray[np.float64], delta_t
 
 
 def extract_linear_acceleration_from_se2(poses_se2: npt.NDArray[np.float64], delta_t: float) -> npt.NDArray[np.float64]:
+    """Extracts scalar linear accelerations from a sequence of SE2 poses using second-order finite differences.
+
+    :param poses_se2: Array of SE2 poses of shape (N, 3), indexed by :class:`~py123d.geometry.PoseSE2Index`.
+    :param delta_t: Time step between successive poses in seconds.
+    :return: Array of scalar linear accelerations of shape (N-2,).
+    """
     velocities = extract_linear_velocity_from_se2(poses_se2, delta_t)
     delta_velocities = np.diff(velocities)
     accelerations = delta_velocities / delta_t
@@ -38,6 +50,12 @@ def extract_linear_acceleration_from_se2(poses_se2: npt.NDArray[np.float64], del
 
 
 def extract_yaw_rate_from_se2(poses_se2: npt.NDArray[np.float64], delta_t: float) -> npt.NDArray[np.float64]:
+    """Extracts yaw rates from a sequence of SE2 poses using phase-unwrapped finite differences.
+
+    :param poses_se2: Array of SE2 poses of shape (N, 3), indexed by :class:`~py123d.geometry.PoseSE2Index`.
+    :param delta_t: Time step between successive poses in seconds.
+    :return: Array of yaw rates in radians per second of shape (N-1,).
+    """
     yaws = poses_se2[..., 2]
     unwrapped_yaws = phase_unwrap(yaws)
     delta_yaws = np.diff(unwrapped_yaws, axis=0)
