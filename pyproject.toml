@@ -19,7 +19,7 @@ classifiers = [
 name = "py123d"
 version = "0.1.0"
 authors = [{ name = "Daniel Dauner", email = "daniel.dauner@gmail.com" }]
-description = "A Library for Driving Datasets."
+description = "123D: A Unified Library for Multi-Modal Autonomous Driving Data."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
@@ -53,7 +53,6 @@ dependencies = [
 
 [project.scripts]
 py123d-viser = "py123d.script.run_viser:main"
-py123d-bokeh = "py123d.script.run_bokeh:main"
 py123d-conversion = "py123d.script.run_conversion:main"
 
 [project.optional-dependencies]
