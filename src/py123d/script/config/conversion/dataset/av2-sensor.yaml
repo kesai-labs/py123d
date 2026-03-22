@@ -2,7 +2,7 @@ parser:
   _target_: py123d.parser.av2.av2_sensor_parser.Av2SensorParser
   _convert_: 'all'
 
-  splits: ["av2-sensor_train"]
+  splits: ["av2-sensor_train", "av2-sensor_val", "av2-sensor_test"]
   av2_data_root: ${dataset_paths.av2_data_root}
 
 log_writer_config:
@@ -13,9 +13,9 @@ log_writer_config:
   force_map_conversion: ${force_map_conversion}
   async_conversion: ${async_conversion}
 
-  camera_store_option: "mp4" # "path", "jpeg_binary", "png_binary", "mp4"
-  lidar_store_option: "binary" #  "path", "binary"
-  lidar_codec: "ipc_lz4" # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+  camera_store_option: "path" # "path", "jpeg_binary", "png_binary", "mp4"
+  lidar_store_option: "path" #  "path", "binary"
+  lidar_codec: None # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
 
 log_writer:
   _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
