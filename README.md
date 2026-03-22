@@ -56,7 +56,7 @@
 - Added NVIDIA Physical AI AV dataset support (experimental).
 - Added standalone OpenDRIVE / CARLA map parser.
 - Refactored `conversion/` module into `parser/` with consistent naming across all dataset parsers.
-- Refactored Viser 3D viewer.
+- Refactored Viser 3D viewer. Adds more control and dark mode.
 - Added `LaneType`, `IntersectionType`, `StopZoneType` to map data structure.
 - Replaced Waymo heavy dependencies with lightweight protobufs.
 - Various fixes to camera-to-global transforms across all datasets.
