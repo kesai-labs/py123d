@@ -4,7 +4,7 @@
     <source media="(prefers-color-scheme: light)" srcset="https://autonomousvision.github.io/py123d/_static/123D_logo_transparent_black.svg" width="500">
     <img alt="Logo" src="https://autonomousvision.github.io/py123d/_static/123D_logo_transparent_black.svg" width="500">
   </picture>
-  <h2 align="center">123D: A Library for Driving Datasets</h1>
+  <h2 align="center">123D: A Unified Library for Multi-Modal Autonomous Driving Data</h1>
   <h3 align="center"><a href="https://youtu.be/Q4q29fpXnx8">Video</a> | <a href="https://autonomousvision.github.io/py123d/">Documentation</a>
 </h1>
 

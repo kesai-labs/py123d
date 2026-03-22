@@ -15,7 +15,7 @@ class TestLogWriterConfig:
 
     def test_invalid_camera_option(self):
         with pytest.raises(AssertionError, match="Invalid camera store option"):
-            LogWriterConfig(camera_store_option="mp4")
+            LogWriterConfig(camera_store_option="bmp")
 
     def test_invalid_lidar_option(self):
         with pytest.raises(AssertionError, match="Invalid Lidar store option"):
@@ -35,6 +35,6 @@ class TestLogWriterConfig:
         assert config.lidar_codec is None
 
     def test_valid_camera_options(self):
-        for opt in ["path", "jpeg_binary", "png_binary"]:
+        for opt in ["path", "jpeg_binary", "png_binary", "mp4"]:
             config = LogWriterConfig(camera_store_option=opt)
             assert config.camera_store_option == opt
