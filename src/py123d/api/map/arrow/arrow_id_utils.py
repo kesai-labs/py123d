@@ -124,7 +124,7 @@ class ToIntMapping:
         return list_
 
 
-def parse_int_id(id_value: Union[int, str]) -> Optional[int]:
+def parse_int_id(id_value: Union[int, str, float]) -> Optional[int]:
     """Convert id to int if it's a numeric string, otherwise return as-is or raise error."""
     if isinstance(id_value, float):
         return int(id_value)

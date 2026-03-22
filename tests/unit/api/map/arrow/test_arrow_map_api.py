@@ -95,7 +95,7 @@ class TestArrowMapAPIMetadata:
     def test_metadata_fields_preserved(self, tmp_path: Path) -> None:
         metadata = _build_full_map_metadata()
         objects = [make_lane(object_id=1)]
-        api = write_and_read_map(tmp_path, metadata, objects)
+        api = write_and_read_map(tmp_path, metadata, objects)  # type: ignore
 
         read_meta = api.get_map_metadata()
         assert read_meta.dataset == metadata.dataset
@@ -272,7 +272,7 @@ class TestArrowMapAPIGetAllIds:
     def test_returns_correct_ids(self, tmp_path: Path) -> None:
         metadata = _build_full_map_metadata()
         objects = [make_lane(object_id=i, y_offset=i * 10.0) for i in range(5)]
-        api = write_and_read_map(tmp_path, metadata, objects)
+        api = write_and_read_map(tmp_path, metadata, objects)  # type: ignore
 
         ids = api.get_all_map_object_ids_in_layer(MapLayer.LANE)
         assert len(ids) == 5
@@ -290,7 +290,7 @@ class TestArrowMapAPIIterators:
     def test_single_layer_iterator(self, tmp_path: Path) -> None:
         metadata = _build_full_map_metadata()
         objects = [make_lane(object_id=i, y_offset=i * 10.0) for i in range(3)]
-        api = write_and_read_map(tmp_path, metadata, objects)
+        api = write_and_read_map(tmp_path, metadata, objects)  # type: ignore
 
         items = list(api.get_all_map_objects_in_layer(MapLayer.LANE))
         assert len(items) == 3
@@ -315,7 +315,7 @@ class TestArrowMapAPIIterators:
         """Calling the method twice should yield fresh iterators each time."""
         metadata = _build_full_map_metadata()
         objects = [make_lane(object_id=i, y_offset=i * 10.0) for i in range(3)]
-        api = write_and_read_map(tmp_path, metadata, objects)
+        api = write_and_read_map(tmp_path, metadata, objects)  # type: ignore
 
         first = list(api.get_all_map_objects_in_layer(MapLayer.LANE))
         second = list(api.get_all_map_objects_in_layer(MapLayer.LANE))
@@ -324,7 +324,7 @@ class TestArrowMapAPIIterators:
 
 
 class TestArrowMapAPISpatialQueries:
-    """Test spatial query methods including BUG 1 probes."""
+    """Test spatial query methods including 1 probes."""
 
     def test_radius_query_finds_nearby(self, tmp_path: Path) -> None:
         metadata = _build_full_map_metadata()
@@ -446,8 +446,8 @@ class TestArrowMapAPISpatialQueries:
         assert MapLayer.LANE in result
         assert isinstance(result[MapLayer.LANE], dict)
 
-    def test_bug7_multipolygon_not_iterable_in_shapely2(self, tmp_path: Path) -> None:
-        """BUG 7 investigation: In shapely 2.x, MultiPolygon is NOT Iterable.
+    def test_multipolygon_not_iterable_in_shapely2(self, tmp_path: Path) -> None:
+        """In shapely 2.x, MultiPolygon is NOT Iterable.
 
         This means the isinstance(geometry, Iterable) check in _query_layer
         correctly identifies MultiPolygon as a single geometry in shapely 2.x.
@@ -459,9 +459,7 @@ class TestArrowMapAPISpatialQueries:
 
         multi = geom.MultiPolygon([geom.box(0, 0, 20, 5)])
         # In shapely 2.x, MultiPolygon is NOT Iterable
-        assert not isinstance(multi, IterableABC), (
-            "In shapely 2.x, MultiPolygon should not be Iterable. If this fails, BUG 7 is real in this shapely version."
-        )
+        assert not isinstance(multi, IterableABC), "In shapely 2.x, MultiPolygon should not be Iterable."
 
         # MultiPolygon as single geometry — should return list (like any single geometry)
         result = api.query(geometry=multi, layers=[MapLayer.LANE], predicate="intersects")

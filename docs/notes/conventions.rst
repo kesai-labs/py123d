@@ -2,7 +2,7 @@ Conventions
 ===========
 
 This page documents the coordinate systems, data representations, and naming
-conventions used throughout py123d. All source datasets are converted to these
+conventions used throughout 123D. All source datasets are converted to these
 unified conventions during the conversion step so that downstream code can
 work with a single, consistent representation.
 

@@ -326,8 +326,8 @@ class TestRoundTripCoordinatePreservation:
         np.testing.assert_allclose(read.right_boundary.array, lane.right_boundary.array, atol=1e-10)
         np.testing.assert_allclose(read.centerline.array, lane.centerline.array, atol=1e-10)
 
-    def test_bug2_road_edge_z_coordinates_preserved(self, tmp_path: Path) -> None:
-        """BUG 2 PROBE: RoadEdge 3D Z coordinates.
+    def test_road_edge_z_coordinates_preserved(self, tmp_path: Path) -> None:
+        """PROBE: RoadEdge 3D Z coordinates.
 
         The writer stores only WKB for line objects (not raw polyline array).
         The reader reconstructs via Polyline3D.from_linestring(linestring).
@@ -347,19 +347,19 @@ class TestRoundTripCoordinatePreservation:
         # XY should always survive
         np.testing.assert_allclose(read.polyline.array[:, :2], polyline.array[:, :2], atol=1e-6)
 
-        # Z coordinates — this is the BUG 2 probe
+        # Z coordinates.
         # If Z is lost, this will fail and expose the bug
         np.testing.assert_allclose(
             read.polyline.array[:, 2],
             zs,
             atol=1e-6,
-            err_msg="BUG 2: Road edge Z coordinates lost during round-trip. "
+            err_msg="BUG: Road edge Z coordinates lost during round-trip. "
             "Writer stores only WKB, reader reconstructs via from_linestring. "
             "Z may be lost if shapely LineString WKB doesn't preserve Z.",
         )
 
     def test_bug2_road_line_z_coordinates_preserved(self, tmp_path: Path) -> None:
-        """BUG 2 PROBE: Same test for RoadLine."""
+        """PROBE: Same test for RoadLine."""
         n = 5
         xs = np.linspace(0, 30, n)
         ys = np.linspace(0, 10, n)
@@ -375,7 +375,7 @@ class TestRoundTripCoordinatePreservation:
             read.polyline.array[:, 2],
             zs,
             atol=1e-6,
-            err_msg="BUG 2: Road line Z coordinates lost during round-trip.",
+            err_msg="BUG: Road line Z coordinates lost during round-trip.",
         )
 
     def test_very_small_coordinates(self, tmp_path: Path) -> None:
