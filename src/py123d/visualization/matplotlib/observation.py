@@ -31,8 +31,6 @@ from py123d.visualization.matplotlib.utils import (
     shapely_geometry_local_coords,
 )
 
-# from py123d.visualization.matplotlib.zebra import visualize_crosswalk_stripes
-
 
 def add_scene_on_ax(ax: plt.Axes, scene: SceneAPI, iteration: int = 0, radius: float = 80) -> plt.Axes:
     ego_vehicle_state = scene.get_ego_state_se3_at_iteration(iteration)
