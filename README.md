@@ -42,7 +42,7 @@
 | [Waymo Open - Perception](https://waymo.com/open/) | 5 | 5 | ✓ | ✓ | ✗ |
 | [Waymo Open - Motion](https://waymo.com/open/) | ✗ | ✗ | ✓ | ✓ | ✓ |
 | [CARLA / LEAD](https://github.com/autonomousvision/lead) | N | N | ✓ | ✓ | ✓ |
-| [NVIDIA Physical AI AV](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/cosmos/collections/physical-ai-autonomous-vehicles) *(experimental)* | 7 | 1 | ✗ | ✓ | ✗ |
+| [NVIDIA Physical AI AV](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles) *(experimental)* | 7 | 1 | ✗ | ✓ | ✗ |
 
 
 ## Changelog
