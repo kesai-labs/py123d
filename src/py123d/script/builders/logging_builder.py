@@ -82,7 +82,7 @@ class LogHandlerConfig:
             # Create the directory if not present already.
             _dir = os.path.dirname(self.path)
             if not os.path.exists(_dir):
-                os.makedirs(_dir)
+                os.makedirs(_dir, exist_ok=True)
 
 
 def configure_logger(
