@@ -190,6 +190,9 @@ def _get_bounding_box_meshes(
     boxes = [bd.bounding_box_se3 for bd in box_detections_list]
     boxes_labels = [bd.attributes.default_label for bd in box_detections_list]
 
+    if not boxes:
+        return trimesh.Trimesh()
+
     box_se3_array = np.array([box.array for box in boxes])
     box_se3_array[..., BoundingBoxSE3Index.XYZ] -= initial_ego_state.center_se3.array[PoseSE3Index.XYZ]
     box_corners_array = bbse3_array_to_corners_array(box_se3_array)
@@ -220,6 +223,11 @@ def _get_bounding_box_outlines(scene: SceneAPI, iteration: int, initial_ego_stat
     boxes_labels = [bd.attributes.default_label for bd in box_detections_list]
 
     box_se3_array = np.array([box.array for box in boxes])
+
+    if box_se3_array.size == 0:
+        empty = np.empty((0, 3), dtype=np.float32)
+        return empty, empty, box_se3_array
+
     box_se3_array[..., BoundingBoxSE3Index.XYZ] -= initial_ego_state.center_se3.array[PoseSE3Index.XYZ]
     box_corners_array = bbse3_array_to_corners_array(box_se3_array)
     box_outlines = corners_array_to_edge_lines(box_corners_array)
