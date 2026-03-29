@@ -32,6 +32,7 @@ log_writer:
     _convert_: 'all'
     reference_column: box_detections_se3.timestamp_us
     direction: "backward" # "forward" or "backward"
+    target_iteration_duration_s: 0.1 # 10Hz iteration frequency
 
 map_writer:
   _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
