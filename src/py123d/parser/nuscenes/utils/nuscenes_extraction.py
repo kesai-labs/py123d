@@ -7,8 +7,11 @@ functions used by :class:`NuScenesParser` for both 2Hz and 10Hz modes.
 from __future__ import annotations
 
 import bisect
+import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from pyquaternion import Quaternion
@@ -39,15 +42,11 @@ from py123d.parser.nuscenes.utils.nuscenes_constants import (
     NUSCENES_CAMERA_IDS,
     NUSCENES_DETECTION_NAME_DICT,
     NUSCENES_LIDAR_SWEEP_DURATION_US,
-    TARGET_DT,
 )
 
 check_dependencies(["nuscenes"], "nuscenes")
 from nuscenes import NuScenes
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
-
-# Target time interval in microseconds (10Hz = 100ms)
-_TARGET_DT_US: int = int(TARGET_DT * 1e6)
 
 # Tolerance for matching cameras to lidar sweep timestamps.
 # Since we select the last camera *before* the lidar timestamp, the offset can be up to one full
@@ -518,12 +517,10 @@ def find_nearest_cameras_for_sweep(
     nuscenes_data_root: Path,
     pinhole_cameras_metadata: Optional[Dict[CameraID, PinholeCameraMetadata]],
 ) -> List[ParsedCamera]:
-    """Finds the last camera observation at or before a given sweep timestamp for each channel.
+    """Finds the closest camera observation to a given sweep timestamp for each channel.
 
-    This mirrors the keyframe convention where ``sample["data"]["CAM_*"]`` points to the camera
-    image captured during (just before completion of) the lidar sweep. For consistency, at
-    non-keyframe timestamps we select the most recent camera record whose timestamp is
-    <= the target lidar sweep timestamp, within a tolerance of 100 ms.
+    For each camera channel, searches both backward and forward from the target timestamp
+    and selects the temporally closest record within a tolerance of 100 ms.
 
     :param nusc: The NuScenes database instance.
     :param target_timestamp: Target timestamp in microseconds (lidar sweep time).
@@ -545,17 +542,21 @@ def find_nearest_cameras_for_sweep(
         if not timeline:
             continue
 
-        # Find the last camera record at or before the target timestamp.
-        # bisect_right gives the insertion point *after* any equal entries,
-        # so idx-1 is the last entry with timestamp <= target_timestamp.
         timestamps = [sd["timestamp"] for sd in timeline]
         idx = bisect.bisect_right(timestamps, target_timestamp)
 
-        if idx == 0:
-            continue  # no camera record at or before the target
+        # Consider the entry just before and just after the target timestamp.
+        candidates = []
+        if idx > 0:
+            candidates.append(idx - 1)
+        if idx < len(timestamps):
+            candidates.append(idx)
 
-        best_idx = idx - 1
-        if target_timestamp - timestamps[best_idx] > _CAMERA_TIMESTAMP_TOLERANCE_US:
+        if not candidates:
+            continue
+
+        best_idx = min(candidates, key=lambda j: abs(timestamps[j] - target_timestamp))
+        if abs(timestamps[best_idx] - target_timestamp) > _CAMERA_TIMESTAMP_TOLERANCE_US:
             continue
 
         cam_data = timeline[best_idx]
@@ -632,65 +633,18 @@ def extract_lidar_from_sample_data(
 # ------------------------------------------------------------------------------------------------------------------
 
 
-def select_10hz_sweeps(
-    lidar_timeline: List[Dict[str, Any]],
-    keyframe_timestamps: List[int],
-) -> List[Dict[str, Any]]:
-    """Selects approximately 10Hz sweeps from the ~20Hz lidar timeline.
+def subsample_sweeps(lidar_timeline: List[Dict[str, Any]], step: int = 2) -> List[Dict[str, Any]]:
+    """Subsamples the lidar sweep timeline by taking every *step*-th entry.
 
-    Between each pair of consecutive keyframes, distributes intermediate timestamps at
-    regular intervals and picks the closest lidar sweep for each. Keyframes are always included.
+    The timeline from :func:`collect_lidar_sweep_timeline` starts at the first keyframe
+    and ends at the last keyframe, running at ~20Hz. With the default ``step=2`` the
+    output is ~10Hz with consistent spacing determined solely by lidar hardware timing.
 
     :param lidar_timeline: Full lidar sweep timeline from :func:`collect_lidar_sweep_timeline`.
-    :param keyframe_timestamps: Sorted list of keyframe timestamps in microseconds.
-    :return: Selected sweeps at approximately 10Hz, sorted by timestamp.
+    :param step: Take every *step*-th sweep (default 2 → ~10Hz from ~20Hz input).
+    :return: Subsampled sweeps in chronological order.
     """
-    if not lidar_timeline:
-        return []
-
-    sweep_timestamps = np.array([s["timestamp"] for s in lidar_timeline])
-    kf_set = set(keyframe_timestamps)
-    selected_tokens: set = set()
-    selected: List[Dict[str, Any]] = []
-
-    # Always include all keyframe sweeps
-    for sweep in lidar_timeline:
-        if sweep["is_key_frame"] and sweep["timestamp"] in kf_set:
-            selected_tokens.add(sweep["token"])
-            selected.append(sweep)
-
-    # Between each pair of consecutive keyframes, add intermediate sweeps at ~10Hz
-    kf_sorted = sorted(keyframe_timestamps)
-    for kf_idx in range(len(kf_sorted) - 1):
-        kf_ts = kf_sorted[kf_idx]
-        next_kf_ts = kf_sorted[kf_idx + 1]
-        delta = next_kf_ts - kf_ts
-        n_intervals = max(1, round(delta / _TARGET_DT_US))
-
-        for i in range(1, n_intervals):
-            target_ts = kf_ts + i * (delta / n_intervals)
-
-            # Binary search for closest lidar sweep
-            idx = int(np.searchsorted(sweep_timestamps, target_ts))
-            candidates = []
-            if idx > 0:
-                candidates.append(idx - 1)
-            if idx < len(sweep_timestamps):
-                candidates.append(idx)
-
-            if not candidates:
-                continue
-
-            best_idx = min(candidates, key=lambda j: abs(int(sweep_timestamps[j]) - target_ts))
-            sweep = lidar_timeline[best_idx]
-
-            if sweep["token"] not in selected_tokens:
-                selected_tokens.add(sweep["token"])
-                selected.append(sweep)
-
-    # Sort by timestamp
-    selected.sort(key=lambda s: s["timestamp"])
-    return selected
+    return lidar_timeline[::step]
 
 
 def find_surrounding_keyframes(
