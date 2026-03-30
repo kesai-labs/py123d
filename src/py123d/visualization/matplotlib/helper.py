@@ -299,26 +299,29 @@ def _undistort_pinhole_camera(
     assert metadata.intrinsics is not None
     assert metadata.distortion is not None
 
-    K = metadata.intrinsics.camera_matrix
-    dist = metadata.distortion.array
-    image_undistorted = undistort_image_keep_focal_length(camera.image, K, dist, interpolation)
+    if not metadata.is_undistorted:
+        K = metadata.intrinsics.camera_matrix
+        dist = metadata.distortion.array
+        image_undistorted = undistort_image_keep_focal_length(camera.image, K, dist, interpolation)
 
-    new_metadata = PinholeCameraMetadata(
-        camera_name=metadata.camera_name,
-        camera_id=metadata.camera_id,
-        intrinsics=metadata.intrinsics,
-        distortion=metadata.distortion,
-        width=metadata.width,
-        height=metadata.height,
-        camera_to_imu_se3=metadata.camera_to_imu_se3,
-        is_undistorted=True,
-    )
-    result = Camera(
-        metadata=new_metadata,
-        image=image_undistorted,
-        camera_to_global_se3=camera.camera_to_global_se3,
-        timestamp=camera.timestamp,
-    )
+        new_metadata = PinholeCameraMetadata(
+            camera_name=metadata.camera_name,
+            camera_id=metadata.camera_id,
+            intrinsics=metadata.intrinsics,
+            distortion=metadata.distortion,
+            width=metadata.width,
+            height=metadata.height,
+            camera_to_imu_se3=metadata.camera_to_imu_se3,
+            is_undistorted=True,
+        )
+        result = Camera(
+            metadata=new_metadata,
+            image=image_undistorted,
+            camera_to_global_se3=camera.camera_to_global_se3,
+            timestamp=camera.timestamp,
+        )
+    else:
+        result = camera
     return result
 
 

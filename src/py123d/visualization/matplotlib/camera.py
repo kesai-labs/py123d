@@ -49,6 +49,8 @@ def add_lidar_to_camera_ax(
         "range",
         "elongation",
     ] = "distance",
+    alpha: float = 1.0,
+    point_size: float = 3.0,
 ) -> plt.Axes:
     """Add lidar point cloud to camera image on matplotlib axis
 
@@ -58,21 +60,28 @@ def add_lidar_to_camera_ax(
     :param ego_state_se3: ego state object
     :param undistort: whether to undistort the camera image, defaults to True
     :param color_feature: lidar color feature to use, defaults to "distance"
+    :param alpha: transparency of the lidar points, 0.0 (fully transparent) to 1.0 (fully opaque), defaults to 1.0
+    :param point_size: size of the lidar points in pixels, defaults to 3.0
     :return: matplotlib axis with lidar points overlaid on camera image
     """
 
     if undistort:
         camera = undistort_camera(camera)
 
-    image = camera.image.copy()
     lidar_pc_colors = np.array(get_lidar_pc_color(lidar, color_feature=color_feature, dark_mode=False))
     pc_in_cam, pc_in_fov_mask = _transform_pcs_to_images(lidar.xyz.copy(), camera, ego_state_se3)
 
-    for (x, y), color in zip(pc_in_cam[pc_in_fov_mask], lidar_pc_colors[pc_in_fov_mask]):
-        color = (int(color[0]), int(color[1]), int(color[2]))
-        cv2.circle(image, (int(x), int(y)), 3, color, -1)  # type: ignore
-
-    ax.imshow(image)
+    ax.imshow(camera.image)
+    ax.scatter(
+        pc_in_cam[pc_in_fov_mask, 0],
+        pc_in_cam[pc_in_fov_mask, 1],
+        c=lidar_pc_colors[pc_in_fov_mask] / 255.0,
+        s=point_size,
+        alpha=alpha,
+        edgecolors="none",
+    )
+    ax.set_xlim(0, camera.metadata.width)
+    ax.set_ylim(camera.metadata.height, 0)
     return ax
 
 
@@ -170,6 +179,6 @@ def _transform_pcs_to_images(
     :param ego_state_se3: ego state for ego-to-global transformation.
     :return: points in pixel coordinates, mask of values in frame.
     """
-    global_pts = rel_to_abs_points_3d_array(ego_state_se3.rear_axle_se3, lidar_xyz)
+    global_pts = rel_to_abs_points_3d_array(ego_state_se3.imu_se3, lidar_xyz)
     pixel_coords, in_fov_mask, _depth = camera.project_points_global(global_pts)
     return pixel_coords, in_fov_mask
