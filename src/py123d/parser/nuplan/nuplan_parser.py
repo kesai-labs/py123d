@@ -16,7 +16,9 @@ from py123d.datatypes import (
     BoxDetectionsSE3,
     CameraID,
     DynamicStateSE3,
+    EgoFrame,
     EgoStateSE3,
+    GlobalFrame,
     LidarID,
     LidarMetadata,
     LogMetadata,
@@ -219,6 +221,8 @@ class NuplanLogParser(BaseLogParser):
                 map_has_z=False,
                 map_is_per_log=False,
             ),
+            global_frame=GlobalFrame.ENU,
+            ego_frame=EgoFrame.RFU,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

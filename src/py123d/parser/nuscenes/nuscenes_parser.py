@@ -16,8 +16,10 @@ from py123d.datatypes import (
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
     CameraID,
+    EgoFrame,
     EgoStateSE3,
     EgoStateSE3Metadata,
+    GlobalFrame,
     LidarMergedMetadata,
     LogMetadata,
     PinholeCameraMetadata,
@@ -237,6 +239,8 @@ class NuScenesLogParser(BaseLogParser):
             split=self._split,
             log_name=self._scene_name,
             location=self._location,
+            global_frame=GlobalFrame.ENU,
+            ego_frame=EgoFrame.RFU,
         )
 
     # ------------------------------------------------------------------------------------------------------------------

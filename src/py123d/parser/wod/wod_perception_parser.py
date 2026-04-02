@@ -11,7 +11,9 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     CameraID,
+    EgoFrame,
     EgoStateSE3,
+    GlobalFrame,
     LidarID,
     LidarMetadata,
     LogMetadata,
@@ -222,6 +224,8 @@ class WODPerceptionLogParser(BaseLogParser):
             split=self._split,
             log_name=str(initial_frame.context.name),
             location=str(initial_frame.context.stats.location),
+            global_frame=GlobalFrame.ENU,
+            ego_frame=EgoFrame.FLU,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

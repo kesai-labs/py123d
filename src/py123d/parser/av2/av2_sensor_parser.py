@@ -10,7 +10,9 @@ from py123d.datatypes import (
     BoxDetectionAttributes,
     BoxDetectionSE3,
     BoxDetectionsSE3,
+    EgoFrame,
     EgoStateSE3,
+    GlobalFrame,
     LidarID,
     LidarMetadata,
     LogMetadata,
@@ -131,6 +133,8 @@ class Av2SensorLogParser(BaseLogParser):
             log_name=self._source_log_path.name,
             location=map_metadata.location,
             map_metadata=map_metadata,
+            global_frame=GlobalFrame.ENU,
+            ego_frame=EgoFrame.FLU,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

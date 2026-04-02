@@ -11,7 +11,9 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     CameraID,
+    EgoFrame,
     EgoStateSE3,
+    GlobalFrame,
     LogMetadata,
     PinholeCameraMetadata,
     PinholeIntrinsics,
@@ -128,6 +130,8 @@ class PandasetLogParser(BaseLogParser):
             split=self._split,
             log_name=self._source_log_path.name,
             location=None,  # TODO: Add location information.
+            global_frame=GlobalFrame.ENU,
+            ego_frame=EgoFrame.FLU,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

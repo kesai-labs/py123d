@@ -9,8 +9,10 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
+    EgoFrame,
     EgoStateSE3,
     EgoStateSE3Metadata,
+    GlobalFrame,
     LogMetadata,
     Timestamp,
     TrafficLightDetection,
@@ -197,6 +199,8 @@ class WODMotionLogParser(BaseLogParser):
             split=self._split,
             log_name=self._scenario_id,
             location=None,
+            global_frame=GlobalFrame.ENU,
+            ego_frame=EgoFrame.FLU,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

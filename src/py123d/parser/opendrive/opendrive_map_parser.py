@@ -66,7 +66,7 @@ class OpenDriveMapParser(BaseMapParser):
     def get_map_metadata(self) -> MapMetadata:
         """Returns metadata for this OpenDRIVE map."""
         # If location is not provided, use the file name as location
-        _location = self._location or self._xodr_path.stem
+        _location = self._location or self._xodr_path.name.removesuffix("".join(self._xodr_path.suffixes))
         return MapMetadata(
             dataset="opendrive",
             location=_location,

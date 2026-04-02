@@ -4,13 +4,23 @@ from typing import Dict, Optional
 
 import py123d
 from py123d.datatypes.metadata.base_metadata import BaseMetadata
+from py123d.datatypes.metadata.coordinate_frames import EgoFrame, GlobalFrame
 from py123d.datatypes.metadata.map_metadata import MapMetadata
 
 
 class LogMetadata(BaseMetadata):
     """Class to hold metadata information about a log."""
 
-    __slots__ = ("_dataset", "_split", "_log_name", "_location", "_map_metadata", "_version")
+    __slots__ = (
+        "_dataset",
+        "_split",
+        "_log_name",
+        "_location",
+        "_map_metadata",
+        "_version",
+        "_global_frame",
+        "_ego_frame",
+    )
 
     def __init__(
         self,
@@ -20,6 +30,8 @@ class LogMetadata(BaseMetadata):
         location: Optional[str],
         map_metadata: Optional[MapMetadata] = None,
         version: str = str(py123d.__version__),
+        global_frame: Optional[GlobalFrame] = None,
+        ego_frame: Optional[EgoFrame] = None,
     ):
         """Create a :class:`LogMetadata` instance from a dictionary.
 
@@ -40,6 +52,10 @@ class LogMetadata(BaseMetadata):
 
         # Currently not used, but can be helpful for tracking library version used to create the log metadata
         self._version = version
+
+        # Coordinate frame conventions
+        self._global_frame = global_frame
+        self._ego_frame = ego_frame
 
     @property
     def dataset(self) -> str:
@@ -71,6 +87,16 @@ class LogMetadata(BaseMetadata):
         """Map metadata for this log, if available."""
         return self._map_metadata
 
+    @property
+    def global_frame(self) -> Optional[GlobalFrame]:
+        """Global/map coordinate frame convention (ENU or NED)."""
+        return self._global_frame
+
+    @property
+    def ego_frame(self) -> Optional[EgoFrame]:
+        """Ego-vehicle coordinate frame convention (FLU or FRD)."""
+        return self._ego_frame
+
     @classmethod
     def from_dict(cls, data_dict: Dict) -> LogMetadata:
         """Create a :class:`LogMetadata` instance from a Python dictionary.
@@ -85,6 +111,10 @@ class LogMetadata(BaseMetadata):
         map_meta_raw = data_dict.get("map_metadata")
         map_metadata = MapMetadata.from_dict(map_meta_raw) if map_meta_raw is not None else None
 
+        # Coordinate frames
+        global_frame_raw = data_dict.get("global_frame")
+        ego_frame_raw = data_dict.get("ego_frame")
+
         return LogMetadata(
             dataset=data_dict["dataset"],
             split=data_dict["split"],
@@ -92,6 +122,8 @@ class LogMetadata(BaseMetadata):
             location=data_dict.get("location"),
             version=data_dict.get("version", "unknown"),
             map_metadata=map_metadata,
+            global_frame=GlobalFrame(global_frame_raw) if global_frame_raw else None,
+            ego_frame=EgoFrame(ego_frame_raw) if ego_frame_raw else None,
         )
 
     def to_dict(self) -> Dict:
@@ -106,6 +138,8 @@ class LogMetadata(BaseMetadata):
             "location": self._location,
             "version": self._version,
             "map_metadata": self._map_metadata.to_dict() if self._map_metadata is not None else None,
+            "global_frame": self._global_frame.value if self._global_frame else None,
+            "ego_frame": self._ego_frame.value if self._ego_frame else None,
         }
 
     def __repr__(self) -> str:
