@@ -18,7 +18,7 @@ from py123d.datatypes.vehicle_state.ego_state_metadata import (
     rear_axle_se2_to_imu_se2,
     rear_axle_se3_to_imu_se3,
 )
-from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, PoseSE2, PoseSE3
+from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, PoseSE2, PoseSE3, Vector2D, Vector3D
 
 EGO_TRACK_TOKEN: Final[str] = "ego_vehicle"
 
@@ -206,13 +206,19 @@ class EgoStateSE3(BaseModality):
     @property
     def box_detection_se3(self) -> BoxDetectionSE3:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE3` projection of the ego vehicle."""
+        velocity_3d_global: Optional[Vector3D] = None
+        if self.dynamic_state_se3 is not None:
+            v_body = self.dynamic_state_se3.velocity_3d.array
+            v_global = self.imu_se3.rotation_matrix @ v_body
+            velocity_3d_global = Vector3D(float(v_global[0]), float(v_global[1]), float(v_global[2]))
+
         return BoxDetectionSE3(
             attributes=BoxDetectionAttributes(
                 label=DefaultBoxDetectionLabel.EGO,
                 track_token=EGO_TRACK_TOKEN,
             ),
             bounding_box_se3=self.bounding_box_se3,
-            velocity_3d=self.dynamic_state_se3.velocity_3d if self.dynamic_state_se3 else None,
+            velocity_3d=velocity_3d_global,
         )
 
     @property
@@ -388,11 +394,17 @@ class EgoStateSE2:
     @property
     def box_detection_se2(self) -> BoxDetectionSE2:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE2` projection of the ego vehicle."""
+        velocity_2d_global: Optional[Vector2D] = None
+        if self.dynamic_state_se2 is not None:
+            v_body = self.dynamic_state_se2.velocity_2d.array
+            v_global = self.imu_se2.rotation_matrix @ v_body
+            velocity_2d_global = Vector2D(float(v_global[0]), float(v_global[1]))
+
         return BoxDetectionSE2(
             attributes=BoxDetectionAttributes(
                 label=DefaultBoxDetectionLabel.EGO,
                 track_token=EGO_TRACK_TOKEN,
             ),
             bounding_box_se2=self.bounding_box_se2,
-            velocity_2d=self.dynamic_state_se2.velocity_2d if self.dynamic_state_se2 else None,
+            velocity_2d=velocity_2d_global,
         )

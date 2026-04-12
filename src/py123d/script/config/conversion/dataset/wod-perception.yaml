@@ -2,7 +2,7 @@ parser:
   _target_: py123d.parser.wod.wod_perception_parser.WODPerceptionParser
   _convert_: 'all'
 
-  splits: ["wod-perception_val","wod-perception_test", "wod-perception_train"]
+  splits: ["wod-perception_val"]
   wod_perception_data_root: ${dataset_paths.wod_perception_data_root}
   zero_roll_pitch: true
   keep_polar_features: false
@@ -20,6 +20,9 @@ log_writer_config:
 
   lidar_store_option: "binary" #  "path", "binary"
   lidar_codec: "laz" # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
 
 log_writer:
   _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter

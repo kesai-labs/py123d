@@ -162,6 +162,7 @@ class ArrowLogWriter(BaseLogWriter):
                 metadata=modality_metadata,
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
+                infer_ego_dynamics=self._log_writer_config.infer_ego_dynamics,
             )
 
         elif isinstance(modality_metadata, BoxDetectionsSE3Metadata):
@@ -170,6 +171,7 @@ class ArrowLogWriter(BaseLogWriter):
                 metadata=modality_metadata,
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
+                infer_box_dynamics=self._log_writer_config.infer_box_dynamics,
             )
 
         elif isinstance(modality_metadata, TrafficLightDetectionsMetadata):

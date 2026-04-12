@@ -28,6 +28,9 @@ log_writer_config:
   force_log_conversion: false
   force_map_conversion: ${force_map_conversion}
 
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
 log_writer:
   _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
   _convert_: 'all'

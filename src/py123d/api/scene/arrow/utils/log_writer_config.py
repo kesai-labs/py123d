@@ -23,6 +23,12 @@ class LogWriterConfig:
     # IPC write options
     ipc_max_batch_size: Optional[int] = None
 
+    # Ego
+    infer_ego_dynamics: bool = False
+
+    # Boxes
+    infer_box_dynamics: bool = False
+
     def __post_init__(self):
         assert self.camera_store_option in {
             "path",

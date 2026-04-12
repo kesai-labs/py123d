@@ -365,3 +365,86 @@ class TestEgoStateSE3:
                 metadata=self.metadata,
                 timestamp=self.timestamp,
             )
+
+
+class TestEgoBoxDetectionVelocityFrame:
+    """Tests that box_detection_se3/se2 velocity is rotated to global frame."""
+
+    def _make_metadata(self) -> EgoStateSE3Metadata:
+        return EgoStateSE3Metadata(
+            vehicle_name="test_vehicle",
+            length=4.5,
+            width=2.0,
+            height=1.5,
+            wheel_base=2.7,
+            center_to_imu_se3=PoseSE3.identity(),
+            rear_axle_to_imu_se3=PoseSE3.identity(),
+        )
+
+    def test_box_detection_se3_velocity_global_frame(self):
+        """Ego with 90 deg yaw, body velocity (10, 0, 0) -> global velocity (0, 10, 0)."""
+        qw = np.sqrt(2.0) / 2.0
+        qz = np.sqrt(2.0) / 2.0
+        ego = EgoStateSE3.from_imu(
+            imu_se3=PoseSE3(x=0.0, y=0.0, z=0.0, qw=qw, qx=0.0, qy=0.0, qz=qz),
+            metadata=self._make_metadata(),
+            timestamp=Timestamp.from_us(1000),
+            dynamic_state_se3=DynamicStateSE3(
+                velocity=Vector3D(10.0, 0.0, 0.0),
+                acceleration=Vector3D(0.0, 0.0, 0.0),
+                angular_velocity=Vector3D(0.0, 0.0, 0.0),
+            ),
+        )
+        det = ego.box_detection_se3
+        assert det.velocity_3d is not None
+        np.testing.assert_allclose(det.velocity_3d.array, [0.0, 10.0, 0.0], atol=1e-9)
+
+    def test_box_detection_se2_velocity_global_frame(self):
+        """EgoStateSE2 with 90 deg yaw, body velocity (10, 0) -> global velocity (0, 10)."""
+        ego = EgoStateSE2.from_imu(
+            imu_se2=PoseSE2(x=0.0, y=0.0, yaw=np.pi / 2.0),
+            metadata=self._make_metadata(),
+            timestamp=Timestamp.from_us(1000),
+            dynamic_state_se2=DynamicStateSE2(
+                velocity=Vector2D(10.0, 0.0),
+                acceleration=Vector2D(0.0, 0.0),
+                angular_velocity=0.0,
+            ),
+        )
+        det = ego.box_detection_se2
+        assert det.velocity_2d is not None
+        np.testing.assert_allclose(det.velocity_2d.array, [0.0, 10.0], atol=1e-9)
+
+    def test_box_detection_se3_velocity_none_without_dynamics(self):
+        """No dynamics -> velocity is None."""
+        ego = EgoStateSE3.from_imu(
+            imu_se3=PoseSE3(x=0.0, y=0.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+            metadata=self._make_metadata(),
+            timestamp=Timestamp.from_us(1000),
+        )
+        assert ego.box_detection_se3.velocity_3d is None
+
+    def test_box_detection_se2_velocity_none_without_dynamics(self):
+        """No dynamics -> velocity is None."""
+        ego = EgoStateSE2.from_imu(
+            imu_se2=PoseSE2(x=0.0, y=0.0, yaw=0.0),
+            metadata=self._make_metadata(),
+            timestamp=Timestamp.from_us(1000),
+        )
+        assert ego.box_detection_se2.velocity_2d is None
+
+    def test_box_detection_se3_identity_rotation_passthrough(self):
+        """Identity rotation: body-frame velocity should equal global-frame velocity."""
+        ego = EgoStateSE3.from_imu(
+            imu_se3=PoseSE3(x=5.0, y=3.0, z=0.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+            metadata=self._make_metadata(),
+            timestamp=Timestamp.from_us(1000),
+            dynamic_state_se3=DynamicStateSE3(
+                velocity=Vector3D(1.0, 2.0, 3.0),
+                acceleration=Vector3D(0.0, 0.0, 0.0),
+                angular_velocity=Vector3D(0.0, 0.0, 0.0),
+            ),
+        )
+        det = ego.box_detection_se3
+        assert det.velocity_3d is not None
+        np.testing.assert_allclose(det.velocity_3d.array, [1.0, 2.0, 3.0], atol=1e-9)

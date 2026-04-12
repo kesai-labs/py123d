@@ -1,7 +1,9 @@
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Type
+from typing import Any, Dict, List, Literal, Optional, Type
 from warnings import warn
 
+import numpy as np
+import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
@@ -14,6 +16,7 @@ from py123d.datatypes.modalities.base_modality import BaseModality, BaseModality
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.bounding_box import BoundingBoxSE3
 from py123d.geometry.geometry_index import BoundingBoxSE3Index, Vector3DIndex
+from py123d.geometry.utils.kinematics_se3 import linear_velocity_global
 from py123d.geometry.vector import Vector3D
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -28,9 +31,14 @@ class ArrowBoxDetectionsSE3Writer(ArrowBaseModalityWriter):
         metadata: BoxDetectionsSE3Metadata,
         ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
         ipc_compression_level: Optional[int] = None,
+        infer_box_dynamics: bool = False,
     ) -> None:
         self._modality_metadata = metadata
         self._modality_key = metadata.modality_key
+
+        # Optional: For inferring box dynamics from bounding box and timestamps.
+        self._infer_box_dynamics = infer_box_dynamics
+        self._inference_window: List[BoxDetectionsSE3] = []
 
         file_path = log_dir / f"{metadata.modality_key}.arrow"
 
@@ -56,6 +64,34 @@ class ArrowBoxDetectionsSE3Writer(ArrowBaseModalityWriter):
 
     def write_modality(self, modality: BaseModality):
         assert isinstance(modality, BoxDetectionsSE3), f"Expected BoxDetectionsSE3, got {type(modality)}"
+        if not self._infer_box_dynamics:
+            self._emit(modality)
+            return
+
+        self._inference_window.append(modality)
+        if len(self._inference_window) == 2:
+            # First frame: forward-difference against the second frame. Keep both in the window so the
+            # second frame can still be centered once a third frame arrives.
+            first, second = self._inference_window
+            self._emit(_with_inferred_velocities(first, prev=None, nxt=second, metadata=self._modality_metadata))
+        elif len(self._inference_window) == 3:
+            prev, curr, nxt = self._inference_window
+            self._emit(_with_inferred_velocities(curr, prev=prev, nxt=nxt, metadata=self._modality_metadata))
+            self._inference_window.pop(0)
+
+    def close(self) -> None:
+        if self._infer_box_dynamics and self._inference_window:
+            if len(self._inference_window) == 1:
+                only = self._inference_window[0]
+                self._emit(_with_inferred_velocities(only, prev=None, nxt=None, metadata=self._modality_metadata))
+            elif len(self._inference_window) >= 2:
+                prev = self._inference_window[0]
+                last = self._inference_window[-1]
+                self._emit(_with_inferred_velocities(last, prev=prev, nxt=None, metadata=self._modality_metadata))
+            self._inference_window.clear()
+        super().close()
+
+    def _emit(self, modality: BoxDetectionsSE3) -> None:
         bounding_box_se3_list = []
         token_list = []
         label_list = []
@@ -78,6 +114,87 @@ class ArrowBoxDetectionsSE3Writer(ArrowBaseModalityWriter):
                 f"{self._modality_key}.num_lidar_points": [num_lidar_points_list],
             }
         )
+
+
+def _track_centroid_map(detections: BoxDetectionsSE3) -> Dict[str, npt.NDArray[np.float64]]:
+    return {det.attributes.track_token: det.center_se3.point_3d.array for det in detections}
+
+
+def _with_inferred_velocities(
+    curr: BoxDetectionsSE3,
+    prev: Optional[BoxDetectionsSE3],
+    nxt: Optional[BoxDetectionsSE3],
+    metadata: BoxDetectionsSE3Metadata,
+) -> BoxDetectionsSE3:
+    prev_map = _track_centroid_map(prev) if prev is not None else {}
+    next_map = _track_centroid_map(nxt) if nxt is not None else {}
+
+    t_curr = curr.timestamp.time_us / 1e6
+    t_prev = prev.timestamp.time_us / 1e6 if prev is not None else None
+    t_next = nxt.timestamp.time_us / 1e6 if nxt is not None else None
+
+    new_detections: List[BoxDetectionSE3] = []
+    for detection in curr:
+        track_token = detection.attributes.track_token
+        xyz_curr = detection.center_se3.point_3d.array
+        xyz_prev = prev_map.get(track_token)
+        xyz_next = next_map.get(track_token)
+
+        velocity_global = _compute_box_velocity_global(
+            xyz_prev=xyz_prev,
+            xyz_curr=xyz_curr,
+            xyz_next=xyz_next,
+            t_prev=t_prev,
+            t_curr=t_curr,
+            t_next=t_next,
+        )
+        new_detections.append(
+            BoxDetectionSE3(
+                attributes=detection.attributes,
+                bounding_box_se3=detection.bounding_box_se3,
+                velocity_3d=Vector3D(float(velocity_global[0]), float(velocity_global[1]), float(velocity_global[2])),
+            )
+        )
+
+    return BoxDetectionsSE3(
+        box_detections=new_detections,
+        timestamp=curr.timestamp,
+        metadata=metadata,
+    )
+
+
+def _compute_box_velocity_global(
+    xyz_prev: Optional[npt.NDArray[np.float64]],
+    xyz_curr: npt.NDArray[np.float64],
+    xyz_next: Optional[npt.NDArray[np.float64]],
+    t_prev: Optional[float],
+    t_curr: float,
+    t_next: Optional[float],
+) -> npt.NDArray[np.float64]:
+    zero = np.zeros(3, dtype=np.float64)
+
+    if xyz_prev is not None and xyz_next is not None and t_prev is not None and t_next is not None:
+        dt_total = t_next - t_prev
+        if dt_total <= 0.0:
+            warn("Non-positive dt in box velocity inference; emitting zero velocity.", category=UserWarning)
+            return zero
+        return linear_velocity_global(xyz_prev, xyz_next, dt_total)
+
+    if xyz_next is not None and t_next is not None:
+        dt = t_next - t_curr
+        if dt <= 0.0:
+            warn("Non-positive dt in box velocity inference; emitting zero velocity.", category=UserWarning)
+            return zero
+        return linear_velocity_global(xyz_curr, xyz_next, dt)
+
+    if xyz_prev is not None and t_prev is not None:
+        dt = t_curr - t_prev
+        if dt <= 0.0:
+            warn("Non-positive dt in box velocity inference; emitting zero velocity.", category=UserWarning)
+            return zero
+        return linear_velocity_global(xyz_prev, xyz_curr, dt)
+
+    return zero
 
 
 # ------------------------------------------------------------------------------------------------------------------

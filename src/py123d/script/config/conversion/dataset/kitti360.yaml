@@ -39,6 +39,9 @@ log_writer_config:
   lidar_store_option: "path" #  "path", "binary"
   lidar_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
 
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
 log_writer:
   _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
   _convert_: 'all'

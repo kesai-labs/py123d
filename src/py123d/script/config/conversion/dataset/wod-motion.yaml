@@ -2,7 +2,7 @@ parser:
   _target_: py123d.parser.wod.wod_motion_parser.WODMotionParser
   _convert_: 'all'
 
-  splits: ["wod-motion_train", "wod-motion_val"]
+  splits: ["wod-motion_val"]
   wod_motion_data_root: ${dataset_paths.wod_motion_data_root}
   add_dummy_lane_groups: false
 
@@ -12,6 +12,9 @@ log_writer_config:
 
   force_log_conversion: ${force_log_conversion}
   force_map_conversion: ${force_map_conversion}
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: false
 
 log_writer:
   _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
