@@ -68,7 +68,7 @@ class DynamicStateSE3Index(IntEnum):
 
 
 class DynamicStateSE3(ArrayMixin):
-    """The dynamic state of a vehicle in SE3 (3D space)."""
+    """The dynamic state of a vehicle in SE3 (3D space). All components are in the ego frame."""
 
     __slots__ = ("_array",)
     _array: npt.NDArray[np.float64]
@@ -81,9 +81,9 @@ class DynamicStateSE3(ArrayMixin):
     ):
         """Initialize a :class:`DynamicStateSE3` instance.
 
-        :param velocity: 3D velocity vector.
-        :param acceleration: 3D acceleration vector.
-        :param angular_velocity: 3D angular velocity vector.
+        :param velocity: 3D velocity vector in the ego frame.
+        :param acceleration: 3D acceleration vector in the ego frame.
+        :param angular_velocity: 3D angular velocity vector in the ego frame.
         """
         array = np.zeros(len(DynamicStateSE3Index), dtype=np.float64)
         array[DynamicStateSE3Index.VELOCITY_3D] = velocity.array
@@ -107,27 +107,27 @@ class DynamicStateSE3(ArrayMixin):
 
     @property
     def velocity_3d(self) -> Vector3D:
-        """3D velocity vector."""
+        """3D velocity vector in the ego frame."""
         return Vector3D.from_array(self._array[DynamicStateSE3Index.VELOCITY_3D], copy=False)
 
     @property
     def velocity_2d(self) -> Vector2D:
-        """2D velocity vector."""
+        """2D velocity vector in the ego frame."""
         return Vector2D.from_array(self._array[DynamicStateSE3Index.VELOCITY_2D], copy=False)
 
     @property
     def acceleration_3d(self) -> Vector3D:
-        """3D acceleration vector."""
+        """3D acceleration vector in the ego frame."""
         return Vector3D.from_array(self._array[DynamicStateSE3Index.ACCELERATION_3D], copy=False)
 
     @property
     def acceleration_2d(self) -> Vector2D:
-        """2D acceleration vector."""
+        """2D acceleration vector in the ego frame."""
         return Vector2D.from_array(self._array[DynamicStateSE3Index.ACCELERATION_2D], copy=False)
 
     @property
     def angular_velocity(self) -> Vector3D:
-        """3D angular velocity vector."""
+        """3D angular velocity vector in the ego frame."""
         return Vector3D.from_array(self._array[DynamicStateSE3Index.ANGULAR_VELOCITY_3D], copy=False)
 
     @property
@@ -194,8 +194,8 @@ class DynamicStateSE2(ArrayMixin):
     ):
         """Initialize a :class:`DynamicStateSE2` instance.
 
-        :param velocity: 2D velocity vector.
-        :param acceleration: 2D acceleration vector.
+        :param velocity: 2D velocity vector in the ego frame.
+        :param acceleration: 2D acceleration vector in the ego frame.
         :param angular_velocity: Angular velocity around the Z axis (yaw).
         """
         array = np.zeros(len(DynamicStateSE2Index), dtype=np.float64)
@@ -220,12 +220,12 @@ class DynamicStateSE2(ArrayMixin):
 
     @property
     def velocity_2d(self) -> Vector2D:
-        """2D velocity vector."""
+        """2D velocity vector in the ego frame."""
         return Vector2D.from_array(self._array[DynamicStateSE2Index.VELOCITY_2D], copy=False)
 
     @property
     def acceleration_2d(self) -> Vector2D:
-        """2D acceleration vector."""
+        """2D acceleration vector in the ego frame."""
         return Vector2D.from_array(self._array[DynamicStateSE2Index.ACCELERATION_2D], copy=False)
 
     @property

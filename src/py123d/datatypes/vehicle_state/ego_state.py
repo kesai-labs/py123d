@@ -89,7 +89,7 @@ class EgoStateSE3(BaseModality):
         :param rear_axle_se3: The pose of the rear axle in SE3.
         :param metadata: The ego metadata of the vehicle.
         :param timestamp: The timestamp of the state
-        :param dynamic_state_se3: The dynamic state of the vehicle, defaults to None.
+        :param dynamic_state_se3: The dynamic state of the vehicle in ego frame, defaults to None.
         :param tire_steering_angle: The tire steering angle, defaults to 0.0.
         :return: An :class:`EgoStateSE3` instance.
         """
@@ -122,7 +122,7 @@ class EgoStateSE3(BaseModality):
         :param center_se3: The center pose in SE3.
         :param metadata: The ego metadata of the vehicle.
         :param timestamp: The timestamp of the state.
-        :param dynamic_state_se3: The dynamic state of the vehicle, defaults to None.
+        :param dynamic_state_se3: The dynamic state of the vehicle in ego frame, defaults to None.
         :param tire_steering_angle: The tire steering angle, defaults to 0.0.
         :return: An :class:`EgoStateSE3` instance.
         """
@@ -206,6 +206,9 @@ class EgoStateSE3(BaseModality):
     @property
     def box_detection_se3(self) -> BoxDetectionSE3:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE3` projection of the ego vehicle."""
+
+        # NOTE @DanielDauner: In contrast to box detections, the ego dynamic state is in ego frame,
+        # thus we need to rotate the velocity vector to global frame.
         velocity_3d_global: Optional[Vector3D] = None
         if self.dynamic_state_se3 is not None:
             v_body = self.dynamic_state_se3.velocity_3d.array
@@ -394,6 +397,9 @@ class EgoStateSE2:
     @property
     def box_detection_se2(self) -> BoxDetectionSE2:
         """The :class:`~py123d.datatypes.detections.BoxDetectionSE2` projection of the ego vehicle."""
+
+        # NOTE @DanielDauner: In contrast to box detections, the ego dynamic state is in ego frame,
+        # thus we need to rotate the velocity vector to global frame.
         velocity_2d_global: Optional[Vector2D] = None
         if self.dynamic_state_se2 is not None:
             v_body = self.dynamic_state_se2.velocity_2d.array

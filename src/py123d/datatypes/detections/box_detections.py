@@ -90,7 +90,7 @@ class BoxDetectionSE2:
 
     @property
     def velocity_2d(self) -> Optional[Vector2D]:
-        """The :class:`~py123d.geometry.Vector2D` representing the velocity."""
+        """The :class:`~py123d.geometry.Vector2D` representing the velocity in global frame."""
         return self._velocity_2d
 
     @property
@@ -124,7 +124,7 @@ class BoxDetectionSE3:
 
         :param attributes: The :class:`BoxDetectionAttributes` of the detection.
         :param bounding_box_se3: The :class:`~py123d.datatypes.geometry.BoundingBoxSE3` of the detection.
-        :param velocity_3d: Optionally, a :class:`~py123d.geometry.Vector3D` representing the velocity.
+        :param velocity_3d: Optionally, a :class:`~py123d.geometry.Vector3D` representing the velocity in global frame.
         """
         self._attributes = attributes
         self._bounding_box_se3 = bounding_box_se3
@@ -147,12 +147,12 @@ class BoxDetectionSE3:
 
     @property
     def velocity_3d(self) -> Optional[Vector3D]:
-        """The :class:`~py123d.geometry.Vector3D` representing the velocity."""
+        """The :class:`~py123d.geometry.Vector3D` representing the velocity in global frame."""
         return self._velocity
 
     @property
     def velocity_2d(self) -> Optional[Vector2D]:
-        """The 2D projection :class:`~py123d.geometry.Vector2D` of the 3D velocity."""
+        """The 2D projection :class:`~py123d.geometry.Vector2D` of the 3D velocity vector in global frame."""
         return Vector2D(self._velocity.x, self._velocity.y) if self._velocity else None
 
     @property
