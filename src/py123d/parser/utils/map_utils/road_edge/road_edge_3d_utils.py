@@ -149,7 +149,7 @@ def _get_conflicting_lane_groups(
 def lift_road_edges_to_3d(
     road_edges_2d: List[shapely.LinearRing],
     boundaries: List[Polyline3D],
-    max_distance: float = 0.01,
+    max_distance: float = 0.5,
 ) -> List[Polyline3D]:
     """Lift 2D road edges to 3D by querying elevation from boundary segments.
 
@@ -176,6 +176,7 @@ def lift_road_edges_to_3d(
         occupancy_map = OccupancyMap2D(boundary_segment_linestrings)
 
         for linear_ring in road_edges_2d:
+            ring_edges_3d: List[Polyline3D] = []
             points_2d = np.array(linear_ring.coords, dtype=np.float64)
             points_3d = np.zeros((len(points_2d), len(Point3DIndex)), dtype=np.float64)
             points_3d[..., Point3DIndex.XY] = points_2d
@@ -190,11 +191,17 @@ def lift_road_edges_to_3d(
                 best_z = _interpolate_z_on_segment(query_point, segment_coords)
                 points_3d[query_idx, Point3DIndex.Z] = best_z
 
-            continuous_segments = _split_continuous_segments(np.array(results[0]))
+            # Deduplicate: query_nearest with all_matches=True can return multiple geometry
+            # matches per query point (equidistant segments), causing duplicate query indices.
+            # _split_continuous_segments expects unique, sorted indices.
+            unique_query_indices = np.unique(results[0])
+            continuous_segments = _split_continuous_segments(unique_query_indices)
             for segment_indices in continuous_segments:
                 if len(segment_indices) >= 2:
                     segment_points = points_3d[segment_indices]
-                    road_edges_3d.append(Polyline3D.from_array(segment_points))
+                    ring_edges_3d.append(Polyline3D.from_array(segment_points))
+
+            road_edges_3d.extend(_fuse_short_edges(ring_edges_3d))
 
     return road_edges_3d
 
@@ -297,6 +304,61 @@ def _resolve_conflicting_lane_groups(
         road_edges_3d.extend(lifted_road_edges_3d)
 
     return road_edges_3d
+
+
+def _get_polyline_length(points: npt.NDArray[np.float64]) -> float:
+    """Helper function to compute 3D polyline length from point arrays."""
+    return Polyline3D.from_array(points, copy=False).length
+
+
+def _get_edge_gap(first: npt.NDArray[np.float64], second: npt.NDArray[np.float64]) -> float:
+    """Helper function to compute the 2D gap between consecutive edge fragments."""
+    return float(np.linalg.norm(first[-1, :2] - second[0, :2]))
+
+
+def _fuse_short_edge_sequence(
+    edge_arrays: List[npt.NDArray[np.float64]], min_length: float, max_gap: float
+) -> List[npt.NDArray[np.float64]]:
+    """Fuse short edge fragments in sequence while preserving valid leftovers."""
+    if not edge_arrays:
+        return edge_arrays
+
+    fused: List[npt.NDArray[np.float64]] = []
+    buf = edge_arrays[0]
+
+    for edge_array in edge_arrays[1:]:
+        if _get_edge_gap(buf, edge_array) < max_gap and _get_polyline_length(buf) < min_length:
+            buf = np.concatenate([buf, edge_array], axis=0)
+            continue
+
+        fused.append(buf)
+        buf = edge_array
+
+    return fused + [buf]
+
+
+def _fuse_short_edges(edges: List[Polyline3D], min_length: float = 2.0, max_gap: float = 0.5) -> List[Polyline3D]:
+    """Merge adjacent short road edges, including across the LinearRing seam."""
+    if not edges:
+        return edges
+
+    fused_arrays = _fuse_short_edge_sequence([edge.array for edge in edges], min_length=min_length, max_gap=max_gap)
+
+    if len(fused_arrays) >= 2:
+        first_edge = fused_arrays[0]
+        last_edge = fused_arrays[-1]
+        should_fuse_ring_closure = _get_edge_gap(last_edge, first_edge) < max_gap and (
+            _get_polyline_length(last_edge) < min_length or _get_polyline_length(first_edge) < min_length
+        )
+
+        if should_fuse_ring_closure:
+            fused_arrays = _fuse_short_edge_sequence(
+                [np.concatenate([last_edge, first_edge], axis=0)] + fused_arrays[1:-1],
+                min_length=min_length,
+                max_gap=max_gap,
+            )
+
+    return [Polyline3D.from_array(edge_array) for edge_array in fused_arrays]
 
 
 def _get_nearest_z_from_points_3d(points_3d: npt.NDArray[np.float64], query_point: npt.NDArray[np.float64]) -> float:
