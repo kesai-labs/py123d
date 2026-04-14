@@ -17,7 +17,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 name = "py123d"
-version = "0.1.0"
+version = "0.2.0"
 authors = [{ name = "Daniel Dauner", email = "daniel.dauner@gmail.com" }]
 description = "123D: A Unified Library for Multi-Modal Autonomous Driving Data."
 readme = "README.md"

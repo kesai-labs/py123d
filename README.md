@@ -49,6 +49,17 @@
 ## Changelog
 
 <details open>
+<summary><b>v0.2.0</b> (2026-04-14)</summary>
+
+- Aligned ego and agent dynamics to a unified global/ego-frame convention, with velocity/acceleration inference in `LogWriter` from poses for `EgoState` and `BoxDetectionsSE3` ([#119](https://github.com/autonomousvision/py123d/pull/119), [#120](https://github.com/autonomousvision/py123d/pull/120)).
+- Improved OpenDRIVE maps: 3D road-edge lifting, lane-boundary reconstruction, and cleaner map-metadata location handling ([#121](https://github.com/autonomousvision/py123d/pull/121)).
+- Parser and visualization fixes: NuScenes interpolated parser defaults to 10 Hz sync with camera-pose interpolation; PandaSet extrinsic/undistortion fixes; viser fixes ([#117](https://github.com/autonomousvision/py123d/pull/117)); new matplotlib camera-rig and lidar-reprojection utilities.
+
+No breaking changes to the public API, Arrow schema, or CLI entry points.
+
+</details>
+
+<details>
 <summary><b>v0.1.0</b> (2026-03-22)</summary>
 
 - Asynchronous (native-rate) data storage: modalities are now written at their original capture rate, not just at the a frame-wise rate.
