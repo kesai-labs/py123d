@@ -38,7 +38,7 @@ class MP4Writer:
             self.frame_size = (w, h)
             fourcc = cv2.VideoWriter_fourcc(*self.codec)
             self.output_path.parent.mkdir(parents=True, exist_ok=True)
-            self.writer = cv2.VideoWriter(self.output_path, fourcc, self.fps, self.frame_size)
+            self.writer = cv2.VideoWriter(str(self.output_path), fourcc, self.fps, self.frame_size)
 
         if frame.shape[:2][::-1] != self.frame_size:
             raise ValueError(f"Frame size {frame.shape[:2][::-1]} doesn't match video size {self.frame_size}")
