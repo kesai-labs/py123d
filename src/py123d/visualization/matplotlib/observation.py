@@ -45,7 +45,8 @@ def add_scene_on_ax(ax: plt.Axes, scene: SceneAPI, iteration: int = 0, radius: f
         if traffic_light_detections is not None:
             add_traffic_lights_to_ax(ax, traffic_light_detections, map_api)
 
-    add_box_detections_to_ax(ax, box_detections)
+    if box_detections is not None:
+        add_box_detections_to_ax(ax, box_detections)
     add_ego_vehicle_to_ax(ax, ego_vehicle_state)
 
     ax.set_xlim(point_2d.x - radius, point_2d.x + radius)
