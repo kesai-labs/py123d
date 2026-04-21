@@ -90,8 +90,6 @@ nuscenes = [
 waymo = [
     "tensorflow-cpu>=2.13",
     "protobuf>=6.31",
-]
-womd-download = [
     "google-cloud-storage>=2.14",
 ]
 ffmpeg = [
