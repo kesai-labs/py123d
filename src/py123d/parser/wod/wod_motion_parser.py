@@ -384,14 +384,19 @@ class WODMotionLogParser(BaseLogParser):
         ), "All extracted data lists must have the same length."
 
         for time_idx in range(len(all_timestamps)):
+            modalities_at_timestamp = []
+            if all_ego_states[time_idx] is not None:
+                modalities_at_timestamp.append(all_ego_states[time_idx])
+            if all_box_detections[time_idx] is not None:
+                modalities_at_timestamp.append(all_box_detections[time_idx])
+            if all_traffic_lights[time_idx] is not None:
+                modalities_at_timestamp.append(all_traffic_lights[time_idx])
+            if all_aux_modalities[time_idx] is not None:
+                modalities_at_timestamp.append(all_aux_modalities[time_idx])
+
             yield ModalitiesSync(
                 timestamp=all_timestamps[time_idx],
-                modalities=[
-                    all_ego_states[time_idx],
-                    all_box_detections[time_idx],
-                    all_traffic_lights[time_idx],
-                    all_aux_modalities[time_idx],
-                ],
+                modalities=modalities_at_timestamp,
             )
 
 
@@ -408,7 +413,7 @@ def _extract_all_ego_states(
     scenario: scenario_pb2.Scenario,
     all_timestamps: List[Timestamp],
     ego_metadata: EgoStateSE3Metadata,
-) -> List[EgoStateSE3]:
+) -> List[Optional[EgoStateSE3]]:
     """Extracts the ego vehicle states from the SDC track in a WOD-Motion scenario.
 
     The SDC track is identified by ``scenario.sdc_track_index``. Each ``ObjectState``
@@ -421,19 +426,20 @@ def _extract_all_ego_states(
     ``scenario.timestamps_seconds``; the aux custom modality records ``sdc_valid[t]``
     so consumers can distinguish observed poses from carry-forward-imputed ones.
 
-    Some WOMD scenarios (notably in ``training_20s``) have ``len(track.states)`` larger
-    than ``len(timestamps_seconds)`` — trailing pad-states in the proto. We pair states
-    with timestamps via ``zip`` so those extras are dropped; the final length-equality
-    assertion still catches the opposite anomaly (fewer states than timestamps).
     """
-    all_ego_states: List[EgoStateSE3] = []
-    last_valid_center_se3: Optional[PoseSE3] = None
+    all_ego_states: List[Optional[EgoStateSE3]] = []
+    num_timesteps = len(all_timestamps)
     for track_idx, track in enumerate(scenario.tracks):
         if scenario.sdc_track_index != track_idx:
             continue
 
-        for state, timestamp in zip(track.states, all_timestamps):
-            if state.valid:
+        for time_idx in range(num_timesteps):
+            state = track.states[time_idx] if time_idx < len(track.states) else None
+            timestamp = all_timestamps[time_idx]
+
+            ego_state: Optional[EgoStateSE3] = None
+
+            if state is not None and state.valid:
                 quaternion = EulerAngles(roll=0.0, pitch=0.0, yaw=state.heading).quaternion
                 center_se3 = PoseSE3(
                     x=state.center_x,
@@ -447,18 +453,12 @@ def _extract_all_ego_states(
                 assert ego_metadata.length == state.length, "Ego vehicle length does not match vehicle parameters."
                 assert ego_metadata.width == state.width, "Ego vehicle width does not match vehicle parameters."
                 assert ego_metadata.height == state.height, "Ego vehicle height does not match vehicle parameters."
-                last_valid_center_se3 = center_se3
-            else:
-                # Carry forward the last observed pose. Leading-edge fallback to identity is
-                # defensive — WOMD scenarios always start with a valid SDC state in practice.
-                center_se3 = last_valid_center_se3 if last_valid_center_se3 is not None else PoseSE3.identity()
-
-            ego_state = EgoStateSE3.from_center(
-                center_se3=center_se3,
-                metadata=ego_metadata,
-                dynamic_state_se3=None,
-                timestamp=timestamp,
-            )
+                ego_state = EgoStateSE3.from_center(
+                    center_se3=center_se3,
+                    metadata=ego_metadata,
+                    dynamic_state_se3=None,
+                    timestamp=timestamp,
+                )
             all_ego_states.append(ego_state)
 
     assert len(all_ego_states) == len(scenario.timestamps_seconds), (
@@ -475,9 +475,11 @@ def _extract_all_wod_motion_box_detections(
     """Extracts all box detections from the WOD-Motion scenario."""
 
     # We first collect all tracks over all timesteps in a dictionary, where the key is the track ID.
-    # Some WOMD scenarios (notably in training_20s) have trailing pad-states in the proto —
-    # ``len(track.states) > len(timestamps_seconds)``. We slice to ``all_timestamps`` so the
-    # per-track lists stay aligned with the scenario clock and the length assertion below passes.
+    # Some WOMD scenarios (notably in training_20s) have ``len(track.states)`` that does not match
+    # ``len(timestamps_seconds)`` exactly: trailing pad-states when longer, missing trailing states
+    # when shorter. Driving the loop by timestamp index drops extras and pads missing states with
+    # ``None`` (treated the same as ``state.valid=False``), keeping per-track lists aligned with
+    # the scenario clock.
     tracks_collection: Dict[str, List[Optional[BoxDetectionSE3]]] = {}
     num_timesteps = len(all_timestamps)
     for track_idx, track in enumerate(scenario.tracks):
@@ -488,8 +490,9 @@ def _extract_all_wod_motion_box_detections(
         track_id = str(track.id)
         tracks_collection[track_id] = []
         label = WODMotionBoxDetectionLabel(track.object_type)
-        for state in track.states[:num_timesteps]:
-            if state.valid:
+        for time_idx in range(num_timesteps):
+            state = track.states[time_idx] if time_idx < len(track.states) else None
+            if state is not None and state.valid:
                 quaternion = EulerAngles(roll=0.0, pitch=0.0, yaw=state.heading).quaternion
                 center_se3 = PoseSE3(
                     x=state.center_x,
@@ -518,9 +521,8 @@ def _extract_all_wod_motion_box_detections(
             else:
                 tracks_collection[track_id].append(None)
 
-    # Check if all tracks have the same number of timesteps. The slice above caps at
-    # num_timesteps; this assertion catches the opposite anomaly (a track with fewer states
-    # than the scenario clock).
+    # Invariant check: the timestamp-indexed loop above always produces exactly ``num_timesteps``
+    # entries per track, so this assertion should never fire — it exists as a defensive guard.
     assert all(len(detections) == num_timesteps for detections in tracks_collection.values()), (
         "Not all tracks have the same number of timesteps."
     )
