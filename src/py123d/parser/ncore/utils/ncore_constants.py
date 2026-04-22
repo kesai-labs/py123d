@@ -20,6 +20,9 @@ from py123d.parser.physical_ai_av.utils.physical_ai_av_constants import (
 from py123d.parser.physical_ai_av.utils.physical_ai_av_constants import (
     PHYSICAL_AI_AV_LABEL_CLASS_MAPPING as NCORE_LABEL_CLASS_MAPPING,
 )
+from py123d.parser.physical_ai_av.utils.physical_ai_av_constants import (
+    resolve_physical_ai_av_label as resolve_ncore_label,
+)
 
 NCORE_SPLITS: Set[str] = {"ncore_train"}
 
@@ -36,4 +39,5 @@ __all__ = [
     "NCORE_LABEL_CLASS_MAPPING",
     "NCORE_EGO_STATE_SE3_METADATA",
     "NCORE_BOX_DETECTIONS_SE3_METADATA",
+    "resolve_ncore_label",
 ]

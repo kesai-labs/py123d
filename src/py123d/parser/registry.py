@@ -361,7 +361,11 @@ class WODMotionBoxDetectionLabel(BoxDetectionLabel):
 
 @register_box_detection_label
 class PhysicalAIAVBoxDetectionLabel(BoxDetectionLabel):
-    """Semantic labels for Physical AI AV dataset obstacle detections (auto-labeled)."""
+    """Semantic labels for Physical AI AV dataset obstacle detections (auto-labeled).
+
+    Matches the 12 dynamic object classes documented in the NVlabs physical_ai_av wiki:
+    https://github.com/NVlabs/physical_ai_av/wiki/5.-Machine-Labels-(Coming-Soon)
+    """
 
     AUTOMOBILE = 0
     PERSON = 1
@@ -373,6 +377,8 @@ class PhysicalAIAVBoxDetectionLabel(BoxDetectionLabel):
     STROLLER = 7
     TRAILER = 8
     ANIMAL = 9
+    TRAIN_OR_TRAM_CAR = 10
+    TROLLEY_BUS = 11
 
     def to_default(self) -> DefaultBoxDetectionLabel:
         """Inherited, see superclass."""
@@ -387,5 +393,7 @@ class PhysicalAIAVBoxDetectionLabel(BoxDetectionLabel):
             PhysicalAIAVBoxDetectionLabel.STROLLER: DefaultBoxDetectionLabel.PERSON,
             PhysicalAIAVBoxDetectionLabel.TRAILER: DefaultBoxDetectionLabel.VEHICLE,
             PhysicalAIAVBoxDetectionLabel.ANIMAL: DefaultBoxDetectionLabel.ANIMAL,
+            PhysicalAIAVBoxDetectionLabel.TRAIN_OR_TRAM_CAR: DefaultBoxDetectionLabel.TRAIN,
+            PhysicalAIAVBoxDetectionLabel.TROLLEY_BUS: DefaultBoxDetectionLabel.VEHICLE,
         }
         return mapping[self]

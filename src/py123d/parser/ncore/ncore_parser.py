@@ -80,18 +80,17 @@ from py123d.parser.ncore.utils.ncore_constants import (
     NCORE_BOX_DETECTIONS_SE3_METADATA,
     NCORE_CAMERA_ID_MAPPING,
     NCORE_EGO_STATE_SE3_METADATA,
-    NCORE_LABEL_CLASS_MAPPING,
     NCORE_LIDAR_SENSOR_ID,
     NCORE_RIG_FRAME_ID,
     NCORE_SPLITS,
     NCORE_WORLD_FRAME_ID,
+    resolve_ncore_label,
 )
 from py123d.parser.ncore.utils.ncore_helper import (
     cuboid_bbox_to_rig_se3_array,
     find_closest_index,
     ftheta_params_to_intrinsics,
 )
-from py123d.parser.registry import PhysicalAIAVBoxDetectionLabel
 
 if TYPE_CHECKING:
     from ncore.data import CuboidTrackObservation
@@ -679,7 +678,7 @@ def _build_box_detections_in_window(
             pose_se3_array=bbox_in_rig[BoundingBoxSE3Index.SE3].reshape(1, -1),
         )
 
-        label = NCORE_LABEL_CLASS_MAPPING.get(obs.class_id, PhysicalAIAVBoxDetectionLabel.OTHER_VEHICLE)
+        label = resolve_ncore_label(obs.class_id)
         box_detections.append(
             BoxDetectionSE3(
                 attributes=BoxDetectionAttributes(label=label, track_token=str(obs.track_id)),

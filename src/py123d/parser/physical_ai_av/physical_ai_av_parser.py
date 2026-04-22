@@ -39,8 +39,8 @@ from py123d.parser.physical_ai_av.utils.physical_ai_av_constants import (
     PHYSICAL_AI_AV_BOX_DETECTIONS_SE3_METADATA,
     PHYSICAL_AI_AV_CAMERA_ID_MAPPING,
     PHYSICAL_AI_AV_EGO_STATE_SE3_METADATA,
-    PHYSICAL_AI_AV_LABEL_CLASS_MAPPING,
     PHYSICAL_AI_AV_SPLITS,
+    resolve_physical_ai_av_label,
 )
 from py123d.parser.physical_ai_av.utils.physical_ai_av_helper import (
     find_closest_index,
@@ -605,8 +605,7 @@ def _build_box_detections(
             det_row["size_z"],
         ]
 
-        label_str = det_row["label_class"]
-        label = PHYSICAL_AI_AV_LABEL_CLASS_MAPPING.get(label_str, PhysicalAIAVBoxDetectionLabel.OTHER_VEHICLE)
+        label = resolve_physical_ai_av_label(det_row["label_class"])
         det_labels.append(label)
         det_tokens.append(str(det_row["track_id"]))
 

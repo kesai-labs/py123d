@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Set
 
 from py123d.datatypes import CameraID
@@ -5,6 +6,8 @@ from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry.pose import PoseSE3
 from py123d.parser.registry import PhysicalAIAVBoxDetectionLabel
+
+logger = logging.getLogger(__name__)
 
 PHYSICAL_AI_AV_SPLITS: Set[str] = {"physical-ai-av_train", "physical-ai-av_val", "physical-ai-av_test"}
 
@@ -46,15 +49,42 @@ PHYSICAL_AI_AV_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(
 )
 
 # Mapping from dataset label_class strings to PhysicalAIAVBoxDetectionLabel enum values.
+# Keys match the 12 dynamic object classes documented in the NVlabs physical_ai_av wiki
+# (https://github.com/NVlabs/physical_ai_av/wiki/5.-Machine-Labels-(Coming-Soon)),
+# stored lowercase; ``resolve_physical_ai_av_label`` normalizes input case.
 PHYSICAL_AI_AV_LABEL_CLASS_MAPPING: Dict[str, PhysicalAIAVBoxDetectionLabel] = {
     "automobile": PhysicalAIAVBoxDetectionLabel.AUTOMOBILE,
-    "person": PhysicalAIAVBoxDetectionLabel.PERSON,
-    "bus": PhysicalAIAVBoxDetectionLabel.BUS,
     "heavy_truck": PhysicalAIAVBoxDetectionLabel.HEAVY_TRUCK,
+    "bus": PhysicalAIAVBoxDetectionLabel.BUS,
+    "train_or_tram_car": PhysicalAIAVBoxDetectionLabel.TRAIN_OR_TRAM_CAR,
+    "trolley_bus": PhysicalAIAVBoxDetectionLabel.TROLLEY_BUS,
     "other_vehicle": PhysicalAIAVBoxDetectionLabel.OTHER_VEHICLE,
-    "protruding_object": PhysicalAIAVBoxDetectionLabel.PROTRUDING_OBJECT,
-    "rider": PhysicalAIAVBoxDetectionLabel.RIDER,
-    "stroller": PhysicalAIAVBoxDetectionLabel.STROLLER,
     "trailer": PhysicalAIAVBoxDetectionLabel.TRAILER,
+    "person": PhysicalAIAVBoxDetectionLabel.PERSON,
+    "stroller": PhysicalAIAVBoxDetectionLabel.STROLLER,
+    "rider": PhysicalAIAVBoxDetectionLabel.RIDER,
     "animal": PhysicalAIAVBoxDetectionLabel.ANIMAL,
+    "protruding_object": PhysicalAIAVBoxDetectionLabel.PROTRUDING_OBJECT,
 }
+
+_UNKNOWN_PHYSICAL_AI_AV_LABELS_WARNED: set = set()
+
+
+def resolve_physical_ai_av_label(label_str: str) -> PhysicalAIAVBoxDetectionLabel:
+    """Resolve a dataset ``label_class`` string to a :class:`PhysicalAIAVBoxDetectionLabel`.
+
+    Falls back to ``OTHER_VEHICLE`` for unknown labels and logs a warning the first
+    time each unrecognized label is seen so silent miscategorization is surfaced.
+    """
+    key = label_str.lower() if isinstance(label_str, str) else label_str
+    label = PHYSICAL_AI_AV_LABEL_CLASS_MAPPING.get(key)
+    if label is None:
+        if label_str not in _UNKNOWN_PHYSICAL_AI_AV_LABELS_WARNED:
+            _UNKNOWN_PHYSICAL_AI_AV_LABELS_WARNED.add(label_str)
+            logger.warning(
+                "Unknown Physical AI AV label_class %r; falling back to OTHER_VEHICLE. Expected one of: %s",
+                label_str,
+                sorted(PHYSICAL_AI_AV_LABEL_CLASS_MAPPING.keys()),
+            )
+        label = PhysicalAIAVBoxDetectionLabel.OTHER_VEHICLE
+    return label
