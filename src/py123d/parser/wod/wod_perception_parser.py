@@ -56,6 +56,7 @@ from py123d.parser.wod.utils.wod_constants import (
     WOD_PERCEPTION_LIDAR_IDS,
     WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER,
 )
+from py123d.parser.wod.wod_download import WODPerceptionDownloader
 from py123d.parser.wod.wod_map_parser import WODMapParser
 
 if TYPE_CHECKING:
@@ -123,50 +124,25 @@ class WODPerceptionParser(BaseDatasetParser):
         keep_polar_features: bool = False,
         add_map_pose_offset: bool = True,
         add_dummy_lane_groups: bool = False,
-        stream_enabled: bool = False,
-        stream_shard_indices: Optional[Dict[str, List[int]]] = None,
-        stream_num_shards: Optional[int] = None,
-        stream_random: bool = False,
-        stream_seed: int = 0,
-        stream_version: str = "1.4.3",
-        stream_credentials_file: Optional[Union[str, Path]] = None,
-        stream_temp_dir: Optional[Union[str, Path]] = None,
-        stream_max_workers: int = 4,
+        downloader: Optional[WODPerceptionDownloader] = None,
     ) -> None:
         """Initializes the :class:`WODPerceptionParser`.
 
         :param splits: List of splits to convert, e.g. ``["wod-perception_train", "wod-perception_val"]``.
         :param wod_perception_data_root: Path to the root directory of the WOD Perception dataset
-            (contains ``training/``, ``validation/``, ``testing/`` subdirectories). Required for
-            local mode; can be ``None`` when ``stream_enabled=True``.
+            (contains ``training/``, ``validation/``, ``testing/`` subdirectories). Required when
+            ``downloader`` is ``None``; ignored otherwise.
         :param zero_roll_pitch: Whether to zero out roll and pitch angles in the vehicle pose
         :param keep_polar_features: Whether to keep polar features in the Lidar point clouds
         :param add_map_pose_offset: Whether to add a pose offset to the map
         :param add_dummy_lane_groups: Whether to add dummy lane groups. \
             If True, creates a lane group for each lane since WOD does not provide lane groups.
-        :param stream_enabled: If ``True``, fetch segments from GCS into a managed temp directory
-            at parser construction time and delete the temp dir when the parser is garbage
-            collected. No local ``wod_perception_data_root`` is required in this mode.
-            Requires an authenticated GCS client (the perception bucket is not anonymously
-            readable, unlike the motion bucket).
-        :param stream_shard_indices: Per-split exact segment indices to fetch, e.g.
-            ``{"training": [0, 1, 2], "validation": [0]}``. Takes precedence over
-            ``stream_num_shards`` for any split it covers.
-        :param stream_num_shards: If set, download the first N segments (or N random segments
-            when ``stream_random=True``) per split. Applied to any split not covered by
-            ``stream_shard_indices``. NOTE: perception segments are ~1 GB each — even small
-            values imply multiple GB of download traffic.
-        :param stream_random: Randomize ``stream_num_shards`` selection.
-        :param stream_seed: RNG seed used when ``stream_random=True``.
-        :param stream_version: Perception version string (e.g. ``"1.4.3"``), mapped to
-            bucket ``waymo_open_dataset_v_<version>`` with dots normalized to
-            underscores. Use dot-notation so Hydra CLI overrides aren't reparsed as
-            numeric literals (``1_4_3`` is the int ``143`` in Python).
-        :param stream_credentials_file: Optional service-account JSON for GCS auth.
-            Defaults to Application Default Credentials.
-        :param stream_temp_dir: Parent directory for the managed temp folder. Defaults
-            to the system temp location.
-        :param stream_max_workers: Parallel GCS download threads.
+        :param downloader: Optional :class:`WODPerceptionDownloader` to run at construction time.
+            When provided, the downloader's :attr:`output_dir` is used as the data root
+            (a managed :class:`tempfile.TemporaryDirectory` is assigned if it is ``None``),
+            and ``wod_perception_data_root`` is ignored. The temp dir, if any, is cleaned
+            up when the parser is garbage collected. Requires an authenticated GCS client
+            (the perception bucket is not anonymously readable, unlike the motion bucket).
         """
         for split in splits:
             assert split in WOD_PERCEPTION_AVAILABLE_SPLITS, (
@@ -178,23 +154,13 @@ class WODPerceptionParser(BaseDatasetParser):
         self._keep_polar_features: bool = keep_polar_features
         self._add_map_pose_offset: bool = add_map_pose_offset
         self._add_dummy_lane_groups: bool = add_dummy_lane_groups
-        self._stream_enabled: bool = stream_enabled
         self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
 
-        if stream_enabled:
-            self._wod_perception_data_root = self._stream_shards(
-                shard_indices=stream_shard_indices,
-                num_shards=stream_num_shards,
-                sample_random=stream_random,
-                seed=stream_seed,
-                version=stream_version,
-                credentials_file=Path(stream_credentials_file) if stream_credentials_file is not None else None,
-                temp_dir_parent=Path(stream_temp_dir) if stream_temp_dir is not None else None,
-                max_workers=stream_max_workers,
-            )
+        if downloader is not None:
+            self._wod_perception_data_root = self._run_downloader(downloader)
         else:
             assert wod_perception_data_root is not None, (
-                "`wod_perception_data_root` must be provided when `stream_enabled=False`."
+                "`wod_perception_data_root` must be provided when `downloader` is None."
             )
             assert Path(wod_perception_data_root).exists(), (
                 f"The provided `wod_perception_data_root` path {wod_perception_data_root} does not exist."
@@ -203,71 +169,23 @@ class WODPerceptionParser(BaseDatasetParser):
 
         self._split_tf_record_pairs: List[Tuple[str, Path]] = self._collect_split_tf_record_pairs()
 
-    def _stream_shards(
-        self,
-        shard_indices: Optional[Dict[str, List[int]]],
-        num_shards: Optional[int],
-        sample_random: bool,
-        seed: int,
-        version: str,
-        credentials_file: Optional[Path],
-        temp_dir_parent: Optional[Path],
-        max_workers: int,
-    ) -> Path:
-        """Download selected perception segments from GCS into a managed temp directory.
+    def _run_downloader(self, downloader: WODPerceptionDownloader) -> Path:
+        """Resolve ``downloader.output_dir`` (assigning a temp dir if needed), run the
+        download, and return the populated root directory.
 
         The returned path mimics the on-disk layout a locally-downloaded perception dataset has
         (``<root>/{training,validation,testing}/segment-*.tfrecord``), so the rest of the parser
         is unchanged.
         """
-        from py123d.parser.wod.wod_download import (
-            download_shards,
-            list_perception_split_shards,
-            perception_spec,
-            resolve_gcs_client,
-            select_shards,
-        )
+        downloader._splits = list(self._splits)  # type: ignore[attr-defined]
 
-        if temp_dir_parent is not None:
-            temp_dir_parent.mkdir(parents=True, exist_ok=True)
-        self._stream_temp_dir_handle = tempfile.TemporaryDirectory(
-            prefix="py123d-wod-perception-",
-            dir=str(temp_dir_parent) if temp_dir_parent is not None else None,
-        )
-        temp_root = Path(self._stream_temp_dir_handle.name)
-        logger.info("WOD Perception streaming temp dir: %s", temp_root)
+        if downloader.output_dir is None:
+            self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-wod-perception-")
+            downloader.output_dir = Path(self._stream_temp_dir_handle.name)
+            logger.info("WOD Perception streaming temp dir: %s", downloader.output_dir)
 
-        client = resolve_gcs_client(credentials_file)
-
-        blob_names: List[str] = []
-        for split in self._splits:
-            gcs_split = WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER[split]
-            per_split_indices = shard_indices.get(gcs_split) if shard_indices else None
-            all_shards = list_perception_split_shards(client, split=gcs_split, version=version)
-            selected = select_shards(
-                all_shards,
-                shard_indices=per_split_indices,
-                num_shards=num_shards if per_split_indices is None else None,
-                sample_random=sample_random,
-                seed=seed,
-            )
-            logger.info(
-                "WOD Perception streaming: selected %d / %d segments for split %s",
-                len(selected),
-                len(all_shards),
-                gcs_split,
-            )
-            blob_names.extend(selected)
-
-        download_shards(
-            spec=perception_spec(version),
-            client=client,
-            blob_names=blob_names,
-            output_dir=temp_root,
-            max_workers=max_workers,
-            overwrite=False,
-        )
-        return temp_root
+        downloader.download()
+        return downloader.output_dir
 
     def __del__(self) -> None:
         """Clean up the streaming temp directory when the parser is garbage collected."""

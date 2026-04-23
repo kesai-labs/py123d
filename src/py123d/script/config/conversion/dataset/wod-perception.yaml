@@ -9,30 +9,9 @@ parser:
   add_map_pose_offset: true
   add_dummy_lane_groups: false
 
-  # Streaming mode — download selected perception segments from Google Cloud Storage into
-  # a temp directory at parser construction time. The temp dir is cleaned up when the parser
-  # is garbage collected. Requires `pip install py123d[waymo]`.
-  #
-  # NOTE: unlike the motion bucket, the perception bucket is NOT anonymously readable —
-  # an authenticated GCS client is required (`gcloud auth application-default login`
-  # or `stream_credentials_file: path/to/service-account.json`).
-  #
-  # WARNING: Perception segments are ~1 GB each. A small stream_num_shards value already
-  # implies multiple GB of download traffic.
-  #
-  # When `stream_enabled: true`:
-  #   - `wod_perception_data_root` is ignored
-  #   - segments land under a tempfile.TemporaryDirectory mimicking the local layout
-  #   - `stream_shard_indices` (per-split) takes precedence over `stream_num_shards`
-  stream_enabled: false
-  stream_shard_indices: null     # e.g. {training: [0, 1, 2], validation: [0]}
-  stream_num_shards: null        # first N per split, or N random if stream_random=true
-  stream_random: false
-  stream_seed: 0
-  stream_version: "1.4.3"        # use dots; Hydra parses "1_4_3" as the int 143
-  stream_credentials_file: null  # service-account JSON; null → Application Default Credentials
-  stream_temp_dir: null          # null → system temp
-  stream_max_workers: 4
+  # To stream perception segments from GCS instead of reading from disk, use the
+  # `dataset=wod-perception-stream` config variant, which attaches a WODPerceptionDownloader.
+  downloader: null
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig

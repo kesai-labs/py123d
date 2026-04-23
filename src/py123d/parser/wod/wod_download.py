@@ -1,107 +1,13 @@
-"""Download utilities for the Waymo Open Dataset — Motion (WOMD) and Perception.
-
-This module provides the ``py123d-wod-download`` CLI (with ``motion`` and ``perception``
-subcommands) plus reusable library functions that power the ``stream_enabled=True`` mode
-of :class:`~py123d.parser.wod.wod_motion_parser.WODMotionParser` and
-:class:`~py123d.parser.wod.wod_perception_parser.WODPerceptionParser`.
-
-Auth (shared)
--------------
-Both CLIs use the same fallback chain in :func:`resolve_gcs_client`:
-
-1. Explicit service-account JSON via ``--credentials-file``.
-2. Application Default Credentials (``gcloud auth application-default login`` or
-   ``$GOOGLE_APPLICATION_CREDENTIALS``).
-3. Anonymous client (works for the motion bucket; perception requires auth — see below).
-
-Motion bucket layout (default version ``1.3.0``)
-------------------------------------------------
-``gs://waymo_open_dataset_motion_v_1_3_0/`` is publicly readable once the license
-has been accepted on the Waymo Open Dataset site::
-
-    gs://waymo_open_dataset_motion_v_1_3_0/uncompressed/
-        scenario/
-            training/training.tfrecord-00000-of-01000 ...
-            validation/validation.tfrecord-00000-of-00150 ...
-            testing/testing.tfrecord-00000-of-00150 ...
-            training_20s/
-            validation_interactive/
-            testing_interactive/
-        lidar/
-            training/*.tfrecord-*
-            validation/*.tfrecord-*
-            testing/*.tfrecord-*
-
-GCS scenario folder ↔ 123D split name mapping (see ``WOD_MOTION_SPLIT_TO_GCS_FOLDER``):
-
-    training                ↔ wod-motion_train
-    validation              ↔ wod-motion_val
-    testing                 ↔ wod-motion_test
-    training_20s            ↔ wod-motion-20s_train
-    validation_interactive  ↔ wod-motion-interactive_val
-    testing_interactive     ↔ wod-motion-interactive_test
-
-Asymmetric availability: ``training_20s`` has no val/test counterpart, and the
-``*_interactive`` folders have no training counterpart.
-
-Perception bucket layout (default version ``1.4.3``)
-----------------------------------------------------
-``gs://waymo_open_dataset_v_1_4_3/`` requires an authenticated client (anonymous
-access returns 403). Each segment is a single, non-sharded tfrecord::
-
-    gs://waymo_open_dataset_v_1_4_3/
-        individual_files/
-            training/segment-<id>_with_camera_labels.tfrecord
-            validation/segment-<id>_with_camera_labels.tfrecord
-            testing/segment-<id>_with_camera_labels.tfrecord
-
-GCS folder ↔ 123D split name mapping (see ``WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER``):
-
-    training    ↔ wod-perception_train
-    validation  ↔ wod-perception_val
-    testing     ↔ wod-perception_test
-
-The bucket also contains ``archived_files/`` (tar archives) and
-``individual_files/domain_adaptation/`` (a smaller DA subset) — neither is exposed here.
-
-On-disk output layouts under ``--output-dir``
----------------------------------------------
-Motion::
-
-    <output_dir>/
-        training/*.tfrecord-*
-        ...
-        lidar/
-            training/*.tfrecord-*
-            ...
-
-Perception::
-
-    <output_dir>/
-        training/segment-*.tfrecord
-        validation/segment-*.tfrecord
-        testing/segment-*.tfrecord
-
-These match what ``WODMotionParser`` and ``WODPerceptionParser`` expect in local
-(non-streaming) mode.
-
-History
--------
-This module was renamed from ``motion_download.py``. The old CLI name
-``py123d-womd-download`` was replaced by ``py123d-wod-download {motion|perception}``.
-"""
-
 from __future__ import annotations
 
-import argparse
 import concurrent.futures
 import logging
-import os
-import random
-import sys
+import random as _random_mod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tuple, Union
+
+from py123d.parser.base_downloader import BaseDownloader
 
 if TYPE_CHECKING:
     from google.cloud import storage
@@ -128,7 +34,7 @@ class _DatasetSpec:
 
 def _require_gcs():
     """Lazy import — ``google-cloud-storage`` is optional until this CLI or the
-    ``stream_enabled=True`` parser mode is used."""
+    ``downloader`` parser mode is used."""
     try:
         from google.cloud import storage
     except ImportError as exc:
@@ -219,7 +125,7 @@ def select_shards(
         return list(shard_blob_names)
 
     if sample_random:
-        rng = random.Random(seed)
+        rng = _random_mod.Random(seed)
         return sorted(rng.sample(list(shard_blob_names), num_shards))
     return list(shard_blob_names[:num_shards])
 
@@ -371,7 +277,7 @@ def list_motion_split_shards(
 
     :param client: GCS client.
     :param section: ``"scenario"`` or ``"lidar"``.
-    :param split: Split name (e.g. ``"training"``).
+    :param split: GCS folder name (e.g. ``"training"``).
     :param version: WOMD version string (accepts ``"1.3.0"`` or ``"1_3_0"``).
     :return: Sorted list of blob names (keys within the bucket).
     """
@@ -411,6 +317,14 @@ def download_motion_single_shard(
     blob_name = all_shards[shard_idx]
     dest = _motion_destination_for_blob(blob_name, Path(output_dir))
     return _download_one_blob(client, motion_bucket_name(version), blob_name, dest, overwrite=overwrite)
+
+
+def _motion_split_allowed_for_section(section: str, gcs_split: str) -> bool:
+    if section == "scenario":
+        return gcs_split in MOTION_SCENARIO_SPLITS
+    if section == "lidar":
+        return gcs_split in MOTION_LIDAR_SPLITS
+    return False
 
 
 # ======================================================================================
@@ -468,7 +382,7 @@ def list_perception_split_shards(
 
     :param client: GCS client (must be authenticated — the perception bucket is not
         anonymously readable).
-    :param split: Split name (``"training"``, ``"validation"``, or ``"testing"``).
+    :param split: GCS folder name (``"training"``, ``"validation"``, or ``"testing"``).
     :param version: Perception version string (accepts ``"1.4.3"`` or ``"1_4_3"``).
     :return: Sorted list of blob names (keys within the bucket).
     """
@@ -489,388 +403,274 @@ def perception_spec(version: str = WOD_PERCEPTION_DEFAULT_VERSION) -> _DatasetSp
 
 
 # ======================================================================================
-# CLI
+# Downloaders (Hydra-instantiable, shared by py123d-download and streaming parsers)
 # ======================================================================================
 
 
-def _add_common_selection_args(sub_parser: argparse.ArgumentParser) -> None:
-    """Add selection + download knobs shared by every subcommand."""
-    sub_parser.add_argument(
-        "--credentials-file",
-        type=str,
-        default=None,
-        help=(
-            "Optional service-account JSON for GCS auth. If omitted, Application Default "
-            "Credentials are used (gcloud auth application-default login, or "
-            "$GOOGLE_APPLICATION_CREDENTIALS). If neither is available, an anonymous "
-            "client is used (works for motion only; perception requires authentication)."
-        ),
-    )
+class WODMotionDownloader(BaseDownloader):
+    """Downloader for the Waymo Open Motion Dataset (WOMD).
 
-    selection = sub_parser.add_argument_group("shard selection (per split)")
-    selection.add_argument(
-        "--num-shards",
-        type=int,
-        default=None,
-        help="Download only N shards per split (first N, or N random if --random).",
-    )
-    selection.add_argument(
-        "--shard-indices",
-        nargs="+",
-        type=int,
-        default=None,
-        help="Exact shard indices (into the sorted shard list) to download; applied to every split.",
-    )
-    selection.add_argument(
-        "--random",
-        dest="sample_random",
-        action="store_true",
-        help="Sample --num-shards randomly instead of taking the first N.",
-    )
-    selection.add_argument(
-        "--seed",
-        type=int,
-        default=0,
-        help="Random seed used when --random is set.",
-    )
+    Fetches selected scenario and/or lidar shards from the anonymously-readable
+    ``waymo_open_dataset_motion_v_*`` GCS bucket into :attr:`output_dir`, preserving
+    the on-disk layout :class:`~py123d.parser.wod.wod_motion_parser.WODMotionParser`
+    expects in local mode.
+    """
 
-    misc = sub_parser.add_argument_group("misc")
-    misc.add_argument(
-        "--list",
-        dest="list_only",
-        action="store_true",
-        help="List the shards that would be downloaded and exit.",
-    )
-    misc.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print the plan (bucket, prefixes, counts) without downloading.",
-    )
-    misc.add_argument(
-        "--max-workers",
-        type=int,
-        default=8,
-        help="Parallel download threads.",
-    )
-    misc.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Re-download shards even if the destination file already exists.",
-    )
-    misc.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Enable DEBUG-level logging.",
-    )
+    def __init__(
+        self,
+        output_dir: Optional[Union[str, Path]] = None,
+        splits: Optional[Sequence[str]] = None,
+        version: str = WOMD_DEFAULT_VERSION,
+        section: str = "scenario",
+        num_shards: Optional[int] = None,
+        shard_indices: Optional[Dict[str, List[int]]] = None,
+        sample_random: bool = False,
+        seed: int = 0,
+        credentials_file: Optional[Union[str, Path]] = None,
+        max_workers: int = 8,
+        overwrite: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """Initialize the WOMD downloader.
+
+        :param output_dir: Destination directory. When ``None`` the caller (a streaming
+            parser) must assign one before invoking :meth:`download`.
+        :param splits: 123D WOMD split names to fetch, e.g. ``["wod-motion_train",
+            "wod-motion_val"]``. Defaults to all splits registered in
+            :data:`WOD_MOTION_SPLIT_TO_GCS_FOLDER`. The 20s and interactive variants
+            are only available for a subset of splits — see the module docstring.
+        :param version: WOMD version string (e.g. ``"1.3.0"``), mapped to bucket
+            ``waymo_open_dataset_motion_v_<version>`` with dots normalized to
+            underscores. Use dot-notation so Hydra CLI overrides aren't reparsed as
+            numeric literals (``1_3_0`` is the int ``130`` in Python).
+        :param section: Which WOMD section to fetch. ``"scenario"`` = motion
+            tfrecords (the default and only section parsers currently consume).
+            ``"lidar"`` = the separate first-1s lidar archive. ``"both"`` = both.
+        :param num_shards: If set, download the first N shards per split (or N random
+            shards when ``sample_random=True``). Applied to any split not covered by
+            ``shard_indices``.
+        :param shard_indices: Per-split exact shard indices, keyed by 123D split name,
+            e.g. ``{"wod-motion_train": [0, 1, 2], "wod-motion_val": [0]}``. Takes
+            precedence over ``num_shards`` for any split it covers.
+        :param sample_random: Randomize ``num_shards`` selection.
+        :param seed: RNG seed used when ``sample_random=True``.
+        :param credentials_file: Optional service-account JSON for GCS auth. Defaults
+            to Application Default Credentials, falling back to an anonymous client.
+        :param max_workers: Parallel GCS download threads.
+        :param overwrite: If ``False``, skip shards whose local file already exists.
+        :param dry_run: If ``True``, log the plan without downloading.
+        """
+        from py123d.parser.wod.utils.wod_constants import (
+            WOD_MOTION_AVAILABLE_SPLITS,
+            WOD_MOTION_SPLIT_TO_GCS_FOLDER,
+        )
+
+        resolved_splits: List[str] = list(splits) if splits else list(WOD_MOTION_AVAILABLE_SPLITS)
+        for split in resolved_splits:
+            assert split in WOD_MOTION_AVAILABLE_SPLITS, (
+                f"Split {split!r} is not available. Available splits: {WOD_MOTION_AVAILABLE_SPLITS}"
+            )
+        assert section in MOTION_SECTION_CHOICES, f"section {section!r} must be one of {MOTION_SECTION_CHOICES}"
+
+        self.output_dir: Optional[Path] = Path(output_dir) if output_dir is not None else None
+        self.dry_run: bool = dry_run
+        self._splits: List[str] = resolved_splits
+        self._version: str = version
+        self._section: str = section
+        self._num_shards: Optional[int] = num_shards
+        self._shard_indices: Optional[Dict[str, List[int]]] = (
+            {k: list(v) for k, v in shard_indices.items()} if shard_indices else None
+        )
+        self._sample_random: bool = sample_random
+        self._seed: int = seed
+        self._credentials_file: Optional[Path] = Path(credentials_file) if credentials_file is not None else None
+        self._max_workers: int = max_workers
+        self._overwrite: bool = overwrite
+        self._split_to_gcs: Dict[str, str] = dict(WOD_MOTION_SPLIT_TO_GCS_FOLDER)
+
+    def download(self) -> None:
+        """Inherited, see superclass."""
+        assert self.output_dir is not None, "WODMotionDownloader.output_dir must be set before download()."
+        sections = ["scenario", "lidar"] if self._section == "both" else [self._section]
+        client = resolve_gcs_client(self._credentials_file)
+        bucket = motion_bucket_name(self._version)
+
+        blob_names: List[str] = []
+        for section in sections:
+            for split in self._splits:
+                gcs_split = self._split_to_gcs[split]
+                if not _motion_split_allowed_for_section(section, gcs_split):
+                    logger.debug("Skip split %s (%s) — not available in section %s.", split, gcs_split, section)
+                    continue
+                per_split_indices = self._shard_indices.get(split) if self._shard_indices else None
+                all_shards = list_motion_split_shards(client, section=section, split=gcs_split, version=self._version)
+                selected = select_shards(
+                    all_shards,
+                    shard_indices=per_split_indices,
+                    num_shards=self._num_shards if per_split_indices is None else None,
+                    sample_random=self._sample_random,
+                    seed=self._seed,
+                )
+                logger.info(
+                    "Selected %d / %d shards for section=%s split=%s",
+                    len(selected),
+                    len(all_shards),
+                    section,
+                    split,
+                )
+                blob_names.extend(selected)
+
+        logger.info("WOMD target directory: %s", self.output_dir)
+        logger.info("WOMD bucket:           gs://%s/", bucket)
+        logger.info("WOMD shards selected:  %d", len(blob_names))
+
+        if self.dry_run:
+            logger.info("dry_run=True — not downloading. Plan covers %d blob(s).", len(blob_names))
+            for blob_name in blob_names[: min(10, len(blob_names))]:
+                logger.info("  gs://%s/%s", bucket, blob_name)
+            return
+
+        if not blob_names:
+            logger.warning("No shards selected — nothing to download.")
+            return
+
+        download_shards(
+            spec=motion_spec(self._version),
+            client=client,
+            blob_names=blob_names,
+            output_dir=self.output_dir,
+            max_workers=self._max_workers,
+            overwrite=self._overwrite,
+        )
+        logger.info("WOMD download complete: %s", self.output_dir)
 
 
-# ----- Motion subcommand ---------------------------------------------------------------
+class WODPerceptionDownloader(BaseDownloader):
+    """Downloader for the Waymo Open Dataset Perception subset.
 
+    Fetches selected segments from the authenticated-only ``waymo_open_dataset_v_*``
+    GCS bucket into :attr:`output_dir`, preserving the on-disk layout
+    :class:`~py123d.parser.wod.wod_perception_parser.WODPerceptionParser` expects in
+    local mode.
 
-def _resolve_motion_output_dir(cli_output: Optional[str]) -> Path:
-    """Falls back to ``$WOD_MOTION_DATA_ROOT`` then ``./data/wod_motion``."""
-    if cli_output:
-        resolved = Path(cli_output)
-    elif os.environ.get("WOD_MOTION_DATA_ROOT"):
-        resolved = Path(os.environ["WOD_MOTION_DATA_ROOT"])
-    else:
-        resolved = Path.cwd() / "data" / "wod_motion"
-    return resolved.expanduser().resolve()
+    .. warning::
+       Perception segments are ~1 GB each — even small values of ``num_shards``
+       imply multiple GB of download traffic. The bucket is **not** anonymously
+       readable; supply ``credentials_file`` or run ``gcloud auth
+       application-default login`` first.
+    """
 
+    def __init__(
+        self,
+        output_dir: Optional[Union[str, Path]] = None,
+        splits: Optional[Sequence[str]] = None,
+        version: str = WOD_PERCEPTION_DEFAULT_VERSION,
+        num_shards: Optional[int] = None,
+        shard_indices: Optional[Dict[str, List[int]]] = None,
+        sample_random: bool = False,
+        seed: int = 0,
+        credentials_file: Optional[Union[str, Path]] = None,
+        max_workers: int = 8,
+        overwrite: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """Initialize the WOD Perception downloader.
 
-def _resolve_motion_sections(section: str) -> List[str]:
-    if section == "both":
-        return ["scenario", "lidar"]
-    return [section]
+        :param output_dir: Destination directory. When ``None`` the caller (a streaming
+            parser) must assign one before invoking :meth:`download`.
+        :param splits: 123D WOD Perception split names to fetch, e.g.
+            ``["wod-perception_train", "wod-perception_val"]``. Defaults to all three
+            registered splits.
+        :param version: WOD Perception version string (e.g. ``"1.4.3"``), mapped to
+            bucket ``waymo_open_dataset_v_<version>`` with dots normalized to
+            underscores. Only ``"1.4.3"`` is currently supported.
+        :param num_shards: If set, download the first N segments per split (or N
+            random segments when ``sample_random=True``).
+        :param shard_indices: Per-split exact segment indices, keyed by 123D split
+            name, e.g. ``{"wod-perception_val": [0, 1, 2]}``.
+        :param sample_random: Randomize ``num_shards`` selection.
+        :param seed: RNG seed used when ``sample_random=True``.
+        :param credentials_file: Optional service-account JSON for GCS auth. Required
+            in practice since the perception bucket is not anonymously readable.
+        :param max_workers: Parallel GCS download threads.
+        :param overwrite: If ``False``, skip segments whose local file already exists.
+        :param dry_run: If ``True``, log the plan without downloading.
+        """
+        from py123d.parser.wod.utils.wod_constants import (
+            WOD_PERCEPTION_AVAILABLE_SPLITS,
+            WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER,
+        )
 
+        resolved_splits: List[str] = list(splits) if splits else list(WOD_PERCEPTION_AVAILABLE_SPLITS)
+        for split in resolved_splits:
+            assert split in WOD_PERCEPTION_AVAILABLE_SPLITS, (
+                f"Split {split!r} is not available. Available splits: {WOD_PERCEPTION_AVAILABLE_SPLITS}"
+            )
+        assert version in WOD_PERCEPTION_SUPPORTED_VERSIONS, (
+            f"version {version!r} not supported; expected one of {WOD_PERCEPTION_SUPPORTED_VERSIONS}"
+        )
 
-def _motion_split_allowed_for_section(section: str, split: str) -> bool:
-    if section == "scenario":
-        return split in MOTION_SCENARIO_SPLITS
-    if section == "lidar":
-        return split in MOTION_LIDAR_SPLITS
-    return False
+        self.output_dir: Optional[Path] = Path(output_dir) if output_dir is not None else None
+        self.dry_run: bool = dry_run
+        self._splits: List[str] = resolved_splits
+        self._version: str = version
+        self._num_shards: Optional[int] = num_shards
+        self._shard_indices: Optional[Dict[str, List[int]]] = (
+            {k: list(v) for k, v in shard_indices.items()} if shard_indices else None
+        )
+        self._sample_random: bool = sample_random
+        self._seed: int = seed
+        self._credentials_file: Optional[Path] = Path(credentials_file) if credentials_file is not None else None
+        self._max_workers: int = max_workers
+        self._overwrite: bool = overwrite
+        self._split_to_gcs: Dict[str, str] = dict(WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER)
 
+    def download(self) -> None:
+        """Inherited, see superclass."""
+        assert self.output_dir is not None, "WODPerceptionDownloader.output_dir must be set before download()."
+        client = resolve_gcs_client(self._credentials_file)
+        bucket = perception_bucket_name(self._version)
 
-def _add_motion_subparser(subparsers: argparse._SubParsersAction) -> None:
-    sp = subparsers.add_parser(
-        "motion",
-        help="Download Waymo Open Motion Dataset (WOMD) shards.",
-        description="Download the Waymo Open Motion Dataset (or a subset of shards) from Google Cloud Storage.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    sp.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
-        help="Destination directory. Falls back to $WOD_MOTION_DATA_ROOT, then ./data/wod_motion.",
-    )
-    sp.add_argument(
-        "--version",
-        type=str,
-        default=WOMD_DEFAULT_VERSION,
-        help=f"WOMD version string, mapped to bucket {WOMD_BUCKET_PREFIX}<version>.",
-    )
-    sp.add_argument(
-        "--section",
-        choices=MOTION_SECTION_CHOICES,
-        default="scenario",
-        help=(
-            "Which part of WOMD to download. 'scenario' = motion tfrecords (the usual dataset). "
-            "'lidar' = the separate first-1s lidar archive. 'both' = pull both."
-        ),
-    )
-    sp.add_argument(
-        "--splits",
-        nargs="+",
-        choices=sorted(set(MOTION_SCENARIO_SPLITS) | set(MOTION_LIDAR_SPLITS)),
-        default=["training", "validation", "testing"],
-        help="Which splits to download. Lidar section only has training/validation/testing.",
-    )
-    _add_common_selection_args(sp)
-    sp.set_defaults(run=_run_motion)
-
-
-def _plan_motion_downloads(
-    client: "storage.Client",
-    sections: Sequence[str],
-    splits: Sequence[str],
-    version: str,
-    shard_indices: Optional[Sequence[int]],
-    num_shards: Optional[int],
-    sample_random: bool,
-    seed: int,
-) -> List[str]:
-    """Enumerate the motion blob names that would be downloaded given CLI selectors."""
-    plan: List[str] = []
-    for section in sections:
-        for split in splits:
-            if not _motion_split_allowed_for_section(section, split):
-                logger.debug("Skip %s split %s — not available in this section.", section, split)
-                continue
-            all_shards = list_motion_split_shards(client, section=section, split=split, version=version)
+        blob_names: List[str] = []
+        for split in self._splits:
+            gcs_split = self._split_to_gcs[split]
+            per_split_indices = self._shard_indices.get(split) if self._shard_indices else None
+            all_shards = list_perception_split_shards(client, split=gcs_split, version=self._version)
             selected = select_shards(
                 all_shards,
-                shard_indices=shard_indices,
-                num_shards=num_shards,
-                sample_random=sample_random,
-                seed=seed,
+                shard_indices=per_split_indices,
+                num_shards=self._num_shards if per_split_indices is None else None,
+                sample_random=self._sample_random,
+                seed=self._seed,
             )
-            logger.info("Selected %d / %d shards from %s/%s", len(selected), len(all_shards), section, split)
-            plan.extend(selected)
-    return plan
+            logger.info(
+                "Selected %d / %d segments for split=%s",
+                len(selected),
+                len(all_shards),
+                split,
+            )
+            blob_names.extend(selected)
 
+        logger.info("WOD Perception target directory: %s", self.output_dir)
+        logger.info("WOD Perception bucket:           gs://%s/", bucket)
+        logger.info("WOD Perception segments:         %d", len(blob_names))
 
-def _run_motion(args: argparse.Namespace) -> int:
-    output_dir = _resolve_motion_output_dir(args.output_dir)
-    bucket = motion_bucket_name(args.version)
-    sections = _resolve_motion_sections(args.section)
+        if self.dry_run:
+            logger.info("dry_run=True — not downloading. Plan covers %d segment(s).", len(blob_names))
+            for blob_name in blob_names[: min(10, len(blob_names))]:
+                logger.info("  gs://%s/%s", bucket, blob_name)
+            return
 
-    credentials_file = Path(args.credentials_file) if args.credentials_file else None
-    client = resolve_gcs_client(credentials_file)
+        if not blob_names:
+            logger.warning("No segments selected — nothing to download.")
+            return
 
-    plan = _plan_motion_downloads(
-        client=client,
-        sections=sections,
-        splits=args.splits,
-        version=args.version,
-        shard_indices=args.shard_indices,
-        num_shards=args.num_shards,
-        sample_random=args.sample_random,
-        seed=args.seed,
-    )
-
-    logger.info("Target directory: %s", output_dir)
-    logger.info("Bucket:           gs://%s/", bucket)
-    logger.info("Section(s):       %s", ", ".join(sections))
-    logger.info("Splits:           %s", ", ".join(args.splits))
-    logger.info("Shards selected:  %d", len(plan))
-    for blob_name in plan[: min(10, len(plan))]:
-        logger.debug("  gs://%s/%s", bucket, blob_name)
-
-    if args.list_only:
-        for blob_name in plan:
-            sys.stdout.write(f"gs://{bucket}/{blob_name}\n")
-        return 0
-
-    if args.dry_run:
-        logger.info("--dry-run set, not downloading.")
-        return 0
-
-    if not plan:
-        logger.error("No shards selected — nothing to download.")
-        return 1
-
-    download_shards(
-        spec=motion_spec(args.version),
-        client=client,
-        blob_names=plan,
-        output_dir=output_dir,
-        max_workers=args.max_workers,
-        overwrite=args.overwrite,
-    )
-    logger.info("Done. Data written to %s", output_dir)
-    return 0
-
-
-# ----- Perception subcommand -----------------------------------------------------------
-
-
-def _resolve_perception_output_dir(cli_output: Optional[str]) -> Path:
-    """Falls back to ``$WOD_PERCEPTION_DATA_ROOT`` then ``./data/wod_perception``."""
-    if cli_output:
-        resolved = Path(cli_output)
-    elif os.environ.get("WOD_PERCEPTION_DATA_ROOT"):
-        resolved = Path(os.environ["WOD_PERCEPTION_DATA_ROOT"])
-    else:
-        resolved = Path.cwd() / "data" / "wod_perception"
-    return resolved.expanduser().resolve()
-
-
-def _add_perception_subparser(subparsers: argparse._SubParsersAction) -> None:
-    sp = subparsers.add_parser(
-        "perception",
-        help="Download Waymo Open Dataset Perception segments.",
-        description=(
-            "Download the Waymo Open Perception Dataset (or a subset of segments) from "
-            "Google Cloud Storage. Note: each perception segment is roughly 1 GB — small "
-            "values of --num-shards already imply multiple GB of download traffic. "
-            "Requires an authenticated GCS client (the bucket is not anonymously readable)."
-        ),
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    sp.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
-        help="Destination directory. Falls back to $WOD_PERCEPTION_DATA_ROOT, then ./data/wod_perception.",
-    )
-    sp.add_argument(
-        "--version",
-        type=str,
-        choices=list(WOD_PERCEPTION_SUPPORTED_VERSIONS),
-        default=WOD_PERCEPTION_DEFAULT_VERSION,
-        help=f"Perception version, mapped to bucket {WOD_PERCEPTION_BUCKET_PREFIX}<version>.",
-    )
-    sp.add_argument(
-        "--splits",
-        nargs="+",
-        choices=list(PERCEPTION_SPLITS),
-        default=list(PERCEPTION_SPLITS),
-        help="Which splits to download.",
-    )
-    _add_common_selection_args(sp)
-    sp.set_defaults(run=_run_perception)
-
-
-def _plan_perception_downloads(
-    client: "storage.Client",
-    splits: Sequence[str],
-    version: str,
-    shard_indices: Optional[Sequence[int]],
-    num_shards: Optional[int],
-    sample_random: bool,
-    seed: int,
-) -> List[str]:
-    """Enumerate the perception blob names that would be downloaded given CLI selectors."""
-    plan: List[str] = []
-    for split in splits:
-        all_shards = list_perception_split_shards(client, split=split, version=version)
-        selected = select_shards(
-            all_shards,
-            shard_indices=shard_indices,
-            num_shards=num_shards,
-            sample_random=sample_random,
-            seed=seed,
+        download_shards(
+            spec=perception_spec(self._version),
+            client=client,
+            blob_names=blob_names,
+            output_dir=self.output_dir,
+            max_workers=self._max_workers,
+            overwrite=self._overwrite,
         )
-        logger.info("Selected %d / %d segments from %s", len(selected), len(all_shards), split)
-        plan.extend(selected)
-    return plan
-
-
-def _run_perception(args: argparse.Namespace) -> int:
-    output_dir = _resolve_perception_output_dir(args.output_dir)
-    bucket = perception_bucket_name(args.version)
-
-    credentials_file = Path(args.credentials_file) if args.credentials_file else None
-    client = resolve_gcs_client(credentials_file)
-
-    plan = _plan_perception_downloads(
-        client=client,
-        splits=args.splits,
-        version=args.version,
-        shard_indices=args.shard_indices,
-        num_shards=args.num_shards,
-        sample_random=args.sample_random,
-        seed=args.seed,
-    )
-
-    logger.info("Target directory: %s", output_dir)
-    logger.info("Bucket:           gs://%s/", bucket)
-    logger.info("Splits:           %s", ", ".join(args.splits))
-    logger.info("Segments selected: %d", len(plan))
-    for blob_name in plan[: min(10, len(plan))]:
-        logger.debug("  gs://%s/%s", bucket, blob_name)
-
-    if args.list_only:
-        for blob_name in plan:
-            sys.stdout.write(f"gs://{bucket}/{blob_name}\n")
-        return 0
-
-    if args.dry_run:
-        logger.info("--dry-run set, not downloading.")
-        return 0
-
-    if not plan:
-        logger.error("No segments selected — nothing to download.")
-        return 1
-
-    download_shards(
-        spec=perception_spec(args.version),
-        client=client,
-        blob_names=plan,
-        output_dir=output_dir,
-        max_workers=args.max_workers,
-        overwrite=args.overwrite,
-    )
-    logger.info("Done. Data written to %s", output_dir)
-    return 0
-
-
-# ----- Top-level dispatcher ------------------------------------------------------------
-
-
-def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="py123d-wod-download",
-        description="Download Waymo Open Dataset (motion or perception) shards from Google Cloud Storage.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    subparsers = parser.add_subparsers(dest="dataset", required=True, metavar="{motion,perception}")
-    _add_motion_subparser(subparsers)
-    _add_perception_subparser(subparsers)
-
-    args = parser.parse_args(argv)
-
-    if args.shard_indices is not None and args.num_shards is not None:
-        parser.error("--shard-indices and --num-shards are mutually exclusive")
-    if args.num_shards is not None and args.num_shards <= 0:
-        parser.error("--num-shards must be a positive integer")
-    if args.sample_random and args.num_shards is None:
-        parser.error("--random requires --num-shards")
-
-    return args
-
-
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    args = _parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
-    return args.run(args)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        logger.info("WOD Perception download complete: %s", self.output_dir)

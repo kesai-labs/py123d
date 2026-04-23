@@ -1,4 +1,9 @@
-"""Tests for Ray distributed executor backend."""
+"""Tests for Ray distributed executor backend.
+
+All tests in this module are marked `slow` and are deselected by default.
+A minimal Ray smoke test lives in `test_ray_smoke.py`. Run the full suite
+with `pytest -m slow` or `pytest -m ""`.
+"""
 
 from concurrent.futures import Future
 
@@ -8,6 +13,8 @@ ray = pytest.importorskip("ray")
 
 from py123d.common.execution.executor import ExecutorResources, Task
 from py123d.common.execution.ray_executor import RayExecutor, initialize_ray
+
+pytestmark = pytest.mark.slow
 
 # ---------------------------------------------------------------------------
 # Top-level pickleable functions (required for Ray serialization)

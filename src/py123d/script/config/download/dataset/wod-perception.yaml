@@ -1,0 +1,27 @@
+downloader:
+  _target_: py123d.parser.wod.wod_download.WODPerceptionDownloader
+  _convert_: 'all'
+
+  # Destination. Defaults to $WOD_PERCEPTION_DATA_ROOT (set via default_dataset_paths.yaml).
+  # Override to null to let a streaming parser manage a temp directory.
+  output_dir: ${dataset_paths.wod_perception_data_root}
+
+  # 123D split names — one or more of {wod-perception_train, wod-perception_val, wod-perception_test}.
+  splits: [wod-perception_train, wod-perception_val, wod-perception_test]
+
+  version: "1.4.3"          # use dots; Hydra parses "1_4_3" as the int 143
+
+  # WARNING: Perception segments are ~1 GB each — even small values of num_shards imply
+  # multiple GB of download traffic.
+  num_shards: null          # first N per split, or N random if sample_random=true
+  shard_indices: null       # e.g. {wod-perception_val: [0, 1, 2]}
+  sample_random: false
+  seed: 0
+
+  # NOTE: unlike the motion bucket, the perception bucket is NOT anonymously readable —
+  # an authenticated GCS client is required (`gcloud auth application-default login`
+  # or `credentials_file: path/to/service-account.json`).
+  credentials_file: null    # service-account JSON; null → Application Default Credentials
+  max_workers: 8
+  overwrite: false
+  dry_run: false

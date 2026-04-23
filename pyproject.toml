@@ -17,7 +17,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 name = "py123d"
-version = "0.2.1"
+version = "0.3.0"
 authors = [{ name = "Daniel Dauner", email = "daniel.dauner@gmail.com" }]
 description = "123D: A Unified Library for Multi-Modal Autonomous Driving Data."
 readme = "README.md"
@@ -54,8 +54,7 @@ dependencies = [
 [project.scripts]
 py123d-viser = "py123d.script.run_viser:main"
 py123d-conversion = "py123d.script.run_conversion:main"
-py123d-ncore-download = "py123d.parser.ncore.download:main"
-py123d-wod-download = "py123d.parser.wod.wod_download:main"
+py123d-download = "py123d.script.run_download:main"
 
 [project.optional-dependencies]
 dev = [
@@ -157,3 +156,7 @@ lint.unfixable = []
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "slow: tests that are slow to run (deselected by default; run with `-m slow` or `-m ''`)",
+]
+addopts = ["-m", "not slow"]

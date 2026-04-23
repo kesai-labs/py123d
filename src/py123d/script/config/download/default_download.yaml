@@ -1,0 +1,19 @@
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+  searchpath:
+    - pkg://py123d.script.config
+    - pkg://py123d.script.config.common
+  job:
+    chdir: False
+
+defaults:
+  - default_dataset_paths
+  - dataset: wod-motion
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: colorlog
+  - _self_
+
+
+logger_level: info  # "debug", "info", "warning", "error"
