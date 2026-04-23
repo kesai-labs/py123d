@@ -1,0 +1,23 @@
+downloader:
+  _target_: py123d.parser.av2.av2_download.Av2Downloader
+  _convert_: 'all'
+
+  # Destination. Defaults to $AV2_DATA_ROOT (set via default_dataset_paths.yaml).
+  # Override to null to let a streaming parser manage a temp directory.
+  output_dir: ${dataset_paths.av2_data_root}
+
+  variant: sensor             # currently the only supported AV2 variant
+
+  # 123D split names — one or more of {av2-sensor_train, av2-sensor_val, av2-sensor_test}.
+  splits: [av2-sensor_train, av2-sensor_val, av2-sensor_test]
+
+  # Selection — mutually exclusive. When neither is set, every log in each selected
+  # split is downloaded (~1000 logs / ~250 GB total).
+  num_logs: null              # first N per split, or N random if sample_random=true
+  log_ids: null               # e.g. {av2-sensor_val: [00a6ffc1-6ce9-3bc3-a060-6006e9893a1a]}
+  sample_random: false
+  seed: 0
+
+  max_workers: 16
+  overwrite: false            # re-download objects whose local file already exists
+  dry_run: false              # log the plan without downloading

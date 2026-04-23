@@ -91,6 +91,9 @@ waymo = [
     "protobuf>=6.31",
     "google-cloud-storage>=2.14",
 ]
+av2 = [
+    "boto3>=1.26",
+]
 ffmpeg = [
     "imageio[ffmpeg]",
 ]
