@@ -1,34 +1,28 @@
-# Streaming variant of dataset=nuscenes — the parser materializes a chosen archive
-# subset from nuScenes' CloudFront API into a session-scoped tempfile.TemporaryDirectory
-# at construction time, converts from it, and deletes the temp dir on parser destruction.
+# Streaming variant of dataset=nuscenes-interpolated — 10Hz interpolated nuScenes
+# conversion, with the same CloudFront-backed downloader used by `nuscenes-stream`.
 #
-# Mirrors `nuscenes.yaml` exactly for splits + sync_config + writer flags; only the
-# data paths, sensor storage options (forced to self-contained binary), and the
-# downloader block differ.
+# Mirrors `nuscenes-interpolated.yaml` exactly for splits + sync_config + writer flags
+# (including `target_iteration_duration_s: 0.1`); only the data paths, sensor storage
+# options (forced to self-contained binary), and the downloader block differ.
 #
 # Default preset is `trainval_one` — trainval metadata + first trainval blob + HD maps
-# + CAN bus (~75 GB). The `maps/` directory extracted from the map expansion is
-# auto-detected by the parser (no `nuscenes_map_root` override needed). Note: with
-# this preset only logs whose scenes live in trainval01 will produce output — override
-# with `preset=full` (~700 GB) to cover every split listed below.
+# + CAN bus (~75 GB). The interpolated path uses `sweeps/` from the blob archives and
+# CAN bus messages for ego dynamics at non-keyframe timestamps — both are included in
+# this preset.
 #
-# Credentials (required): $NUSCENES_EMAIL and $NUSCENES_PASSWORD must be set. Register
-# and accept the dataset terms at https://www.nuscenes.org/nuscenes first.
-#
-# Cognito auth flow + core archive MD5 catalog adapted from li-xl/nuscenes-download
-# (MIT © 2025 Xiang-Li Li) — see src/py123d/parser/nuscenes/nuscenes_download.py.
+# Credentials (required): $NUSCENES_EMAIL and $NUSCENES_PASSWORD. Register and accept
+# the dataset terms at https://www.nuscenes.org/nuscenes first.
 #
 # Usage:
-#   py123d-conversion dataset=nuscenes-stream
-#   py123d-conversion dataset=nuscenes-stream 'dataset.parser.splits=[nuscenes_val]'
-#   py123d-conversion dataset=nuscenes-stream \
-#     'dataset.parser.stream_archives=[v1.0-trainval_meta.tgz, v1.0-trainval03_blobs.tgz, nuScenes-map-expansion-v1.3.zip, can_bus.zip]'
+#   py123d-conversion dataset=nuscenes-interpolated-stream
+#   py123d-conversion dataset=nuscenes-interpolated-stream \
+#     'dataset.parser.splits=[nuscenes-interpolated_val]'
 
 parser:
   _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
   _convert_: 'all'
 
-  splits: ["nuscenes_train", "nuscenes_val", "nuscenes_test"]
+  splits: ["nuscenes-interpolated_train", "nuscenes-interpolated_val", "nuscenes-interpolated_test"]
 
   # Ignored when `downloader` is set — the parser materializes archives into a temp dir.
   nuscenes_data_root: null
@@ -70,7 +64,6 @@ log_writer_config:
 
   force_log_conversion: ${force_log_conversion}
   force_map_conversion: ${force_map_conversion}
-  async_conversion: ${async_conversion}
 
   # Streaming forces self-contained payloads. Do NOT switch to "path" — the temp
   # directory holding the materialized archives is deleted when the parser is garbage
@@ -96,6 +89,7 @@ log_writer:
     _convert_: 'all'
     reference_column: box_detections_se3.timestamp_us
     direction: "backward" # "forward" or "backward"
+    target_iteration_duration_s: 0.1 # 10Hz iteration frequency
 
 map_writer:
   _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
