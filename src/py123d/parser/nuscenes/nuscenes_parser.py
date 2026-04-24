@@ -8,8 +8,10 @@ The parser mode is determined by the split names passed to :class:`NuScenesParse
 from __future__ import annotations
 
 import gc
+import logging
+import tempfile
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Union
 
 from py123d.common.utils.dependencies import check_dependencies
 from py123d.datatypes import (
@@ -68,6 +70,11 @@ from nuscenes import NuScenes
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.utils.splits import create_splits_scenes
 
+if TYPE_CHECKING:
+    from py123d.parser.nuscenes.nuscenes_download import NuscenesDownloader
+
+logger = logging.getLogger(__name__)
+
 _ALL_SPLITS = NUSCENES_DATA_SPLITS + NUSCENES_INTERPOLATED_DATA_SPLITS
 
 _NUSCENES_SPLIT_NAME_MAPPING: Dict[str, str] = {
@@ -96,26 +103,93 @@ class NuScenesParser(BaseDatasetParser):
     def __init__(
         self,
         splits: List[str],
-        nuscenes_data_root: Union[Path, str],
-        nuscenes_map_root: Union[Path, str],
+        nuscenes_data_root: Optional[Union[Path, str]] = None,
+        nuscenes_map_root: Optional[Union[Path, str]] = None,
+        downloader: Optional["NuscenesDownloader"] = None,
+        stream_archives: Optional[List[str]] = None,
     ) -> None:
         """Initializes the NuScenesParser.
 
         :param splits: List of dataset splits (e.g. ["nuscenes_train"] or ["nuscenes-interpolated_val"]).
-        :param nuscenes_data_root: Root directory of the nuScenes data.
-        :param nuscenes_map_root: Root directory of the nuScenes maps.
+        :param nuscenes_data_root: Root directory of the nuScenes data. Required in local
+            mode (``downloader=None``); ignored when ``downloader`` is set.
+        :param nuscenes_map_root: Root directory of the nuScenes map expansion. Optional
+            — when ``None`` in local mode, :meth:`get_map_parsers` returns an empty list
+            (map conversion is skipped). In streaming mode, ``None`` triggers an
+            auto-detect: if the downloader materialized a ``maps/`` subdirectory under
+            the streaming data root (e.g. because ``nuScenes-map-expansion-v1.3.zip``
+            was in ``stream_archives``), that path is used; otherwise map conversion
+            is skipped. Pass an explicit path to override.
+        :param downloader: Optional :class:`~py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader`
+            used for streaming mode. When provided, the parser materializes the configured
+            archives (``stream_archives``) into a session-scoped
+            :class:`tempfile.TemporaryDirectory` at construction time, points
+            ``nuscenes_data_root`` at it, and cleans the temp directory up when the parser
+            is garbage collected.
+        :param stream_archives: Archive subset to materialize in streaming mode. ``None``
+            uses :data:`~py123d.parser.nuscenes.nuscenes_download.NUSCENES_DEFAULT_STREAMING_ARCHIVES`
+            (trainval metadata + first trainval blob, ~75 GB). Ignored when
+            ``downloader`` is ``None``.
         """
-        assert nuscenes_data_root is not None, "The variable `nuscenes_data_root` must be provided."
-        assert nuscenes_map_root is not None, "The variable `nuscenes_map_root` must be provided."
         for split in splits:
             assert split in _ALL_SPLITS, f"Split {split} is not available. Available splits: {_ALL_SPLITS}"
 
         self._splits: List[str] = splits
-        self._nuscenes_data_root: Path = Path(nuscenes_data_root)
-        self._nuscenes_map_root: Path = Path(nuscenes_map_root)
+        self._downloader: Optional["NuscenesDownloader"] = downloader
+        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
+
+        if downloader is not None:
+            self._nuscenes_data_root: Path = self._materialize_streaming_root(
+                downloader=downloader, stream_archives=stream_archives
+            )
+        else:
+            assert nuscenes_data_root is not None, "`nuscenes_data_root` must be provided when `downloader` is None."
+            self._nuscenes_data_root = Path(nuscenes_data_root)
+
+        # Resolve map_root. Priority: explicit user arg > streaming auto-detect > None.
+        # The auto-detect covers the common case where `nuScenes-map-expansion-v1.3.zip`
+        # was in the streaming archive set and extracted a populated `maps/` dir.
+        if nuscenes_map_root is not None:
+            self._nuscenes_map_root: Optional[Path] = Path(nuscenes_map_root)
+        elif downloader is not None and (self._nuscenes_data_root / "maps").is_dir():
+            self._nuscenes_map_root = self._nuscenes_data_root / "maps"
+            logger.info("nuScenes streaming: auto-detected map_root at %s", self._nuscenes_map_root)
+        else:
+            self._nuscenes_map_root = None
 
         self._nuscenes_dbs: Dict[str, NuScenes] = {}
         self._scene_tokens_per_split: Dict[str, List[str]] = self._collect_scene_tokens()
+
+    def _materialize_streaming_root(
+        self,
+        downloader: "NuscenesDownloader",
+        stream_archives: Optional[List[str]],
+    ) -> Path:
+        """Download + extract the configured archive subset into a managed temp directory.
+
+        The temp directory is cleaned up in :meth:`__del__`. Mirrors the WOD motion
+        streaming pattern: one shared data root for the parser's lifetime rather than
+        per-scene temp dirs (nuScenes parser needs all metadata tables up front).
+        """
+        from py123d.parser.nuscenes.nuscenes_download import NUSCENES_DEFAULT_STREAMING_ARCHIVES
+
+        archives = list(stream_archives) if stream_archives else list(NUSCENES_DEFAULT_STREAMING_ARCHIVES)
+        self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-nuscenes-")
+        tmp_root = Path(self._stream_temp_dir_handle.name)
+        logger.info("nuScenes streaming temp dir: %s", tmp_root)
+        downloader.materialize_archives(archives=archives, output_dir=tmp_root)
+        return tmp_root
+
+    def __del__(self) -> None:
+        """Clean up the streaming temp directory when the parser is garbage collected."""
+        # TODO(nuscenes): move to explicit context manager — __del__ semantics are unreliable
+        # (GC ordering, exception swallowing). Mirrors the same TODO on WOD / pandaset parsers.
+        handle = getattr(self, "_stream_temp_dir_handle", None)
+        if handle is not None:
+            try:
+                handle.cleanup()
+            except Exception:
+                pass
 
     def _collect_scene_tokens(self) -> Dict[str, List[str]]:
         """Collects scene tokens for the specified splits."""
@@ -166,7 +240,13 @@ class NuScenesParser(BaseDatasetParser):
         return log_parsers
 
     def get_map_parsers(self) -> List[NuScenesMapParser]:  # type: ignore
-        """Inherited, see superclass."""
+        """Inherited, see superclass.
+
+        Returns an empty list when ``nuscenes_map_root`` is not configured — useful in
+        streaming mode where the HD-map expansion is not downloaded.
+        """
+        if self._nuscenes_map_root is None:
+            return []
         return [
             NuScenesMapParser(nuscenes_maps_root=self._nuscenes_map_root, location=location)
             for location in NUSCENES_MAP_LOCATIONS

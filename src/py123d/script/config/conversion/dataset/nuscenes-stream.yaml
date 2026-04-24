@@ -1,0 +1,101 @@
+# Streaming variant of dataset=nuscenes — the parser materializes a chosen archive
+# subset from nuScenes' CloudFront API into a session-scoped tempfile.TemporaryDirectory
+# at construction time, converts from it, and deletes the temp dir on parser destruction.
+#
+# Default preset is `trainval_one` — trainval metadata + first trainval blob + HD maps
+# + CAN bus (~75 GB). The `maps/` directory extracted from the map expansion is
+# auto-detected by the parser (no `nuscenes_map_root` override needed).
+#
+# Credentials (required): $NUSCENES_EMAIL and $NUSCENES_PASSWORD must be set. Register
+# and accept the dataset terms at https://www.nuscenes.org/nuscenes first.
+#
+# Cognito auth flow + core archive MD5 catalog adapted from li-xl/nuscenes-download
+# (MIT © 2025 Xiang-Li Li) — see src/py123d/parser/nuscenes/nuscenes_download.py.
+#
+# Usage:
+#   py123d-conversion dataset=nuscenes-stream
+#   py123d-conversion dataset=nuscenes-stream 'dataset.parser.splits=[nuscenes_val]'
+#   py123d-conversion dataset=nuscenes-stream \
+#     'dataset.parser.downloader.archives=[v1.0-trainval_meta.tgz, v1.0-trainval03_blobs.tgz, nuScenes-map-expansion-v1.3.zip]'
+#
+# For a smaller smoketest, use `dataset=nuscenes-mini-stream` (~600 MB download).
+
+parser:
+  _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
+  _convert_: 'all'
+
+  splits: ["nuscenes_train"]
+
+  # Ignored when `downloader` is set — the parser materializes archives into a temp dir.
+  nuscenes_data_root: null
+
+  # Auto-detected in streaming mode: if `nuScenes-map-expansion-v1.3.zip` is in the
+  # materialized archive set, `<temp_root>/maps` is picked up automatically. Override
+  # here to point at a pre-downloaded map directory.
+  nuscenes_map_root: null
+
+  # Optional override — the exact archive list to fetch and extract. `null` uses the
+  # downloader's preset resolution (default: `trainval_one`).
+  stream_archives: null
+
+  downloader:
+    _target_: py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader
+    _convert_: 'all'
+
+    # Ignored in streaming mode — archives land in the parser's tempfile.TemporaryDirectory.
+    output_dir: null
+
+    email: null                  # falls back to $NUSCENES_EMAIL
+    password: null               # falls back to $NUSCENES_PASSWORD
+    region: us                   # "us" or "asia"
+
+    # Selection — preset wins when stream_archives is null.
+    preset: trainval_one         # "mini" | "trainval_one" | "test" | "full"
+    archives: null
+    num_archives: null
+    sample_random: false
+    seed: 0
+
+    max_workers: 4
+    verify_md5: true
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the temp
+  # directory holding the materialized archives is deleted when the parser is garbage
+  # collected, which would leave the Arrow logs pointing at a vanished source.
+  camera_store_option: "jpeg_binary"  # "jpeg_binary", "png_binary" — "path" forbidden here
+  lidar_store_option: "binary"        # "binary" — "path" forbidden here
+  lidar_codec: "laz"                  # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: box_detections_se3.timestamp_us
+    direction: "backward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}
