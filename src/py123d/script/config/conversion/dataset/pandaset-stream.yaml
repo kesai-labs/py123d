@@ -1,0 +1,96 @@
+# Streaming variant of dataset=pandaset — each Ray worker extracts its assigned log
+# from a shared pandaset.zip (~44.5 GB) into a per-log temp directory, converts it,
+# and deletes the per-log temp dir before moving on.
+#
+# Unlike the per-clip ncore-stream flow, PandaSet's HF mirror is one monolithic zip,
+# so the *first* log access triggers the full 44.5 GB download. By default the zip
+# lands under <system_temp>/py123d-pandaset-cache/pandaset.zip (shared across Ray
+# workers on the same machine). Override via dataset.parser.downloader.zip_cache_dir
+# when system temp is undersized or when you want a persistent location.
+# Nothing is written to the HuggingFace hub cache.
+#
+# Split routing: when all per-split log-name lists are empty (the default below),
+# every selected log is routed to the first entry in `splits` (i.e. pandaset_train).
+# Override train_log_names / val_log_names / test_log_names here if you need
+# different routing.
+#
+# Usage:
+#   py123d-conversion dataset=pandaset-stream dataset.parser.downloader.num_logs=3
+#   py123d-conversion dataset=pandaset-stream \
+#     'dataset.parser.downloader.log_names=[001, 002, 005]'
+
+parser:
+  _target_: py123d.parser.pandaset.pandaset_parser.PandasetParser
+  _convert_: 'all'
+
+  splits: ["pandaset_train"]
+
+  # Ignored when `downloader` is set — logs land in per-log temp directories.
+  pandaset_data_root: null
+
+  # Empty per-split lists → streaming mode routes every selected log to `splits[0]`.
+  train_log_names: []
+  val_log_names: []
+  test_log_names: []
+
+  downloader:
+    _target_: py123d.parser.pandaset.pandaset_download.PandasetDownloader
+    _convert_: 'all'
+
+    # Not used in streaming — each log goes to its own per-log tempfile.TemporaryDirectory.
+    # (The 44.5 GB zip is cached separately under zip_cache_dir.)
+    output_dir: null
+
+    # Shared on-disk location for pandaset.zip. null → <system_temp>/py123d-pandaset-cache/.
+    # Override to a filesystem with room when system temp is small.
+    zip_cache_dir: null
+
+    revision: main
+    hf_token: null                # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+    # Selection — mutually exclusive. When neither is set, all 103 logs are enumerated.
+    log_names: null
+    num_logs: null
+    sample_random: false
+    seed: 0
+
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the per-log
+  # temp directory is deleted immediately after conversion, which would leave the
+  # Arrow logs pointing at a vanished source.
+  camera_store_option: "jpeg_binary"  # "jpeg_binary", "png_binary" — "path" forbidden here
+  lidar_store_option: "binary"        # "binary" — "path" forbidden here
+  lidar_codec: "laz"                  # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: lidar.lidar_merged.timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

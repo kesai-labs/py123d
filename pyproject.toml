@@ -101,6 +101,9 @@ ncore = [
     "huggingface_hub>=0.23",
     "nvidia-ncore",
 ]
+pandaset = [
+    "huggingface_hub>=0.23",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
