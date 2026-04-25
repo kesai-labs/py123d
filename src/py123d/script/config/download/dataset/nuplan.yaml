@@ -1,0 +1,25 @@
+downloader:
+  _target_: py123d.parser.nuplan.nuplan_download.NuplanDownloader
+  _convert_: 'all'
+
+  # Destination for extracted archives. Defaults to $NUPLAN_DATA_ROOT
+  # (set via default_dataset_paths.yaml). Archives are extracted in-place into the
+  # canonical nuPlan layout (output_dir/maps/..., output_dir/nuplan-v1.1/splits/...,
+  # output_dir/nuplan-v1.1/sensor_blobs/...) and the .zip files are deleted after
+  # extraction.
+  output_dir: ${dataset_paths.nuplan_data_root}
+
+  # 123D split names — subset of {nuplan_train, nuplan_val, nuplan_test,
+  # nuplan-mini_train, nuplan-mini_val, nuplan-mini_test}. Mixing regular and mini
+  # splits is allowed; the resolver unions archive sets. Defaults to the regular
+  # splits.
+  splits: [nuplan_train, nuplan_val, nuplan_test]
+
+  # Content selection — logs (.db files) are always fetched. These three flags gate
+  # the much larger map + sensor archives.
+  include_maps: true          # ~1 GB — required for HD-map conversion
+  include_cameras: false      # hundreds of GB per split — 8-camera .jpg shards
+  include_lidar: false        # hundreds of GB per split — merged-point-cloud shards
+
+  max_workers: 4              # parallel per-archive download threads
+  dry_run: false              # when true, log the plan without hitting the network

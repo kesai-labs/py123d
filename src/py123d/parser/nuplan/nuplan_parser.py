@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import pickle
+import tempfile
 from pathlib import Path
-from typing import Dict, Final, Iterator, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Final, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 import yaml
@@ -71,6 +72,9 @@ from nuplan.database.nuplan_db_orm.lidar_pc import LidarPc
 from nuplan.database.nuplan_db_orm.nuplandb import NuPlanDB
 from nuplan.planning.simulation.observation.observation_type import CameraChannel
 
+if TYPE_CHECKING:
+    from py123d.parser.nuplan.nuplan_download import NuplanDownloader
+
 # NOTE: Leaving this constant here, to avoid having a nuplan dependency in nuplan_constants.py
 NUPLAN_CAMERA_MAPPING = {
     CameraID.PCAM_F0: CameraChannel.CAM_F0,
@@ -102,23 +106,34 @@ class NuplanParser(BaseDatasetParser):
     def __init__(
         self,
         splits: List[str],
-        nuplan_data_root: Union[Path, str],
-        nuplan_maps_root: Union[Path, str],
-        nuplan_sensor_root: Union[Path, str],
+        nuplan_data_root: Optional[Union[Path, str]] = None,
+        nuplan_maps_root: Optional[Union[Path, str]] = None,
+        nuplan_sensor_root: Optional[Union[Path, str]] = None,
         log_names: Optional[List[str]] = None,
+        downloader: Optional["NuplanDownloader"] = None,
     ) -> None:
         """Initializes the NuplanParser.
 
         :param splits: List of splits to convert, e.g. ["nuplan_train", "nuplan_val"].
         :param log_names: Optional list of log names to convert. If None, all logs in the specified splits will be converted.
-        :param nuplan_data_root: Root directory of the nuPlan data.
-        :param nuplan_maps_root: Root directory of the nuPlan maps.
-        :param nuplan_sensor_root: Root directory of the nuPlan sensor data.
+        :param nuplan_data_root: Root directory of the nuPlan data. Required in local
+            mode (``downloader=None``); ignored when ``downloader`` is set.
+        :param nuplan_maps_root: Root directory of the nuPlan maps. Required in local
+            mode when map conversion is active. In streaming mode, auto-detected at
+            ``<streaming_root>/maps``; :meth:`get_map_parsers` returns an empty list
+            if the directory is absent (e.g. ``include_maps=False`` on the downloader).
+        :param nuplan_sensor_root: Root directory of the nuPlan sensor data. Required
+            in local mode. In streaming mode, auto-detected at
+            ``<streaming_root>/nuplan-v1.1/sensor_blobs`` — a missing directory just
+            means no sensor shards were materialized and camera/lidar iteration
+            yields nothing.
+        :param downloader: Optional
+            :class:`~py123d.parser.nuplan.nuplan_download.NuplanDownloader` used for
+            streaming mode. When provided, the parser materializes the configured
+            archives into a session-scoped :class:`tempfile.TemporaryDirectory` at
+            construction time, populates the three roots from it, and cleans the
+            temp directory up when the parser is garbage collected.
         """
-        assert nuplan_data_root is not None, "The variable `nuplan_data_root` must be provided."
-        assert nuplan_maps_root is not None, "The variable `nuplan_maps_root` must be provided."
-        assert nuplan_sensor_root is not None, "The variable `nuplan_sensor_root` must be provided."
-
         for split in splits:
             assert split in NUPLAN_DATA_SPLITS, (
                 f"Split {split} is not available. Available splits: {NUPLAN_DATA_SPLITS}"
@@ -126,10 +141,63 @@ class NuplanParser(BaseDatasetParser):
 
         self._splits = splits
         self._log_names = log_names
-        self._nuplan_data_root = Path(nuplan_data_root)
-        self._nuplan_maps_root = Path(nuplan_maps_root)
-        self._nuplan_sensor_root = Path(nuplan_sensor_root)
+        self._downloader: Optional["NuplanDownloader"] = downloader
+        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
+
+        if downloader is not None:
+            streaming_root = self._materialize_streaming_root(downloader)
+            self._nuplan_data_root: Path = streaming_root
+            # Auto-detect the maps and sensor subdirs produced by the downloader. When
+            # ``include_maps=False`` / ``include_cameras=False`` / ``include_lidar=False``
+            # the respective subtree simply isn't materialized, and downstream checks
+            # (map parser, sensor iterators) skip gracefully.
+            self._nuplan_maps_root: Path = streaming_root / "maps"
+            self._nuplan_sensor_root: Path = streaming_root / "nuplan-v1.1" / "sensor_blobs"
+            if not self._nuplan_maps_root.is_dir():
+                logger.info(
+                    "nuPlan streaming: no `maps/` directory under %s — map conversion will be skipped.",
+                    streaming_root,
+                )
+            if not self._nuplan_sensor_root.is_dir():
+                logger.info(
+                    "nuPlan streaming: no `sensor_blobs/` under %s — sensor iteration will yield nothing.",
+                    streaming_root,
+                )
+                # Ensure the directory exists so downstream glob/exists checks against
+                # child paths are well-defined — an empty dir is fine.
+                self._nuplan_sensor_root.mkdir(parents=True, exist_ok=True)
+        else:
+            assert nuplan_data_root is not None, "`nuplan_data_root` must be provided when `downloader` is None."
+            assert nuplan_maps_root is not None, "`nuplan_maps_root` must be provided when `downloader` is None."
+            assert nuplan_sensor_root is not None, "`nuplan_sensor_root` must be provided when `downloader` is None."
+            self._nuplan_data_root = Path(nuplan_data_root)
+            self._nuplan_maps_root = Path(nuplan_maps_root)
+            self._nuplan_sensor_root = Path(nuplan_sensor_root)
+
         self._split_log_path_pairs: List[Tuple[str, Path]] = self._collect_split_log_path_pairs()
+
+    def _materialize_streaming_root(self, downloader: "NuplanDownloader") -> Path:
+        """Download and extract the configured archive subset into a managed temp dir.
+
+        Mirrors the nuScenes streaming pattern: one shared data root for the parser's
+        lifetime. The temp directory is cleaned up in :meth:`__del__`.
+        """
+        self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-nuplan-")
+        tmp_root = Path(self._stream_temp_dir_handle.name)
+        logger.info("nuPlan streaming temp dir: %s", tmp_root)
+        downloader.materialize_archives(output_dir=tmp_root)
+        return tmp_root
+
+    def __del__(self) -> None:
+        """Clean up the streaming temp directory when the parser is garbage collected."""
+        # TODO(nuplan): move to explicit context manager — __del__ semantics are unreliable
+        # (GC ordering, exception swallowing). Mirrors the same TODO on nuScenes / pandaset parsers.
+        handle = getattr(self, "_stream_temp_dir_handle", None)
+        if handle is not None:
+            try:
+                handle.cleanup()
+            except Exception:
+                pass
 
     def _collect_split_log_path_pairs(self) -> List[Tuple[str, Path]]:
         """Collects the (split, log_path) pairs for the specified splits."""
@@ -176,7 +244,13 @@ class NuplanParser(BaseDatasetParser):
         ]
 
     def get_map_parsers(self) -> List[NuplanMapParser]:  # type: ignore
-        """Inherited, see superclass."""
+        """Inherited, see superclass.
+
+        Returns an empty list when the maps root is not configured / materialized —
+        useful in streaming mode with ``include_maps=False`` on the downloader.
+        """
+        if not self._nuplan_maps_root.is_dir():
+            return []
         return [
             NuplanMapParser(nuplan_maps_root=self._nuplan_maps_root, location=location)
             for location in NUPLAN_MAP_LOCATIONS

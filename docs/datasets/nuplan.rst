@@ -94,9 +94,43 @@ Available Modalities
 Download
 ~~~~~~~~
 
-You can install the nuPlan dataset either by downloading the files from the `official website <https://www.nuplan.org/download>`_ or by using the following bash script:
+py123d ships an automated downloader that fetches the nuPlan archives from the
+public Motional AWS bucket and extracts them into the canonical on-disk layout.
+No credentials are required — the bucket is anonymously readable. Users should
+still review the upstream license at
+``https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/LICENSE`` before use.
 
-.. dropdown:: Download Scripts
+.. code-block:: bash
+
+  # Regular set — logs + maps for nuplan_{train,val,test} (~135 GB).
+  py123d-download dataset=nuplan
+
+  # Mini set — logs + maps for nuplan-mini_{train,val,test} (~11 GB).
+  py123d-download dataset=nuplan \
+      'dataset.downloader.splits=[nuplan-mini_train, nuplan-mini_val, nuplan-mini_test]'
+
+  # Also fetch 8-camera shards and merged-point-cloud shards (hundreds of GB per split).
+  py123d-download dataset=nuplan \
+      dataset.downloader.include_cameras=true \
+      dataset.downloader.include_lidar=true
+
+  # Preview the plan without hitting the network.
+  py123d-download dataset=nuplan dataset.downloader.dry_run=true
+
+Content selection is controlled by three flags on the downloader:
+
+* ``include_maps`` (default ``true``) — fetches ``nuplan-maps-v1.1.zip``.
+  Required for HD-map conversion.
+* ``include_cameras`` (default ``false``) — fetches the 8-camera ``.jpg`` shards for
+  every requested split. Hundreds of GB per split — opt in explicitly.
+* ``include_lidar`` (default ``false``) — fetches the merged-point-cloud shards.
+
+Logs (``.db`` files) are always fetched for the requested splits.
+
+.. dropdown:: Manual download (bash)
+
+  If you prefer to click-through or run raw ``wget`` calls, the same archives are
+  served at ``https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/``:
 
   **License**:
 
@@ -116,7 +150,7 @@ You can install the nuPlan dataset either by downloading the files from the `off
 
   .. code-block:: bash
 
-    # 1. nuplan_train
+    # 1. nuplan_train, nuplan_val (both derived from splits/trainval/)
     wget https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/nuplan-v1.1_train_boston.zip
     wget https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/nuplan-v1.1_train_pittsburgh.zip
     wget https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/nuplan-v1.1_train_singapore.zip
@@ -124,13 +158,10 @@ You can install the nuPlan dataset either by downloading the files from the `off
         wget https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/nuplan-v1.1_train_vegas_${split}.zip
     done
 
-    # 2. nuplan_val
+    # 2. nuplan_test (→ splits/test/)
     wget https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/nuplan-v1.1_test.zip
 
-    # 3. nuplan_test
-    wget https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/nuplan-v1.1_val.zip
-
-    # 4. nuplan-mini_train, nuplan-mini_val, nuplan-mini_test
+    # 3. nuplan-mini_train, nuplan-mini_val, nuplan-mini_test (→ splits/mini/)
     wget https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/public/nuplan-v1.1/nuplan-v1.1_mini.zip
 
 
@@ -256,7 +287,8 @@ You can install both either from PyPI or from source:
 Conversion
 ~~~~~~~~~~~~
 
-You can convert the nuPlan dataset (or mini dataset) by running:
+**Local mode** — data already extracted under ``$NUPLAN_DATA_ROOT`` /
+``$NUPLAN_MAPS_ROOT`` / ``$NUPLAN_SENSOR_ROOT`` (see the `Download`_ section above):
 
 .. code-block:: bash
 
@@ -267,6 +299,37 @@ You can convert the nuPlan dataset (or mini dataset) by running:
 .. note::
   The conversion of nuPlan by default does not store sensor data in the logs, but only relative file paths.
   To change this behavior, you need to adapt the ``nuplan.yaml`` or ``nuplan-mini.yaml`` converter configuration.
+
+**Streaming mode** — materialize the configured archive subset from the public nuPlan
+AWS bucket into a session-scoped temp directory at parser construction time, convert
+from it, and delete the temp directory on parser destruction. The ``maps/`` and
+``sensor_blobs/`` subdirectories are auto-detected (the three ``nuplan_*_root``
+paths do not need to be set). No credentials required.
+
+.. code-block:: bash
+
+  # Smoketest (~11 GB download): mini logs + HD maps.
+  py123d-conversion dataset=nuplan-mini-stream
+
+  # Regular set (~135 GB download): full train/val/test logs + HD maps.
+  py123d-conversion dataset=nuplan-stream
+  py123d-conversion dataset=nuplan-stream 'dataset.parser.splits=[nuplan_val]'
+
+  # Opt into sensor data (hundreds of GB per split).
+  py123d-conversion dataset=nuplan-mini-stream \
+      dataset.parser.downloader.include_cameras=true \
+      dataset.parser.downloader.include_lidar=true
+
+.. warning::
+  Streaming downloads can be large even for a "small" slice — the smallest regular
+  configuration is ~135 GB on the wire. Use ``dataset=nuplan-mini-stream`` (~11 GB)
+  when smoke-testing the pipeline.
+
+.. note::
+  Streaming mode forces ``camera_store_option: "jpeg_binary"`` and
+  ``lidar_store_option: "binary"`` — the temp directory is deleted immediately after
+  the parser is garbage-collected, so any ``"path"`` references would point at
+  vanished sources.
 
 
 Dataset Issues
