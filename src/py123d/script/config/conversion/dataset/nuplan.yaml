@@ -1,0 +1,50 @@
+parser:
+  _target_: py123d.parser.nuplan.nuplan_parser.NuplanParser
+  _convert_: 'all'
+
+  splits: ["nuplan_train", "nuplan_val", "nuplan_test"]
+  nuplan_data_root: ${dataset_paths.nuplan_data_root}
+  nuplan_maps_root: ${dataset_paths.nuplan_maps_root}
+  nuplan_sensor_root: ${dataset_paths.nuplan_sensor_root}
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  camera_store_option: "path" # "path", "jpeg_binary", "png_binary"
+  lidar_store_option: "path" #  "path", "binary"
+  lidar_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: false
+  infer_box_dynamics: false
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+
+    # NOTE: we use the box detections as reference which are equal to lidar timestamp, but
+    # also work if sensor data is missing.
+    reference_column: box_detections_se3.timestamp_us
+    direction: "forward" # "forward" or "backward"
+    # NOTE: We use use 10Hz for indexing, native 20Hz modalities will still be included.
+    target_iteration_duration_s: 0.1
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}
