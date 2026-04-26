@@ -94,6 +94,14 @@ class _ArchiveSpec:
     approx_size_gb: float
     description: str
     category: str  # "core_meta" | "core_blob" | "mini" | "maps" | "canbus"
+    # Destination relative to the extraction root. Defaults to ``Path(".")`` —
+    # extracts directly to the dataroot, which is correct for every archive whose
+    # internal layout already produces the canonical nuScenes tree (``samples/``,
+    # ``sweeps/``, ``v1.0-*/``, ``maps/``, ``can_bus/``). The HD-map expansion zip
+    # is the exception: its top-level entries are ``basemap/``, ``expansion/``,
+    # ``prediction/``, ``LICENSE`` (no ``maps/`` wrapper), so it must be retargeted
+    # to ``maps/`` to match what NuScenesMap and the parser auto-detect expect.
+    target_subdir: Path = Path(".")
 
 
 NUSCENES_ARCHIVE_CATALOG: Tuple[_ArchiveSpec, ...] = (
@@ -195,7 +203,15 @@ NUSCENES_ARCHIVE_CATALOG: Tuple[_ArchiveSpec, ...] = (
     ),
     # Extras — no published MD5. Endpoint must be verified empirically before committing.
     _ArchiveSpec("v1.0-mini.tgz", None, "tgz", 0.4, "mini dataset (smoketest)", "mini"),
-    _ArchiveSpec("nuScenes-map-expansion-v1.3.zip", None, "zip", 0.1, "HD map expansion v1.3", "maps"),
+    _ArchiveSpec(
+        "nuScenes-map-expansion-v1.3.zip",
+        None,
+        "zip",
+        0.1,
+        "HD map expansion v1.3",
+        "maps",
+        target_subdir=Path("maps"),  # zip top level is basemap/, expansion/, prediction/, LICENSE
+    ),
     _ArchiveSpec("can_bus.zip", None, "zip", 0.1, "CAN bus expansion", "canbus"),
 )
 
@@ -419,8 +435,13 @@ def _is_unsafe_zip_member(name: str) -> bool:
     return any(part == ".." for part in parts)
 
 
-def extract_nuscenes_archive(archive_path: Path, output_dir: Path, extract_format: str) -> None:
-    """Safely extract a nuScenes archive into ``output_dir``.
+def extract_nuscenes_archive(
+    archive_path: Path,
+    output_dir: Path,
+    extract_format: str,
+    target_subdir: Path = Path("."),
+) -> None:
+    """Safely extract a nuScenes archive into ``output_dir / target_subdir``.
 
     ``.tgz`` archives use :mod:`tarfile`'s ``data`` filter (Python 3.12+) to reject
     path-traversal entries; ``.zip`` archives run :func:`_is_unsafe_zip_member` on
@@ -430,19 +451,25 @@ def extract_nuscenes_archive(archive_path: Path, output_dir: Path, extract_forma
     layout.
 
     :param extract_format: ``"tgz"`` for gzip tarballs or ``"zip"`` for zip archives.
+    :param target_subdir: Subdirectory under ``output_dir`` to extract into. Defaults
+        to ``Path(".")`` (extract directly to ``output_dir``). The HD-map expansion
+        zip overrides this to ``Path("maps")`` because its top-level entries
+        (``basemap/``, ``expansion/``, ``prediction/``, ``LICENSE``) lack the
+        ``maps/`` wrapper that the nuScenes devkit expects.
     """
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Extracting %s → %s", archive_path, output_dir)
+    target_dir = output_dir / target_subdir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Extracting %s → %s", archive_path, target_dir)
 
     if extract_format == "tgz":
         with tarfile.open(archive_path, "r:gz") as tar:
             # ``filter="data"`` is available in Python 3.12+; older versions ignore it
             # and rely on the default tarfile behavior. Guard by kwargs detection.
             try:
-                tar.extractall(output_dir, filter="data")  # type: ignore[arg-type]
+                tar.extractall(target_dir, filter="data")  # type: ignore[arg-type]
             except TypeError:
-                tar.extractall(output_dir)
+                tar.extractall(target_dir)
         return
 
     if extract_format == "zip":
@@ -454,7 +481,7 @@ def extract_nuscenes_archive(archive_path: Path, output_dir: Path, extract_forma
                     f"(first offender: {unsafe[0]!r}). This archive may be attempting a "
                     "path-traversal extraction."
                 )
-            zf.extractall(output_dir)
+            zf.extractall(target_dir)
         return
 
     raise ValueError(f"Unknown extract_format {extract_format!r}; expected 'tgz' or 'zip'.")
@@ -700,7 +727,12 @@ class NuscenesDownloader(BaseDownloader):
         for name in archives:  # preserve deterministic extract order (metadata first)
             archive_path = downloaded[name]
             spec = _ARCHIVE_BY_NAME[name]
-            extract_nuscenes_archive(archive_path, extract_dir, extract_format=spec.extract_format)
+            extract_nuscenes_archive(
+                archive_path,
+                extract_dir,
+                extract_format=spec.extract_format,
+                target_subdir=spec.target_subdir,
+            )
             try:
                 archive_path.unlink()
             except OSError as exc:
