@@ -31,7 +31,7 @@ class DefaultBoxDetectionLabel(BoxDetectionLabel):
     TRAIN = 2
 
     # Vulnerable Road Users
-    BICYCLE = 3
+    TWO_WHEELER = 3
     PERSON = 4
     ANIMAL = 5
 
@@ -40,9 +40,12 @@ class DefaultBoxDetectionLabel(BoxDetectionLabel):
     TRAFFIC_CONE = 7
     TRAFFIC_LIGHT = 8
 
-    # Other Obstacles
+    # Other Objects
     BARRIER = 9
     GENERIC_OBJECT = 10
+
+    # Miscellaneous, that may not fit into the above categories
+    OTHER = 11
 
     def to_default(self) -> DefaultBoxDetectionLabel:
         """Inherited, see superclass."""
