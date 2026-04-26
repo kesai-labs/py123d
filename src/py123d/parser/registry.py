@@ -122,7 +122,7 @@ class KITTI360BoxDetectionLabel(BoxDetectionLabel):
             KITTI360BoxDetectionLabel.TRAFFIC_LIGHT: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
             KITTI360BoxDetectionLabel.TRAFFIC_SIGN: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
             KITTI360BoxDetectionLabel.TRAILER: DefaultBoxDetectionLabel.VEHICLE,
-            KITTI360BoxDetectionLabel.TRAIN: DefaultBoxDetectionLabel.VEHICLE,
+            KITTI360BoxDetectionLabel.TRAIN: DefaultBoxDetectionLabel.TRAIN,
             KITTI360BoxDetectionLabel.TRASH_BIN: DefaultBoxDetectionLabel.GENERIC_OBJECT,
             KITTI360BoxDetectionLabel.TRUCK: DefaultBoxDetectionLabel.VEHICLE,
             KITTI360BoxDetectionLabel.VENDING_MACHINE: DefaultBoxDetectionLabel.GENERIC_OBJECT,
