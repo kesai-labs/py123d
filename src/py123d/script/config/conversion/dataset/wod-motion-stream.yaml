@@ -1,3 +1,12 @@
+# Streaming variant of dataset=wod-motion — downloads selected scenario shards from GCS
+# into a managed temp directory at parser construction time, converts, and cleans up on
+# parser GC.
+#
+# Usage:
+#   py123d-conversion dataset=wod-motion-stream dataset.parser.downloader.num_shards=1
+#   py123d-conversion dataset=wod-motion-stream \
+#     'dataset.parser.downloader.shard_indices={wod-motion_train: [0, 1, 2]}'
+
 parser:
   _target_: py123d.parser.wod.wod_motion_parser.WODMotionParser
   _convert_: 'all'
@@ -10,21 +19,37 @@ parser:
   #   wod-motion-20s_train          → training_20s             (1000 shards, 20s scenarios — 201 frames)
   #   wod-motion-interactive_val    → validation_interactive   ( 150 shards, 9s; interaction pairs)
   #   wod-motion-interactive_test   → testing_interactive      ( 150 shards, 9s; futures masked)
-  #
-  # Asymmetric availability on GCS: training_20s has no val/test counterpart, and *_interactive
-  # has no train counterpart — those combinations are not in the registry and will raise.
-  #
-  # Each split's converted logs land in logs_root/<split>/<scenario_id>/, giving every variant
-  # its own folder. All variants share LogMetadata.dataset="wod-motion".
   splits: ["wod-motion_val", "wod-motion_train", "wod-motion_test"]
-  wod_motion_data_root: ${dataset_paths.wod_motion_data_root}
+
+  # Ignored — the downloader materializes shards into a temp dir whose path becomes the root.
+  wod_motion_data_root: null
   add_dummy_lane_groups: false
   skip_maps: false        # when true, get_map_parsers() returns [] — saves disk when tight
   skip_logs: false        # when true, get_log_parsers() returns [] — for maps-only runs
 
-  # To stream scenario shards from GCS instead of reading from disk, use the
-  # `dataset=wod-motion-stream` config variant, which attaches a WODMotionDownloader.
-  downloader: null
+  downloader:
+    _target_: py123d.parser.wod.wod_download.WODMotionDownloader
+    _convert_: 'all'
+
+    # null → parser assigns a tempfile.TemporaryDirectory for the duration of the run.
+    # Set to a persistent path to reuse downloads across runs.
+    output_dir: null
+
+    # splits is bound to parser.splits so the downloader and parser stay in lockstep.
+    splits: ${dataset.parser.splits}
+
+    version: "1.3.0"
+    section: scenario         # parsers only consume the scenario section
+
+    num_shards: null          # first N per split, or N random if sample_random=true
+    shard_indices: null       # e.g. {wod-motion_train: [0, 1, 2], wod-motion_val: [0]}
+    sample_random: false
+    seed: 0
+
+    credentials_file: null    # service-account JSON; null → Application Default Credentials
+    max_workers: 4
+    overwrite: false
+    dry_run: false
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig

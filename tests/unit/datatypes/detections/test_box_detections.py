@@ -22,7 +22,7 @@ class DummyBoxDetectionLabel(BoxDetectionLabel):
         mapping = {
             DummyBoxDetectionLabel.CAR: DefaultBoxDetectionLabel.VEHICLE,
             DummyBoxDetectionLabel.PEDESTRIAN: DefaultBoxDetectionLabel.PERSON,
-            DummyBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            DummyBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
         }
         return mapping[self]
 

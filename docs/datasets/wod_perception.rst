@@ -144,16 +144,17 @@ Conversion
 
 .. code-block:: bash
 
-  py123d-conversion datasets=["wod-perception"]
+  py123d-conversion dataset=wod-perception
 
 .. note::
   The conversion of WOD-Perception by default stores the camera images as jpegs and the Lidar point clouds as binary files in the logs.
   Thus, the logs need fairly large disk space. Reading from the raw TFRecord files is also supported, but requires the Waymo Open Dataset specific dependencies (see above) and might be slower.
   To change the default behavior, you need to adapt the ``wod-perception.yaml`` converter configuration.
 
-**Streaming mode** — download selected segments from GCS into a temp directory at parser
-construction time. Useful when the full ~1 TB dataset is too large for local disk and you
-only need a handful of segments for iteration:
+**Streaming mode** — ``dataset=wod-perception-stream`` attaches a ``WODPerceptionDownloader``
+to the parser; it fetches selected segments from GCS into a temp directory at parser
+construction time and cleans up on parser GC. Useful when the full ~1 TB dataset is too
+large for local disk and you only need a handful of segments for iteration:
 
 .. code-block:: bash
 
@@ -161,41 +162,44 @@ only need a handful of segments for iteration:
   gcloud auth application-default login
 
   # Stream the first segment of the validation split only:
-  py123d-conversion dataset=wod-perception \
-      dataset.parser.stream_enabled=true \
-      dataset.parser.stream_num_shards=1 \
+  py123d-conversion dataset=wod-perception-stream \
+      dataset.parser.downloader.num_shards=1 \
       'dataset.parser.splits=[wod-perception_val]'
 
-  # Stream specific segment indices (per GCS-folder name):
-  py123d-conversion dataset=wod-perception \
-      dataset.parser.stream_enabled=true \
-      'dataset.parser.stream_shard_indices={validation: [0, 1, 2]}'
+  # Stream specific segment indices (keyed by 123D split name):
+  py123d-conversion dataset=wod-perception-stream \
+      'dataset.parser.downloader.shard_indices={wod-perception_val: [0, 1, 2]}'
 
-  # Keep temp files somewhere with room (HOME filesystems often have small /tmp):
-  py123d-conversion dataset=wod-perception \
-      dataset.parser.stream_enabled=true \
-      dataset.parser.stream_num_shards=1 \
-      dataset.parser.stream_temp_dir=/mnt/scratch/wod_perception_tmp
+  # Persist downloads under a dedicated cache dir instead of a tempdir:
+  py123d-conversion dataset=wod-perception-stream \
+      dataset.parser.downloader.num_shards=1 \
+      dataset.parser.downloader.output_dir=/mnt/scratch/wod_perception_cache
 
 .. warning::
-  Perception segments are ~1 GB each — even small values of ``stream_num_shards``
+  Perception segments are ~1 GB each — even small values of ``num_shards``
   imply multiple GB of download traffic.
 
 .. note::
   Unlike the motion bucket, the perception bucket requires an authenticated GCS
   client. If neither ``gcloud auth application-default login`` nor
-  ``stream_credentials_file`` is configured, listing will fail with a 403.
+  ``dataset.parser.downloader.credentials_file`` is configured, listing will fail
+  with a 403.
 
-To pre-stage data outside the conversion pipeline (or simply preview which segments would
-be downloaded), use the standalone CLI installed with ``py123d[waymo]``:
+To pre-stage data outside the conversion pipeline (or preview which segments would be
+downloaded), use ``py123d-download``:
 
 .. code-block:: bash
 
-  # List the first 3 segments of the validation split without downloading:
-  py123d-wod-download perception --splits validation --num-shards 3 --list
+  # Preview the first 3 segments of the validation split without downloading:
+  py123d-download dataset=wod-perception \
+      'dataset.downloader.splits=[wod-perception_val]' \
+      dataset.downloader.num_shards=3 \
+      dataset.downloader.dry_run=true
 
   # Download a single training segment to $WOD_PERCEPTION_DATA_ROOT:
-  py123d-wod-download perception --splits training --num-shards 1
+  py123d-download dataset=wod-perception \
+      'dataset.downloader.splits=[wod-perception_train]' \
+      dataset.downloader.num_shards=1
 
 Dataset Specific Issues
 ~~~~~~~~~~~~~~~~~~~~~~~

@@ -73,23 +73,32 @@ Download
 ~~~~~~~~
 
 The dataset is gated on Hugging Face. You need (1) a HF account that has accepted the
-NVIDIA AV dataset license and (2) an HF token exported as ``HF_TOKEN`` (or passed via
-``--hf-token``). A convenience CLI ships with py123d:
+NVIDIA AV dataset license and (2) an HF token exported as ``HF_TOKEN`` (or set via
+``dataset.downloader.hf_token``). Downloads run through the unified
+``py123d-download`` CLI:
 
 .. code-block:: bash
 
   pip install py123d[ncore]          # pulls in huggingface_hub and nvidia-ncore
   export HF_TOKEN=hf_...
 
-  # Download a 5-clip subset (~12 GB) to $NCORE_DATA_ROOT
-  py123d-ncore-download --num-clips 5 --random --output-dir $NCORE_DATA_ROOT
+  # Download a 5-clip random subset (~12 GB) to $NCORE_DATA_ROOT
+  py123d-download dataset=ncore \
+      dataset.downloader.num_clips=5 \
+      dataset.downloader.sample_random=true
 
   # Or the full dataset (~2.4 TB)
-  py123d-ncore-download --output-dir $NCORE_DATA_ROOT
+  py123d-download dataset=ncore
 
   # Or just one modality + a subset
-  py123d-ncore-download --num-clips 20 --modality lidar
-  py123d-ncore-download --num-clips 20 --modality cameras --cameras camera_front_wide_120fov
+  py123d-download dataset=ncore \
+      dataset.downloader.num_clips=20 \
+      dataset.downloader.modality=lidar
+
+  py123d-download dataset=ncore \
+      dataset.downloader.num_clips=20 \
+      dataset.downloader.modality=cameras \
+      'dataset.downloader.cameras=[camera_front_wide_120fov]'
 
 
 The downloaded dataset has the following per-clip structure:
@@ -129,9 +138,11 @@ Conversion
   py123d-conversion dataset=ncore dataset.parser.max_clips=2
 
 
-**Streaming mode** — download each clip from Hugging Face to a temp directory at parse
-time and delete it afterwards. Useful when disk is tight or you want to convert a one-off
-subset without committing ~2.4 TB to permanent storage:
+**Streaming mode** — ``dataset=ncore-stream`` attaches an ``NCoreDownloader`` to each
+log parser. Each Ray worker downloads its assigned clip to a per-clip temp directory,
+runs the conversion, and deletes the temp directory before moving on. Useful when disk
+is tight or you want to convert a one-off subset without committing ~2.4 TB to permanent
+storage:
 
 .. code-block:: bash
 
@@ -139,23 +150,18 @@ subset without committing ~2.4 TB to permanent storage:
   export HF_TOKEN=hf_...
 
   # Stream the first 5 clips end-to-end:
-  py123d-conversion dataset=ncore \
-      dataset.parser.stream_enabled=true \
+  py123d-conversion dataset=ncore-stream \
       dataset.parser.max_clips=5
 
   # Stream specific clip UUIDs:
-  py123d-conversion dataset=ncore \
-      dataset.parser.stream_enabled=true \
-      'dataset.parser.stream_clip_ids=[000da9de-0ee5-465a-9a2d-e7e91d3016bb]'
+  py123d-conversion dataset=ncore-stream \
+      'dataset.parser.downloader.clip_ids=[000da9de-0ee5-465a-9a2d-e7e91d3016bb]'
 
-  # Keep temp files somewhere with room (HOME filesystems often have small /tmp):
-  py123d-conversion dataset=ncore \
-      dataset.parser.stream_enabled=true \
-      dataset.parser.stream_temp_dir=/mnt/scratch/ncore_tmp
+  # Stream only one modality to cut per-clip traffic:
+  py123d-conversion dataset=ncore-stream \
+      dataset.parser.max_clips=5 \
+      dataset.parser.downloader.modality=lidar
 
-
-In streaming mode each Ray worker downloads its assigned clip into an isolated temp
-directory, runs the conversion, and deletes the temp directory before moving on.
 Clip-level parallelism therefore also parallelizes downloads.
 
 .. warning::
@@ -165,12 +171,11 @@ Clip-level parallelism therefore also parallelizes downloads.
 .. note::
   The default conversion stores camera frames as JPEG-binary Arrow columns (NCore
   already stores JPEG in each frame, so no re-encoding happens) and LiDAR as
-  IPC/LZ4. Override via the ``ncore.yaml`` converter config if needed.
+  Draco. Override via the ``ncore.yaml`` converter config if needed.
 
 To pre-stage data outside the conversion pipeline (e.g. when you want a persistent
-local copy shared across multiple conversion runs), use the standalone CLI installed
-with ``py123d[ncore]`` — see the `Download`_ section above for ``py123d-ncore-download``
-invocations.
+local copy shared across multiple conversion runs), use ``py123d-download`` — see the
+`Download`_ section above for invocations.
 
 
 Dataset Issues

@@ -48,9 +48,9 @@ class AV2SensorBoxDetectionLabel(BoxDetectionLabel):
         mapping = {
             AV2SensorBoxDetectionLabel.ANIMAL: DefaultBoxDetectionLabel.ANIMAL,
             AV2SensorBoxDetectionLabel.ARTICULATED_BUS: DefaultBoxDetectionLabel.VEHICLE,
-            AV2SensorBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            AV2SensorBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             AV2SensorBoxDetectionLabel.BICYCLIST: DefaultBoxDetectionLabel.PERSON,
-            AV2SensorBoxDetectionLabel.BOLLARD: DefaultBoxDetectionLabel.GENERIC_OBJECT,
+            AV2SensorBoxDetectionLabel.BOLLARD: DefaultBoxDetectionLabel.BARRIER,
             AV2SensorBoxDetectionLabel.BOX_TRUCK: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.BUS: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.CONSTRUCTION_BARREL: DefaultBoxDetectionLabel.TRAFFIC_CONE,
@@ -59,7 +59,7 @@ class AV2SensorBoxDetectionLabel(BoxDetectionLabel):
             AV2SensorBoxDetectionLabel.LARGE_VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.MESSAGE_BOARD_TRAILER: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.MOBILE_PEDESTRIAN_CROSSING_SIGN: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
-            AV2SensorBoxDetectionLabel.MOTORCYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            AV2SensorBoxDetectionLabel.MOTORCYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             AV2SensorBoxDetectionLabel.MOTORCYCLIST: DefaultBoxDetectionLabel.PERSON,
             AV2SensorBoxDetectionLabel.OFFICIAL_SIGNALER: DefaultBoxDetectionLabel.PERSON,
             AV2SensorBoxDetectionLabel.PEDESTRIAN: DefaultBoxDetectionLabel.PERSON,
@@ -68,13 +68,15 @@ class AV2SensorBoxDetectionLabel(BoxDetectionLabel):
             AV2SensorBoxDetectionLabel.SCHOOL_BUS: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.SIGN: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
             AV2SensorBoxDetectionLabel.STOP_SIGN: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
-            AV2SensorBoxDetectionLabel.STROLLER: DefaultBoxDetectionLabel.PERSON,
+            AV2SensorBoxDetectionLabel.STROLLER: DefaultBoxDetectionLabel.OTHER,
             AV2SensorBoxDetectionLabel.TRAFFIC_LIGHT_TRAILER: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.TRUCK: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.TRUCK_CAB: DefaultBoxDetectionLabel.VEHICLE,
             AV2SensorBoxDetectionLabel.VEHICULAR_TRAILER: DefaultBoxDetectionLabel.VEHICLE,
-            AV2SensorBoxDetectionLabel.WHEELCHAIR: DefaultBoxDetectionLabel.PERSON,
-            AV2SensorBoxDetectionLabel.WHEELED_DEVICE: DefaultBoxDetectionLabel.PERSON,
+            # NOTE @DanielDauner: Separate classes for wheelchairs and wheeled rider,
+            # we thus map the wheelchair to OTHER and the wheeled rider to PERSON.
+            AV2SensorBoxDetectionLabel.WHEELCHAIR: DefaultBoxDetectionLabel.OTHER,
+            AV2SensorBoxDetectionLabel.WHEELED_DEVICE: DefaultBoxDetectionLabel.OTHER,
             AV2SensorBoxDetectionLabel.WHEELED_RIDER: DefaultBoxDetectionLabel.PERSON,
         }
         return mapping[self]
@@ -107,22 +109,22 @@ class KITTI360BoxDetectionLabel(BoxDetectionLabel):
     def to_default(self) -> DefaultBoxDetectionLabel:
         """Inherited, see superclass."""
         mapping = {
-            KITTI360BoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            KITTI360BoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             KITTI360BoxDetectionLabel.BOX: DefaultBoxDetectionLabel.GENERIC_OBJECT,
             KITTI360BoxDetectionLabel.BUS: DefaultBoxDetectionLabel.VEHICLE,
             KITTI360BoxDetectionLabel.CAR: DefaultBoxDetectionLabel.VEHICLE,
             KITTI360BoxDetectionLabel.CARAVAN: DefaultBoxDetectionLabel.VEHICLE,
             KITTI360BoxDetectionLabel.LAMP: DefaultBoxDetectionLabel.GENERIC_OBJECT,
-            KITTI360BoxDetectionLabel.MOTORCYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            KITTI360BoxDetectionLabel.MOTORCYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             KITTI360BoxDetectionLabel.PERSON: DefaultBoxDetectionLabel.PERSON,
             KITTI360BoxDetectionLabel.POLE: DefaultBoxDetectionLabel.GENERIC_OBJECT,
             KITTI360BoxDetectionLabel.RIDER: DefaultBoxDetectionLabel.PERSON,
             KITTI360BoxDetectionLabel.SMALLPOLE: DefaultBoxDetectionLabel.GENERIC_OBJECT,
             KITTI360BoxDetectionLabel.STOP: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
-            KITTI360BoxDetectionLabel.TRAFFIC_LIGHT: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
+            KITTI360BoxDetectionLabel.TRAFFIC_LIGHT: DefaultBoxDetectionLabel.TRAFFIC_LIGHT,
             KITTI360BoxDetectionLabel.TRAFFIC_SIGN: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
             KITTI360BoxDetectionLabel.TRAILER: DefaultBoxDetectionLabel.VEHICLE,
-            KITTI360BoxDetectionLabel.TRAIN: DefaultBoxDetectionLabel.VEHICLE,
+            KITTI360BoxDetectionLabel.TRAIN: DefaultBoxDetectionLabel.TRAIN,
             KITTI360BoxDetectionLabel.TRASH_BIN: DefaultBoxDetectionLabel.GENERIC_OBJECT,
             KITTI360BoxDetectionLabel.TRUCK: DefaultBoxDetectionLabel.VEHICLE,
             KITTI360BoxDetectionLabel.VENDING_MACHINE: DefaultBoxDetectionLabel.GENERIC_OBJECT,
@@ -159,7 +161,7 @@ class NuPlanBoxDetectionLabel(BoxDetectionLabel):
         """Inherited, see superclass."""
         mapping = {
             NuPlanBoxDetectionLabel.VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
-            NuPlanBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            NuPlanBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             NuPlanBoxDetectionLabel.PEDESTRIAN: DefaultBoxDetectionLabel.PERSON,
             NuPlanBoxDetectionLabel.TRAFFIC_CONE: DefaultBoxDetectionLabel.TRAFFIC_CONE,
             NuPlanBoxDetectionLabel.BARRIER: DefaultBoxDetectionLabel.BARRIER,
@@ -211,8 +213,8 @@ class NuScenesBoxDetectionLabel(BoxDetectionLabel):
             NuScenesBoxDetectionLabel.VEHICLE_EMERGENCY_AMBULANCE: DefaultBoxDetectionLabel.VEHICLE,
             NuScenesBoxDetectionLabel.VEHICLE_EMERGENCY_POLICE: DefaultBoxDetectionLabel.VEHICLE,
             NuScenesBoxDetectionLabel.VEHICLE_TRAILER: DefaultBoxDetectionLabel.VEHICLE,
-            NuScenesBoxDetectionLabel.VEHICLE_BICYCLE: DefaultBoxDetectionLabel.BICYCLE,
-            NuScenesBoxDetectionLabel.VEHICLE_MOTORCYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            NuScenesBoxDetectionLabel.VEHICLE_BICYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
+            NuScenesBoxDetectionLabel.VEHICLE_MOTORCYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             NuScenesBoxDetectionLabel.HUMAN_PEDESTRIAN_ADULT: DefaultBoxDetectionLabel.PERSON,
             NuScenesBoxDetectionLabel.HUMAN_PEDESTRIAN_CHILD: DefaultBoxDetectionLabel.PERSON,
             NuScenesBoxDetectionLabel.HUMAN_PEDESTRIAN_CONSTRUCTION_WORKER: DefaultBoxDetectionLabel.PERSON,
@@ -273,21 +275,21 @@ class PandasetBoxDetectionLabel(BoxDetectionLabel):
         mapping = {
             PandasetBoxDetectionLabel.ANIMALS_BIRD: DefaultBoxDetectionLabel.ANIMAL,
             PandasetBoxDetectionLabel.ANIMALS_OTHER: DefaultBoxDetectionLabel.ANIMAL,
-            PandasetBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.BICYCLE,
+            PandasetBoxDetectionLabel.BICYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             PandasetBoxDetectionLabel.BUS: DefaultBoxDetectionLabel.VEHICLE,
             PandasetBoxDetectionLabel.CAR: DefaultBoxDetectionLabel.VEHICLE,
             PandasetBoxDetectionLabel.CONES: DefaultBoxDetectionLabel.TRAFFIC_CONE,
             PandasetBoxDetectionLabel.CONSTRUCTION_SIGNS: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
             PandasetBoxDetectionLabel.EMERGENCY_VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
             PandasetBoxDetectionLabel.MEDIUM_SIZED_TRUCK: DefaultBoxDetectionLabel.VEHICLE,
-            PandasetBoxDetectionLabel.MOTORCYCLE: DefaultBoxDetectionLabel.BICYCLE,
-            PandasetBoxDetectionLabel.MOTORIZED_SCOOTER: DefaultBoxDetectionLabel.BICYCLE,
+            PandasetBoxDetectionLabel.MOTORCYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
+            PandasetBoxDetectionLabel.MOTORIZED_SCOOTER: DefaultBoxDetectionLabel.TWO_WHEELER,
             PandasetBoxDetectionLabel.OTHER_VEHICLE_CONSTRUCTION_VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
             PandasetBoxDetectionLabel.OTHER_VEHICLE_PEDICAB: DefaultBoxDetectionLabel.VEHICLE,
             PandasetBoxDetectionLabel.OTHER_VEHICLE_UNCOMMON: DefaultBoxDetectionLabel.VEHICLE,
             PandasetBoxDetectionLabel.PEDESTRIAN: DefaultBoxDetectionLabel.PERSON,
             PandasetBoxDetectionLabel.PEDESTRIAN_WITH_OBJECT: DefaultBoxDetectionLabel.PERSON,
-            PandasetBoxDetectionLabel.PERSONAL_MOBILITY_DEVICE: DefaultBoxDetectionLabel.BICYCLE,
+            PandasetBoxDetectionLabel.PERSONAL_MOBILITY_DEVICE: DefaultBoxDetectionLabel.OTHER,
             PandasetBoxDetectionLabel.PICKUP_TRUCK: DefaultBoxDetectionLabel.VEHICLE,
             PandasetBoxDetectionLabel.PYLONS: DefaultBoxDetectionLabel.TRAFFIC_CONE,
             PandasetBoxDetectionLabel.ROAD_BARRIERS: DefaultBoxDetectionLabel.BARRIER,
@@ -296,8 +298,8 @@ class PandasetBoxDetectionLabel(BoxDetectionLabel):
             PandasetBoxDetectionLabel.SIGNS: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
             PandasetBoxDetectionLabel.TEMPORARY_CONSTRUCTION_BARRIERS: DefaultBoxDetectionLabel.BARRIER,
             PandasetBoxDetectionLabel.TOWED_OBJECT: DefaultBoxDetectionLabel.VEHICLE,
-            PandasetBoxDetectionLabel.TRAIN: DefaultBoxDetectionLabel.TRAIN,  # TODO: Adjust default types
-            PandasetBoxDetectionLabel.TRAM_SUBWAY: DefaultBoxDetectionLabel.TRAIN,  # TODO: Adjust default types
+            PandasetBoxDetectionLabel.TRAIN: DefaultBoxDetectionLabel.TRAIN,
+            PandasetBoxDetectionLabel.TRAM_SUBWAY: DefaultBoxDetectionLabel.TRAIN,
         }
         return mapping[self]
 
@@ -322,11 +324,11 @@ class WODPerceptionBoxDetectionLabel(BoxDetectionLabel):
     def to_default(self) -> DefaultBoxDetectionLabel:
         """Inherited, see superclass."""
         mapping = {
-            WODPerceptionBoxDetectionLabel.TYPE_UNKNOWN: DefaultBoxDetectionLabel.GENERIC_OBJECT,
+            WODPerceptionBoxDetectionLabel.TYPE_UNKNOWN: DefaultBoxDetectionLabel.OTHER,
             WODPerceptionBoxDetectionLabel.TYPE_VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
             WODPerceptionBoxDetectionLabel.TYPE_PEDESTRIAN: DefaultBoxDetectionLabel.PERSON,
             WODPerceptionBoxDetectionLabel.TYPE_SIGN: DefaultBoxDetectionLabel.TRAFFIC_SIGN,
-            WODPerceptionBoxDetectionLabel.TYPE_CYCLIST: DefaultBoxDetectionLabel.BICYCLE,
+            WODPerceptionBoxDetectionLabel.TYPE_CYCLIST: DefaultBoxDetectionLabel.TWO_WHEELER,
         }
         return mapping[self]
 
@@ -350,11 +352,11 @@ class WODMotionBoxDetectionLabel(BoxDetectionLabel):
     def to_default(self) -> DefaultBoxDetectionLabel:
         """Inherited, see superclass."""
         mapping = {
-            WODMotionBoxDetectionLabel.TYPE_UNSET: DefaultBoxDetectionLabel.GENERIC_OBJECT,
+            WODMotionBoxDetectionLabel.TYPE_UNSET: DefaultBoxDetectionLabel.OTHER,
             WODMotionBoxDetectionLabel.TYPE_VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
             WODMotionBoxDetectionLabel.TYPE_PEDESTRIAN: DefaultBoxDetectionLabel.PERSON,
-            WODMotionBoxDetectionLabel.TYPE_OTHER: DefaultBoxDetectionLabel.GENERIC_OBJECT,
-            WODMotionBoxDetectionLabel.TYPE_CYCLIST: DefaultBoxDetectionLabel.BICYCLE,
+            WODMotionBoxDetectionLabel.TYPE_OTHER: DefaultBoxDetectionLabel.OTHER,
+            WODMotionBoxDetectionLabel.TYPE_CYCLIST: DefaultBoxDetectionLabel.TWO_WHEELER,
         }
         return mapping[self]
 
@@ -389,8 +391,10 @@ class PhysicalAIAVBoxDetectionLabel(BoxDetectionLabel):
             PhysicalAIAVBoxDetectionLabel.HEAVY_TRUCK: DefaultBoxDetectionLabel.VEHICLE,
             PhysicalAIAVBoxDetectionLabel.OTHER_VEHICLE: DefaultBoxDetectionLabel.VEHICLE,
             PhysicalAIAVBoxDetectionLabel.PROTRUDING_OBJECT: DefaultBoxDetectionLabel.GENERIC_OBJECT,
-            PhysicalAIAVBoxDetectionLabel.RIDER: DefaultBoxDetectionLabel.PERSON,
-            PhysicalAIAVBoxDetectionLabel.STROLLER: DefaultBoxDetectionLabel.PERSON,
+            # NOTE @DanielDauner: The rider class includes the vehicle (e.g. bicycle),
+            # we thus map to TWO_WHEELER instead of PERSON.
+            PhysicalAIAVBoxDetectionLabel.RIDER: DefaultBoxDetectionLabel.TWO_WHEELER,
+            PhysicalAIAVBoxDetectionLabel.STROLLER: DefaultBoxDetectionLabel.OTHER,
             PhysicalAIAVBoxDetectionLabel.TRAILER: DefaultBoxDetectionLabel.VEHICLE,
             PhysicalAIAVBoxDetectionLabel.ANIMAL: DefaultBoxDetectionLabel.ANIMAL,
             PhysicalAIAVBoxDetectionLabel.TRAIN_OR_TRAM_CAR: DefaultBoxDetectionLabel.TRAIN,

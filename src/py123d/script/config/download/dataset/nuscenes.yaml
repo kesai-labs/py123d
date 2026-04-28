@@ -1,0 +1,35 @@
+downloader:
+  _target_: py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader
+  _convert_: 'all'
+
+  # Destination for extracted archives. Defaults to $NUSCENES_DATA_ROOT
+  # (set via default_dataset_paths.yaml). Each archive is unpacked in-place into
+  # output_dir and the archives are then deleted — only the standard nuScenes tree
+  # (samples/, sweeps/, v1.0-*/) survives.
+  output_dir: ${dataset_paths.nuscenes_data_root}
+
+  # nuScenes credentials. Default to reading $NUSCENES_EMAIL / $NUSCENES_PASSWORD
+  # from the environment. Register and accept terms at https://www.nuscenes.org/nuscenes
+  # before first use.
+  email: null
+  password: null
+
+  region: us                    # "us" or "asia" — CDN routing for faster transfer
+
+  # Selection — mutually exclusive (at most one of preset / archives / num_archives).
+  # When all three are null, the full 16-archive catalog (~700 GB + extras) is fetched.
+  #
+  # preset choices (see NUSCENES_PRESETS in nuscenes_download.py):
+  #   mini          ~600 MB   mini dataset + HD maps + CAN bus (smoketest-friendly)
+  #   trainval_one  ~75 GB    trainval metadata + trainval01 blob + maps + CAN bus
+  #   test          ~30 GB    test split + maps + CAN bus
+  #   full          ~700 GB   every archive in the catalog
+  preset: null
+  archives: null                # e.g. ["v1.0-trainval_meta.tgz", "nuScenes-map-expansion-v1.3.zip"]
+  num_archives: null            # first N archives, or N random if sample_random=true
+  sample_random: false
+  seed: 0
+
+  max_workers: 4                # parallel per-archive downloads
+  verify_md5: true              # MD5-verify archives that have a published checksum
+  dry_run: false

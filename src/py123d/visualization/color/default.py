@@ -128,7 +128,7 @@ BOX_DETECTION_CONFIG: Dict[DefaultBoxDetectionLabel, PlotConfig] = {
         zorder=3,
     ),
     # VRUs
-    DefaultBoxDetectionLabel.BICYCLE: PlotConfig(
+    DefaultBoxDetectionLabel.TWO_WHEELER: PlotConfig(
         fill_color=Color("#76b7b2"),
         fill_color_alpha=1.0,
         line_color=BLACK,
@@ -205,6 +205,17 @@ BOX_DETECTION_CONFIG: Dict[DefaultBoxDetectionLabel, PlotConfig] = {
     ),
     DefaultBoxDetectionLabel.GENERIC_OBJECT: PlotConfig(
         fill_color=Color("#E38C47"),
+        fill_color_alpha=1.0,
+        line_color=BLACK,
+        line_color_alpha=1.0,
+        line_width=linewidth,
+        line_style="-",
+        marker_style=None,
+        zorder=2,
+    ),
+    # Miscellaneous
+    DefaultBoxDetectionLabel.OTHER: PlotConfig(
+        fill_color=Color("#9c8aa5"),
         fill_color_alpha=1.0,
         line_color=BLACK,
         line_color_alpha=1.0,

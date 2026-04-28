@@ -1,0 +1,25 @@
+downloader:
+  _target_: py123d.parser.wod.wod_download.WODMotionDownloader
+  _convert_: 'all'
+
+  # Destination. Defaults to $WOD_MOTION_DATA_ROOT (set via default_dataset_paths.yaml).
+  # Override to null to let a streaming parser manage a temp directory.
+  output_dir: ${dataset_paths.wod_motion_data_root}
+
+  # 123D split names — one or more of WOD_MOTION_AVAILABLE_SPLITS:
+  #   wod-motion_{train,val,test}, wod-motion-20s_train,
+  #   wod-motion-interactive_{val,test}.
+  splits: [wod-motion_train, wod-motion_val, wod-motion_test]
+
+  version: "1.3.0"          # use dots; Hydra parses "1_3_0" as the int 130
+  section: scenario         # "scenario" | "lidar" | "both"
+
+  num_shards: null          # first N per split, or N random if sample_random=true
+  shard_indices: null       # e.g. {wod-motion_train: [0, 1, 2], wod-motion_val: [0]}
+  sample_random: false
+  seed: 0
+
+  credentials_file: null    # service-account JSON; null → Application Default Credentials
+  max_workers: 8
+  overwrite: false          # re-download shards whose local file already exists
+  dry_run: false            # log the plan without downloading

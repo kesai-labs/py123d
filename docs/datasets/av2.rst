@@ -89,78 +89,121 @@ Available Modalities
     :no-inherited-members:
 
 
-Download
-~~~~~~~~
-
-You can download the Argoverse 2 Sensor dataset from the `Argoverse website <https://www.argoverse.org/>`_.
-You can also use directly the dataset from AWS. For that, you first need to install `s5cmd <https://github.com/peak/s5cmd>`_:
-
-.. code-block:: bash
-
-  pip install s5cmd
-
-
-Next, you can run the following bash script to download the dataset:
-
-.. code-block:: bash
-
-  DATASET_NAME="sensor" # "sensor" "lidar" "motion-forecasting" "tbv"
-  AV2_SENSOR_ROOT="/path/to/argoverse/sensor"
-
-  mkdir -p "$AV2_SENSOR_ROOT"
-  s5cmd --no-sign-request cp "s3://argoverse/datasets/av2/$DATASET_NAME/*" "$AV2_SENSOR_ROOT"
-  # or: s5cmd --no-sign-request sync "s3://argoverse/datasets/av2/$DATASET_NAME/*" "$AV2_SENSOR_ROOT"
-
-
-The downloaded dataset should have the following structure:
-
-.. code-block:: none
-
-  $AV2_SENSOR_ROOT
-  ├── train
-  │   ├── 00a6ffc1-6ce9-3bc3-a060-6006e9893a1a
-  │   │   ├── annotations.feather
-  │   │   ├── calibration
-  │   │   │   ├── egovehicle_SE3_sensor.feather
-  │   │   │   └── intrinsics.feather
-  │   │   ├── city_SE3_egovehicle.feather
-  │   │   ├── map
-  │   │   │   ├── 00a6ffc1-6ce9-3bc3-a060-6006e9893a1a_ground_height_surface____PIT.npy
-  │   │   │   ├── 00a6ffc1-6ce9-3bc3-a060-6006e9893a1a___img_Sim2_city.json
-  │   │   │   └── log_map_archive_00a6ffc1-6ce9-3bc3-a060-6006e9893a1a____PIT_city_31785.json
-  │   │   └── sensors
-  │   │       ├── cameras
-  │   │       │   └──...
-  │   │       └── lidar
-  │   │           └──...
-  │   └── ...
-  ├── test
-  │   └── ...
-  └── val
-      └── ...
-
-
 Installation
 ~~~~~~~~~~~~
 
-No additional installation steps are required beyond the standard `py123d`` installation.
+The AV2 downloader uses ``boto3`` to pull from the public Argoverse S3 bucket. Install
+the extra:
+
+.. tab-set::
+
+  .. tab-item:: PyPI
+
+    .. code-block:: bash
+
+      pip install py123d[av2]
+
+  .. tab-item:: Source
+
+    .. code-block:: bash
+
+      pip install -e .[av2]
+
+``boto3`` is only required to *download* the dataset. Parsing a locally-downloaded
+dataset needs no extra dependencies beyond the standard ``py123d`` install.
+
+
+Download
+~~~~~~~~
+
+The AV2 Sensor dataset lives on a publicly-readable AWS S3 bucket
+(``s3://argoverse/datasets/av2/sensor/``). No AWS credentials are required.
+Downloads run through the unified ``py123d-download`` CLI:
+
+.. code-block:: bash
+
+  export AV2_DATA_ROOT=/path/to/argoverse
+
+  # Download a 5-log subset of the validation split (~1.25 GB) to $AV2_DATA_ROOT
+  py123d-download dataset=av2-sensor \
+      'dataset.downloader.splits=[av2-sensor_val]' \
+      dataset.downloader.num_logs=5
+
+  # Or the full dataset (~250 GB across 1000 logs)
+  py123d-download dataset=av2-sensor
+
+  # Preview the plan without downloading
+  py123d-download dataset=av2-sensor \
+      dataset.downloader.num_logs=3 \
+      dataset.downloader.dry_run=true
+
+The downloaded dataset has the following per-log structure:
+
+.. code-block:: none
+
+  $AV2_DATA_ROOT
+  └── sensor/
+      ├── train/
+      │   └── 00a6ffc1-6ce9-3bc3-a060-6006e9893a1a/
+      │       ├── annotations.feather
+      │       ├── calibration/
+      │       │   ├── egovehicle_SE3_sensor.feather
+      │       │   └── intrinsics.feather
+      │       ├── city_SE3_egovehicle.feather
+      │       ├── map/
+      │       │   └── ...
+      │       └── sensors/
+      │           ├── cameras/...
+      │           └── lidar/...
+      ├── val/
+      └── test/
 
 
 Conversion
 ~~~~~~~~~~
 
-To run the conversion, you either need to set the environment variable ``$AV2_DATA_ROOT`` or ``$AV2_SENSOR_ROOT``.
-You can also override the file path and run:
+**Local mode** — data already downloaded to ``$AV2_DATA_ROOT``:
 
 .. code-block:: bash
 
-  py123d-conversion datasets=["av2-sensor"] \
-  dataset_paths.av2_data_root=$AV2_DATA_ROOT # optional if env variable is set
-
+  py123d-conversion dataset=av2-sensor
 
 .. note::
-  The conversion of AV2 by default does not store sensor data in the logs, but only relative file paths.
-  To change this behavior, you need to adapt the ``av2-sensor.yaml`` converter configuration.
+  The conversion of AV2 by default does not store sensor data in the logs, but only
+  relative file paths. To change this behavior, adapt the ``av2-sensor.yaml``
+  converter configuration.
+
+**Streaming mode** — ``dataset=av2-sensor-stream`` attaches an ``Av2Downloader`` to
+the parser; it fetches selected logs from S3 into a temp directory at parser
+construction time and cleans up on parser GC. Useful when the full ~250 GB dataset
+is too large for local disk and you only need a handful of logs for iteration:
+
+.. code-block:: bash
+
+  # Stream the first log of the validation split only:
+  py123d-conversion dataset=av2-sensor-stream \
+      dataset.parser.downloader.num_logs=1 \
+      'dataset.parser.splits=[av2-sensor_val]'
+
+  # Stream specific log UUIDs:
+  py123d-conversion dataset=av2-sensor-stream \
+      'dataset.parser.downloader.log_ids={av2-sensor_val: [00a6ffc1-6ce9-3bc3-a060-6006e9893a1a]}'
+
+  # Persist downloads under a dedicated cache dir instead of a tempdir:
+  py123d-conversion dataset=av2-sensor-stream \
+      dataset.parser.downloader.num_logs=1 \
+      dataset.parser.downloader.output_dir=/mnt/scratch/av2_sensor_cache
+
+.. warning::
+  Each AV2 Sensor log is ~250 MB (~1000 objects: annotations + calibration + map +
+  per-camera JPEGs + per-lidar feathers). Even small ``num_logs`` values imply
+  multi-hundred-MB of download traffic.
+
+.. note::
+  The streaming variant overrides the default ``log_writer_config`` to force
+  self-contained sensor payloads (``camera_store_option: jpeg_binary``,
+  ``lidar_store_option: binary``) since the source temp directory is deleted when
+  the parser is garbage collected.
 
 Dataset Issues
 ~~~~~~~~~~~~~~

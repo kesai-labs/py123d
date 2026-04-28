@@ -1,0 +1,83 @@
+# Streaming variant of dataset=nuscenes-interpolated-mini — 10Hz interpolated nuScenes
+# mini conversion, with the same CloudFront-backed downloader used by the other
+# `*-stream` configs. Small enough (~600 MB on the wire) to serve as the canonical
+# end-to-end smoketest.
+#
+# Mirrors `nuscenes-interpolated-mini.yaml` exactly for splits + sync_config + writer
+# flags (including `target_iteration_duration_s: 0.1`); only the data paths, sensor
+# storage options (forced to self-contained binary), and the downloader block differ.
+#
+# Credentials (required): $NUSCENES_EMAIL and $NUSCENES_PASSWORD. Register and accept
+# the dataset terms at https://www.nuscenes.org/nuscenes first.
+#
+# Usage:
+#   py123d-conversion dataset=nuscenes-interpolated-mini-stream
+
+parser:
+  _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
+  _convert_: 'all'
+
+  splits: ["nuscenes-interpolated-mini_train", "nuscenes-interpolated-mini_val"]
+
+  nuscenes_data_root: null
+  nuscenes_map_root: null           # auto-detected from extracted maps/
+  stream_archives: null             # uses downloader.preset
+
+  downloader:
+    _target_: py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader
+    _convert_: 'all'
+
+    output_dir: null
+
+    email: null                     # falls back to $NUSCENES_EMAIL
+    password: null                  # falls back to $NUSCENES_PASSWORD
+    region: us
+
+    preset: mini                    # v1.0-mini.tgz + map expansion + can_bus.zip (~600 MB)
+    archives: null
+    num_archives: null
+    sample_random: false
+    seed: 0
+
+    max_workers: 4
+    verify_md5: true
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  # Temp dir is deleted on parser destruction — "path" references would dangle.
+  camera_store_option: "jpeg_binary"
+  lidar_store_option: "binary"
+  lidar_codec: "laz"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: box_detections_se3.timestamp_us
+    direction: "backward" # "forward" or "backward"
+    target_iteration_duration_s: 0.1 # 10Hz iteration frequency
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

@@ -6,22 +6,9 @@ parser:
   ncore_data_root: ${dataset_paths.ncore_data_root}
   max_clips: null
 
-  # Streaming mode — download each clip to a temp directory at parse time and delete it
-  # afterwards. Use when disk is tight or you want to convert a one-off subset without
-  # committing the full ~2.4 TB to permanent storage.
-  #
-  # When `stream_enabled: true`:
-  #   - `ncore_data_root` is ignored for clip discovery
-  #   - each ray worker streams its clips independently
-  #   - cleanup happens per clip, right after its Arrow log finishes writing
-  stream_enabled: false
-  stream_clip_ids: null          # optional list of UUIDs; when null, fetch the full HF catalog
-  stream_hf_token: null          # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
-  stream_revision: "main"
-  stream_modality: "all"         # "all" | "metadata" | "lidar" | "cameras"
-  stream_cameras: null           # only honored when stream_modality == "cameras"
-  stream_temp_dir: null          # null → system temp
-  stream_max_workers: 4
+  # To stream clips from Hugging Face instead of reading from disk, use the
+  # `dataset=ncore-stream` config variant, which attaches an NCoreDownloader.
+  downloader: null
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig

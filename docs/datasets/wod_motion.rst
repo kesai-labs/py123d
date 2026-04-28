@@ -131,33 +131,42 @@ Conversion
 
   py123d-conversion dataset=wod-motion
 
-**Streaming mode** — download selected scenario shards from GCS into a temp directory at
-parser construction time:
+**Streaming mode** — ``dataset=wod-motion-stream`` attaches a ``WODMotionDownloader`` to
+the parser; it fetches selected shards from GCS into a temp directory at parser
+construction time and cleans up when the parser is garbage-collected:
 
 .. code-block:: bash
 
   # Stream the first shard of each default split:
-  py123d-conversion dataset=wod-motion \
-      dataset.parser.stream_enabled=true \
-      dataset.parser.stream_num_shards=1
+  py123d-conversion dataset=wod-motion-stream \
+      dataset.parser.downloader.num_shards=1
 
-  # Stream specific shard indices (keyed by GCS folder name):
-  py123d-conversion dataset=wod-motion \
-      dataset.parser.stream_enabled=true \
-      'dataset.parser.stream_shard_indices={training: [0, 1, 2], validation: [0]}'
+  # Stream specific shard indices (keyed by 123D split name):
+  py123d-conversion dataset=wod-motion-stream \
+      'dataset.parser.downloader.shard_indices={wod-motion_train: [0, 1, 2], wod-motion_val: [0]}'
+
+  # Persist downloads under a dedicated cache dir instead of a tempdir:
+  py123d-conversion dataset=wod-motion-stream \
+      dataset.parser.downloader.num_shards=1 \
+      dataset.parser.downloader.output_dir=/mnt/scratch/wod_motion_cache
 
 The motion bucket is anonymously readable after license acceptance, so ADC is not strictly
 required; if available it will be used automatically.
 
-To pre-stage data outside the conversion pipeline, use the standalone CLI:
+To pre-stage data outside the conversion pipeline, use ``py123d-download``:
 
 .. code-block:: bash
 
-  # List shards that would be downloaded (first 3 training shards):
-  py123d-wod-download motion --splits training --num-shards 3 --list
+  # Preview which shards would be downloaded (first 3 training shards):
+  py123d-download dataset=wod-motion \
+      'dataset.downloader.splits=[wod-motion_train]' \
+      dataset.downloader.num_shards=3 \
+      dataset.downloader.dry_run=true
 
   # Download the first training shard to $WOD_MOTION_DATA_ROOT:
-  py123d-wod-download motion --splits training --num-shards 1
+  py123d-download dataset=wod-motion \
+      'dataset.downloader.splits=[wod-motion_train]' \
+      dataset.downloader.num_shards=1
 
 
 Dataset Specific Issues

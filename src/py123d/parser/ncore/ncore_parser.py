@@ -1,36 +1,8 @@
-"""Dataset parser for the NVIDIA PhysicalAI-Autonomous-Vehicles-NCore dataset.
-
-NCore ships clips in NVIDIA's V4 component-based format — one UUID folder per clip
-under ``clips/`` containing a ``pai_{clip_id}.json`` sequence manifest plus sibling
-``.zarr.itar`` component stores for poses, intrinsics, cuboids, lidar, and each of
-the 7 FTheta cameras.
-
-Reading relies on the ``nvidia-ncore`` PyPI package (optional; install via
-``pip install py123d[ncore]``). The parser instances are picklable — all zarr/tar
-readers are opened lazily inside the iterator methods so the conversion pipeline can
-ship ``NCoreLogParser`` objects across a process pool without touching open file
-handles.
-
-Two operating modes:
-
-**Local** (default): clips live under ``ncore_data_root/clips/{uuid}/``, typically
-downloaded up front via ``py123d-ncore-download``.
-
-**Streaming**: set ``stream_enabled: true`` and the parser will pull each clip from
-Hugging Face into a per-clip temp directory just-in-time, convert it, and delete the
-temp dir before moving on. Useful when disk is tight or when converting a one-off
-subset without committing 2.4 TB to permanent storage.
-
-See :ref:`the NCore docs <ncore>` and https://github.com/NVIDIA/ncore for details
-on the component layout.
-"""
-
 from __future__ import annotations
 
 import contextlib
 import logging
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union
 
@@ -65,17 +37,7 @@ from py123d.parser.base_dataset_parser import (
     ParsedCamera,
     ParsedLidar,
 )
-from py123d.parser.ncore.download import (
-    CAMERA_IDS as NCORE_DOWNLOAD_CAMERA_IDS,
-)
-from py123d.parser.ncore.download import (
-    MODALITY_CHOICES as NCORE_DOWNLOAD_MODALITY_CHOICES,
-)
-from py123d.parser.ncore.download import (
-    download_clip,
-    list_all_clip_ids,
-    resolve_hf_token,
-)
+from py123d.parser.ncore.ncore_download import NCoreDownloader
 from py123d.parser.ncore.utils.ncore_constants import (
     NCORE_BOX_DETECTIONS_SE3_METADATA,
     NCORE_CAMERA_ID_MAPPING,
@@ -128,18 +90,6 @@ def _import_ncore_v4():
     )
 
 
-@dataclass(frozen=True)
-class _StreamConfig:
-    """Settings carried on each log parser in streaming mode — serializable across processes."""
-
-    hf_token: Optional[str]
-    revision: str
-    modality: str
-    cameras: Optional[Tuple[str, ...]]
-    temp_dir: Optional[str]
-    max_workers: int
-
-
 class NCoreParser(BaseDatasetParser):
     """Dataset parser for the NVIDIA PhysicalAI-Autonomous-Vehicles-NCore dataset."""
 
@@ -148,75 +98,38 @@ class NCoreParser(BaseDatasetParser):
         splits: List[str],
         ncore_data_root: Optional[Union[Path, str]] = None,
         max_clips: Optional[int] = None,
-        stream_enabled: bool = False,
-        stream_clip_ids: Optional[List[str]] = None,
-        stream_hf_token: Optional[str] = None,
-        stream_revision: str = "main",
-        stream_modality: str = "all",
-        stream_cameras: Optional[List[str]] = None,
-        stream_temp_dir: Optional[Union[Path, str]] = None,
-        stream_max_workers: int = 4,
+        downloader: Optional[NCoreDownloader] = None,
     ) -> None:
         """Initialize the NCore parser.
 
         :param splits: Dataset splits to process. Currently only ``"ncore_train"`` is shipped.
-        :param ncore_data_root: Root directory of the downloaded NCore dataset (contains ``clips/``).
-            Required for local mode; ignored when ``stream_enabled=True``.
-        :param max_clips: Optional cap on the number of clips to process.
-        :param stream_enabled: If ``True``, download each clip to a temp directory at parse time
-            and delete the temp dir afterward. No local ``ncore_data_root`` is required.
-        :param stream_clip_ids: Optional explicit list of clip UUIDs to stream. If unset, the
-            full clip catalog is listed from Hugging Face (truncated by ``max_clips``).
-        :param stream_hf_token: Hugging Face access token. Falls back to ``$HF_TOKEN`` /
-            ``$HUGGINGFACE_HUB_TOKEN`` if not provided.
-        :param stream_revision: HF dataset revision to stream from (default ``"main"``).
-        :param stream_modality: Which modalities to pull per clip: ``"all"`` / ``"metadata"`` /
-            ``"lidar"`` / ``"cameras"``. Non-``"all"`` choices still include the sequence
-            metadata + default component store so the clip remains loadable.
-        :param stream_cameras: When ``stream_modality="cameras"``, restrict to these camera IDs.
-        :param stream_temp_dir: Parent directory for per-clip temp folders. Defaults to the
-            system temp location.
-        :param stream_max_workers: Parallel HF download workers per clip.
+        :param ncore_data_root: Root directory of the downloaded NCore dataset (contains
+            ``clips/``). Required when ``downloader`` is ``None``; ignored otherwise.
+        :param max_clips: Optional cap on the number of clips to process. Applied on top
+            of the downloader's own selection in streaming mode.
+        :param downloader: Optional :class:`NCoreDownloader` used for streaming mode.
+            When provided, each log parser pulls its assigned clip via
+            :meth:`NCoreDownloader.download_single_clip` into a per-clip
+            :class:`tempfile.TemporaryDirectory`, converts it, and deletes the temp dir
+            before moving on. Clip selection comes from
+            :meth:`NCoreDownloader.resolve_clip_ids`; no local ``ncore_data_root`` is
+            required in this mode.
         """
         for split in splits:
             assert split in NCORE_SPLITS, f"Split {split} is not available. Available splits: {NCORE_SPLITS}"
         assert len(splits) > 0, "At least one split must be provided."
-        assert stream_modality in NCORE_DOWNLOAD_MODALITY_CHOICES, (
-            f"stream_modality {stream_modality!r} must be one of {NCORE_DOWNLOAD_MODALITY_CHOICES}"
-        )
-        if stream_cameras is not None:
-            for cam in stream_cameras:
-                assert cam in NCORE_DOWNLOAD_CAMERA_IDS, (
-                    f"stream_cameras entry {cam!r} is not a valid NCore camera ID; "
-                    f"must be one of {NCORE_DOWNLOAD_CAMERA_IDS}"
-                )
 
         self._splits = splits
         self._max_clips = max_clips
-        self._stream_enabled = stream_enabled
+        self._downloader: Optional[NCoreDownloader] = downloader
 
-        if stream_enabled:
-            resolved_token = resolve_hf_token(stream_hf_token)
-            if resolved_token is None:
-                logger.warning(
-                    "Streaming NCore without an HF token. The dataset is gated — set $HF_TOKEN "
-                    "if clip downloads fail with 401/403."
-                )
-            self._stream_config: Optional[_StreamConfig] = _StreamConfig(
-                hf_token=resolved_token,
-                revision=stream_revision,
-                modality=stream_modality,
-                cameras=tuple(stream_cameras) if stream_cameras else None,
-                temp_dir=str(stream_temp_dir) if stream_temp_dir is not None else None,
-                max_workers=stream_max_workers,
-            )
+        if downloader is not None:
             self._data_root: Optional[Path] = None
-            self._clip_entries: List[Tuple[str, Optional[Path], str]] = self._collect_clips_streaming(stream_clip_ids)
+            self._clip_entries: List[Tuple[str, Optional[Path], str]] = self._collect_clips_streaming()
         else:
-            assert ncore_data_root is not None, "`ncore_data_root` must be provided when `stream_enabled=False`."
+            assert ncore_data_root is not None, "`ncore_data_root` must be provided when `downloader` is None."
             data_root = Path(ncore_data_root)
             assert data_root.exists(), f"`ncore_data_root` path {data_root} does not exist."
-            self._stream_config = None
             self._data_root = data_root
             self._clip_entries = self._collect_clips_local()
 
@@ -247,14 +160,11 @@ class NCoreParser(BaseDatasetParser):
                 break
         return entries
 
-    def _collect_clips_streaming(self, stream_clip_ids: Optional[List[str]]) -> List[Tuple[str, Optional[Path], str]]:
-        """Enumerate clip UUIDs to stream from HF; no local manifest path yet."""
-        if stream_clip_ids:
-            clip_ids: List[str] = list(stream_clip_ids)
-        else:
-            assert self._stream_config is not None
-            clip_ids = list_all_clip_ids(token=self._stream_config.hf_token, revision=self._stream_config.revision)
-            logger.info("NCore streaming: %d clips discovered on HF", len(clip_ids))
+    def _collect_clips_streaming(self) -> List[Tuple[str, Optional[Path], str]]:
+        """Enumerate clip UUIDs to stream via the configured downloader."""
+        assert self._downloader is not None
+        clip_ids = self._downloader.resolve_clip_ids()
+        logger.info("NCore streaming: %d clips selected by downloader", len(clip_ids))
 
         if self._max_clips is not None:
             clip_ids = clip_ids[: self._max_clips]
@@ -270,7 +180,7 @@ class NCoreParser(BaseDatasetParser):
                 clip_id=clip_id,
                 sequence_manifest_path=manifest,
                 split=split,
-                stream_config=self._stream_config,
+                downloader=self._downloader,
             )
             for clip_id, manifest, split in self._clip_entries
         ]
@@ -289,13 +199,13 @@ class NCoreLogParser(BaseLogParser):
         clip_id: str,
         sequence_manifest_path: Optional[Path],
         split: str,
-        stream_config: Optional[_StreamConfig] = None,
+        downloader: Optional[NCoreDownloader] = None,
     ) -> None:
         self._data_root = data_root
         self._clip_id = clip_id
         self._sequence_manifest_path = sequence_manifest_path
         self._split = split
-        self._stream_config = stream_config
+        self._downloader = downloader
 
     def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
@@ -319,22 +229,17 @@ class NCoreLogParser(BaseLogParser):
         when the context manager exits (i.e. after the parser generator is exhausted and
         after ``_ClipContext.close()`` releases the zarr readers).
         """
-        if self._stream_config is None:
+        if self._downloader is None:
             assert self._data_root is not None and self._sequence_manifest_path is not None
             yield self._data_root, self._sequence_manifest_path
             return
 
-        with tempfile.TemporaryDirectory(prefix=f"ncore_{self._clip_id}_", dir=self._stream_config.temp_dir) as tmp:
+        with tempfile.TemporaryDirectory(prefix=f"ncore_{self._clip_id}_") as tmp:
             tmp_root = Path(tmp)
             logger.info("Streaming NCore clip %s to %s", self._clip_id, tmp_root)
-            manifest_path = download_clip(
+            manifest_path = self._downloader.download_single_clip(
                 clip_id=self._clip_id,
                 output_dir=tmp_root,
-                modality=self._stream_config.modality,
-                cameras=list(self._stream_config.cameras) if self._stream_config.cameras else None,
-                hf_token=self._stream_config.hf_token,
-                revision=self._stream_config.revision,
-                max_workers=self._stream_config.max_workers,
             )
             yield tmp_root, manifest_path
 
