@@ -23,6 +23,7 @@ from py123d.datatypes import (
     MapMetadata,
     RoadEdge,
     RoadLine,
+    SpeedBump,
     StopZone,
     Walkway,
 )
@@ -100,6 +101,8 @@ class ArrowMapWriter(BaseMapWriter):
             self._write_road_edge(map_object)
         elif isinstance(map_object, RoadLine):
             self._write_road_line(map_object)
+        elif isinstance(map_object, SpeedBump):
+            self._write_speed_bump(map_object)
         else:
             raise ValueError(f"Unsupported map object type: {type(map_object)}")
 
@@ -148,6 +151,10 @@ class ArrowMapWriter(BaseMapWriter):
         self._write_surface_layer(MapLayer.STOP_ZONE, stop_zone)
         self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"].append(int(stop_zone.stop_zone_type))
         self._map_data[MapLayer.STOP_ZONE]["lane_ids"].append(stop_zone.lane_ids)
+
+    def _write_speed_bump(self, speed_bump: SpeedBump) -> None:
+        self._write_surface_layer(MapLayer.SPEED_BUMP, speed_bump)
+        self._map_data[MapLayer.SPEED_BUMP]["speed_bump_type"].append(int(speed_bump.speed_bump_type))
 
     def _write_road_edge(self, road_edge: RoadEdge) -> None:
         """Inherited, see superclass."""
@@ -293,7 +300,19 @@ class ArrowMapWriter(BaseMapWriter):
                 }
                 all_features.append(msgpack_encode_with_numpy(stop_zone_dict))  # type: ignore
 
-            # 8. Road edges
+            # 9. Speed bumps
+            for idx in range(len(self._map_data[MapLayer.SPEED_BUMP]["id"])):
+                all_object_ids.append(self._map_data[MapLayer.SPEED_BUMP]["id"][idx])
+                all_wkbs.append(self._map_data[MapLayer.SPEED_BUMP]["wkb"][idx])
+                all_map_layers.append(int(MapLayer.SPEED_BUMP))
+
+                speed_bump_dict = {
+                    "outline": self._map_data[MapLayer.SPEED_BUMP]["outline"][idx],
+                    "speed_bump_type": self._map_data[MapLayer.SPEED_BUMP]["speed_bump_type"][idx],
+                }
+                all_features.append(msgpack_encode_with_numpy(speed_bump_dict))  # type: ignore
+
+            # 10. Road edges
             for idx in range(len(self._map_data[MapLayer.ROAD_EDGE]["id"])):
                 all_object_ids.append(self._map_data[MapLayer.ROAD_EDGE]["id"][idx])
                 all_wkbs.append(self._map_data[MapLayer.ROAD_EDGE]["wkb"][idx])
@@ -304,7 +323,7 @@ class ArrowMapWriter(BaseMapWriter):
                 }
                 all_features.append(msgpack_encode_with_numpy(road_edge_dict))  # type: ignore
 
-            # 9. Road lines
+            # 11. Road lines
             for idx in range(len(self._map_data[MapLayer.ROAD_LINE]["id"])):
                 all_object_ids.append(self._map_data[MapLayer.ROAD_LINE]["id"][idx])
                 all_wkbs.append(self._map_data[MapLayer.ROAD_LINE]["wkb"][idx])
@@ -394,6 +413,7 @@ def _map_ids_to_integer(map_data: Dict[MapLayer, Dict[str, Any]]) -> None:
     carpark_id_mapping = ToIntMapping.from_list(map_data[MapLayer.CARPARK]["id"])
     generic_drivable_id_mapping = ToIntMapping.from_list(map_data[MapLayer.GENERIC_DRIVABLE]["id"])
     stop_zone_id_mapping = ToIntMapping.from_list(map_data[MapLayer.STOP_ZONE]["id"])
+    speed_bump_id_mapping = ToIntMapping.from_list(map_data[MapLayer.SPEED_BUMP]["id"])
     road_line_id_mapping = ToIntMapping.from_list(map_data[MapLayer.ROAD_LINE]["id"])
     road_edge_id_mapping = ToIntMapping.from_list(map_data[MapLayer.ROAD_EDGE]["id"])
 
@@ -460,6 +480,11 @@ def _map_ids_to_integer(map_data: Dict[MapLayer, Dict[str, Any]]) -> None:
             map_data[MapLayer.STOP_ZONE]["id"][idx] = stop_zone_id_mapping.map(map_data[MapLayer.STOP_ZONE]["id"][idx])
             map_data[MapLayer.STOP_ZONE]["lane_ids"][idx] = lane_id_mapping.map_list(
                 map_data[MapLayer.STOP_ZONE]["lane_ids"][idx]
+            )
+    if len(map_data[MapLayer.SPEED_BUMP]["id"]) > 0:
+        for idx in range(len(map_data[MapLayer.SPEED_BUMP]["id"])):
+            map_data[MapLayer.SPEED_BUMP]["id"][idx] = speed_bump_id_mapping.map(
+                map_data[MapLayer.SPEED_BUMP]["id"][idx]
             )
     if len(map_data[MapLayer.ROAD_LINE]["id"]) > 0:
         for idx in range(len(map_data[MapLayer.ROAD_LINE]["id"])):

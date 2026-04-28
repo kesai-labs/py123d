@@ -20,6 +20,7 @@ from py123d.datatypes import (
     MapMetadata,
     RoadEdge,
     RoadLine,
+    SpeedBump,
     StopZone,
     Walkway,
 )
@@ -29,6 +30,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     LaneType,
     RoadEdgeType,
     RoadLineType,
+    SpeedBumpType,
     StopZoneType,
 )
 from py123d.geometry import Polyline2D, Polyline3D
@@ -215,6 +217,20 @@ def make_stop_zone(
         stop_zone_type=stop_zone_type,
         outline=outline,
         lane_ids=lane_ids,
+    )
+
+
+def make_speed_bump(
+    object_id: MapObjectIDType = 0,
+    speed_bump_type: SpeedBumpType = SpeedBumpType.UNKNOWN,
+    cx: float = 80.0,
+    cy: float = 5.0,
+) -> SpeedBump:
+    outline = make_square_outline(cx, cy, size=5.0)
+    return SpeedBump(
+        object_id=object_id,
+        outline=outline,
+        speed_bump_type=speed_bump_type,
     )
 
 

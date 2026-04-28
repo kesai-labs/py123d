@@ -2,7 +2,7 @@ parser:
   _target_: py123d.parser.wod.wod_perception_parser.WODPerceptionParser
   _convert_: 'all'
 
-  splits: ["wod-perception_val"]
+  splits: ["wod-perception_val", "wod-perception_train", "wod-perception_test"]
   wod_perception_data_root: ${dataset_paths.wod_perception_data_root}
   zero_roll_pitch: true
   keep_polar_features: false

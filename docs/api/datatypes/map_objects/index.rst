@@ -15,3 +15,4 @@ Map Objects
    08_stop_zone
    09_road_edge
    10_road_line
+   11_speed_bump
