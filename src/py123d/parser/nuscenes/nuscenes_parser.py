@@ -127,8 +127,9 @@ class NuScenesParser(BaseDatasetParser):
             ``nuscenes_data_root`` at it, and cleans the temp directory up when the parser
             is garbage collected.
         :param stream_archives: Archive subset to materialize in streaming mode. ``None``
-            uses :data:`~py123d.parser.nuscenes.nuscenes_download.NUSCENES_DEFAULT_STREAMING_ARCHIVES`
-            (trainval metadata + first trainval blob, ~75 GB). Ignored when
+            falls back to ``downloader.resolve_archives()``, i.e. the downloader's
+            ``preset`` / ``archives`` / ``num_archives`` configuration (default in the
+            streaming Hydra config: ``preset: trainval_one``). Ignored when
             ``downloader`` is ``None``.
         """
         for split in splits:
@@ -171,9 +172,7 @@ class NuScenesParser(BaseDatasetParser):
         streaming pattern: one shared data root for the parser's lifetime rather than
         per-scene temp dirs (nuScenes parser needs all metadata tables up front).
         """
-        from py123d.parser.nuscenes.nuscenes_download import NUSCENES_DEFAULT_STREAMING_ARCHIVES
-
-        archives = list(stream_archives) if stream_archives else list(NUSCENES_DEFAULT_STREAMING_ARCHIVES)
+        archives = list(stream_archives) if stream_archives else downloader.resolve_archives()
         self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-nuscenes-")
         tmp_root = Path(self._stream_temp_dir_handle.name)
         logger.info("nuScenes streaming temp dir: %s", tmp_root)

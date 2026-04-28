@@ -247,10 +247,6 @@ NUSCENES_PRESETS: Dict[str, Tuple[str, ...]] = {
     "full": tuple(_ARCHIVE_BY_NAME.keys()),
 }
 
-# Default streaming set mirrors the ``trainval_one`` preset — smallest useful
-# trainval slice including HD maps so the parser's map_root picks up automatically.
-NUSCENES_DEFAULT_STREAMING_ARCHIVES: Tuple[str, ...] = NUSCENES_PRESETS["trainval_one"]
-
 _CHUNK_BYTES = 1 << 20  # 1 MiB per HTTP chunk
 
 # --------------------------------------------------------------------------------------
