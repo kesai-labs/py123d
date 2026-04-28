@@ -34,3 +34,6 @@ dataset_paths:
 
   # Physical AI AV defaults
   physical_ai_av_data_root: ${oc.env:PHYSICAL_AI_AV_DATA_ROOT,null}
+
+  # NCore defaults
+  ncore_data_root: ${oc.env:NCORE_DATA_ROOT,null}

@@ -39,6 +39,9 @@ class MapLayer(SerialIntEnum):
     ROAD_LINE = 9
     """Road lines (lines)."""
 
+    SPEED_BUMP = 10
+    """Speed bumps (surface)."""
+
 
 class LaneType(SerialIntEnum):
     """Enum for different lane types.
@@ -124,6 +127,13 @@ class StopZoneType(SerialIntEnum):
 
     TURN_STOP = 5
     """Stop zone for turning vehicles."""
+
+
+class SpeedBumpType(SerialIntEnum):
+    """Enum for different speed bump types."""
+
+    UNKNOWN = 0
+    """Unknown speed bump type."""
 
 
 class RoadEdgeType(SerialIntEnum):

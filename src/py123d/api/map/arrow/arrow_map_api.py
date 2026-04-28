@@ -21,6 +21,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     MapLayer,
     RoadEdgeType,
     RoadLineType,
+    SpeedBumpType,
     StopZoneType,
 )
 from py123d.datatypes.map_objects.map_objects import (
@@ -32,6 +33,7 @@ from py123d.datatypes.map_objects.map_objects import (
     LaneGroup,
     RoadEdge,
     RoadLine,
+    SpeedBump,
     StopZone,
     Walkway,
 )
@@ -92,6 +94,7 @@ class ArrowMapAPI(MapAPI):
             MapLayer.WALKWAY: self._get_walkway,
             MapLayer.GENERIC_DRIVABLE: self._get_generic_drivable,
             MapLayer.STOP_ZONE: self._get_stop_zone,
+            MapLayer.SPEED_BUMP: self._get_speed_bump,
             MapLayer.ROAD_EDGE: self._get_road_edge,
             MapLayer.ROAD_LINE: self._get_road_line,
         }
@@ -421,6 +424,24 @@ class ArrowMapAPI(MapAPI):
                 lane_ids=stop_zone_features.get("lane_ids", []),
             )
         return stop_zone
+
+    @lru_cache(maxsize=MAP_OBJECT_CACHE_SIZE)
+    def _get_speed_bump(self, object_id: MapObjectIDType) -> Optional[SpeedBump]:
+        """Helper method for getting a speed bump by its ID."""
+        speed_bump: Optional[SpeedBump] = None
+        table_row_idx = self._object_ids_to_row_idx[MapLayer.SPEED_BUMP].get(object_id, None)
+        if table_row_idx is not None and object_id in self._occupancy_maps[MapLayer.SPEED_BUMP].ids:
+            speed_bump_features_binary = self._features[table_row_idx]
+            speed_bump_features = msgpack_decode_with_numpy(speed_bump_features_binary)
+            speed_bump_polygon = self._occupancy_maps[MapLayer.SPEED_BUMP][object_id]
+            assert isinstance(speed_bump_polygon, geom.Polygon)
+            speed_bump = SpeedBump(
+                object_id=object_id,
+                outline=Polyline3D.from_array(speed_bump_features["outline"], copy=False),
+                shapely_polygon=speed_bump_polygon,
+                speed_bump_type=SpeedBumpType(speed_bump_features.get("speed_bump_type", 0)),
+            )
+        return speed_bump
 
     @lru_cache(maxsize=MAP_OBJECT_CACHE_SIZE)
     def _get_road_edge(self, object_id: MapObjectIDType) -> Optional[RoadEdge]:

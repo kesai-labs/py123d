@@ -13,6 +13,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     MapLayer,
     RoadEdgeType,
     RoadLineType,
+    SpeedBumpType,
     StopZoneType,
 )
 from py123d.datatypes.map_objects.utils import get_trimesh_from_boundaries
@@ -744,3 +745,45 @@ class RoadLine(BaseMapLineObject):
     def road_line_type(self) -> RoadLineType:
         """The type of road edge, according to :class:`~py123d.datatypes.map_objects.map_layer_types.RoadLineType`."""
         return self._road_line_type
+
+
+class SpeedBump(BaseMapSurfaceObject):
+    """Class representing a speed bump in a map.
+
+    Notes
+    -----
+    Currently only available from the Waymo Open Dataset.
+    """
+
+    __slots__ = ("_speed_bump_type",)
+
+    def __init__(
+        self,
+        object_id: MapObjectIDType,
+        outline: Optional[Union[Polyline2D, Polyline3D]] = None,
+        shapely_polygon: Optional[geom.Polygon] = None,
+        speed_bump_type: SpeedBumpType = SpeedBumpType.UNKNOWN,
+    ):
+        """Initialize a SpeedBump instance.
+
+        Notes
+        -----
+        Either outline or shapely_polygon must be provided.
+
+        :param object_id: The ID of the speed bump.
+        :param outline: The outline of the speed bump, defaults to None.
+        :param shapely_polygon: The Shapely polygon representation of the speed bump, defaults to None.
+        :param speed_bump_type: The type of the speed bump, defaults to ``SpeedBumpType.UNKNOWN``.
+        """
+        super().__init__(object_id, outline, shapely_polygon)
+        self._speed_bump_type = speed_bump_type
+
+    @property
+    def layer(self) -> MapLayer:
+        """The :class:`~py123d.datatypes.map_objects.map_layer_types.MapLayer` of the map object."""
+        return MapLayer.SPEED_BUMP
+
+    @property
+    def speed_bump_type(self) -> SpeedBumpType:
+        """The type of the speed bump."""
+        return self._speed_bump_type

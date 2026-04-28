@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union
 
@@ -9,6 +10,8 @@ from py123d.datatypes import (
     BoxDetectionSE3,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
+    CustomModality,
+    CustomModalityMetadata,
     EgoStateSE3,
     EgoStateSE3Metadata,
     LogMetadata,
@@ -29,11 +32,18 @@ from py123d.parser.base_dataset_parser import (
     ModalitiesSync,
 )
 from py123d.parser.registry import WODMotionBoxDetectionLabel
-from py123d.parser.wod.utils.wod_constants import WOD_MOTION_AVAILABLE_SPLITS, WOD_MOTION_TRAFFIC_LIGHT_MAPPING
+from py123d.parser.wod.utils.wod_constants import (
+    WOD_MOTION_AVAILABLE_SPLITS,
+    WOD_MOTION_SPLIT_TO_GCS_FOLDER,
+    WOD_MOTION_SPLIT_TO_VARIANT,
+    WOD_MOTION_TRAFFIC_LIGHT_MAPPING,
+)
+from py123d.parser.wod.wod_download import WODMotionDownloader
 from py123d.parser.wod.wod_map_parser import WODMapParser
 
 if TYPE_CHECKING:
     from py123d.parser.wod.waymo_open_dataset.protos import scenario_pb2
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +63,7 @@ WOD_MOTION_EGO_STATE_SE3_METADATA = EgoStateSE3Metadata(
 WOD_MOTION_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(
     box_detection_label_class=WODMotionBoxDetectionLabel,
 )
+WOD_MOTION_AUX_MODALITY_ID: str = "aux"
 
 
 def _lazy_import_tf_and_scenario_pb2():
@@ -113,36 +124,105 @@ class WODMotionParser(BaseDatasetParser):
     def __init__(
         self,
         splits: List[str],
-        wod_motion_data_root: Union[str, Path],
-        add_dummy_lane_groups: bool,
+        wod_motion_data_root: Optional[Union[str, Path]] = None,
+        add_dummy_lane_groups: bool = False,
+        skip_maps: bool = False,
+        skip_logs: bool = False,
+        downloader: Optional[WODMotionDownloader] = None,
     ) -> None:
-        assert wod_motion_data_root is not None, "The variable `wod_motion_data_root` must be provided."
-        assert Path(wod_motion_data_root).exists(), (
-            f"The provided `wod_motion_data_root` path {wod_motion_data_root} does not exist."
-        )
+        """Initialize the WOD Motion parser.
+
+        :param splits: Dataset splits to process. Valid names come from
+            :data:`WOD_MOTION_SPLIT_TO_GCS_FOLDER` (exported as :data:`WOD_MOTION_AVAILABLE_SPLITS`):
+
+            - ``wod-motion_{train,val,test}`` — standard 9s scenarios at 10 Hz (91 frames).
+            - ``wod-motion-20s_train`` — long-horizon ~20s variant (variable length, typically
+              197–200 frames; some shards also have trailing pad-states in the proto). No val/test.
+            - ``wod-motion-interactive_{val,test}`` — hand-curated interactive scenarios with
+              :attr:`objects_of_interest` populated. No training split.
+
+            On-disk converted logs land in ``logs_root/<split>/<scenario_id>/``, so each split
+            above gets its own folder (e.g. ``logs_root/wod-motion-interactive_val/...``).
+        :param wod_motion_data_root: Root directory of the downloaded WOMD dataset (contains
+            ``training/``, ``validation/``, ``testing/`` subdirectories). Required when
+            ``downloader`` is ``None``; ignored otherwise (the downloader provides the root).
+        :param add_dummy_lane_groups: Whether to add dummy lane groups to the parsed maps.
+        :param skip_maps: If ``True``, ``get_map_parsers()`` returns an empty list — the map
+            conversion pass is skipped entirely. Useful when disk space is tight; HD-map
+            Arrow files account for a nontrivial share of WOMD output size.
+        :param skip_logs: If ``True``, ``get_log_parsers()`` returns an empty list — the log
+            conversion pass is skipped entirely. Useful for running maps-only conversion
+            passes in parallel to a previously completed logs-only pass.
+        :param downloader: Optional :class:`WODMotionDownloader` to run at construction time.
+            When provided, the downloader's :attr:`output_dir` is used as the data root
+            (a managed :class:`tempfile.TemporaryDirectory` is assigned if it is ``None``),
+            and ``wod_motion_data_root`` is ignored. The temp dir, if any, is cleaned up
+            when the parser is garbage collected.
+        """
         for split in splits:
             assert split in WOD_MOTION_AVAILABLE_SPLITS, (
                 f"Split {split} is not available. Available splits: {WOD_MOTION_AVAILABLE_SPLITS}"
             )
 
         self._splits: List[str] = splits
-        self._wod_motion_data_root: Path = Path(wod_motion_data_root)
         self._add_dummy_lane_groups: bool = add_dummy_lane_groups
+        self._skip_maps: bool = skip_maps
+        self._skip_logs: bool = skip_logs
+        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
+
+        if downloader is not None:
+            self._wod_motion_data_root = self._run_downloader(downloader)
+        else:
+            assert wod_motion_data_root is not None, (
+                "`wod_motion_data_root` must be provided when `downloader` is None."
+            )
+            assert Path(wod_motion_data_root).exists(), (
+                f"The provided `wod_motion_data_root` path {wod_motion_data_root} does not exist."
+            )
+            self._wod_motion_data_root = Path(wod_motion_data_root)
 
         self._split_tf_record_pairs: List[Tuple[str, Path, str]] = self._collect_split_tf_record_pairs()
+
+    def _run_downloader(self, downloader: WODMotionDownloader) -> Path:
+        """Resolve ``downloader.output_dir`` (assigning a temp dir if needed), run the
+        download, and return the populated root directory.
+
+        The returned path mimics the on-disk layout a locally-downloaded WOMD dataset has
+        (``<root>/{training,validation,testing}/*.tfrecord-*``), so the rest of the parser
+        is unchanged. When ``downloader.output_dir`` is ``None`` the temp dir is held on
+        ``self._stream_temp_dir_handle`` and cleaned up on parser GC; when set, the caller
+        is responsible for retention — this supports persistent caches across runs.
+        """
+        # Only override splits when the caller hasn't customized them on the downloader.
+        downloader._splits = list(self._splits)  # type: ignore[attr-defined]
+
+        if downloader.output_dir is None:
+            self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-womd-")
+            downloader.output_dir = Path(self._stream_temp_dir_handle.name)
+            logger.info("WOMD streaming temp dir: %s", downloader.output_dir)
+
+        downloader.download()
+        return downloader.output_dir
+
+    def __del__(self) -> None:
+        """Clean up the streaming temp directory when the parser is garbage collected."""
+        # TODO(womd): move to explicit context manager — __del__ semantics are unreliable
+        # (GC ordering, exception swallowing) and this pattern is flagged in the project
+        # weaknesses analysis.
+        handle = getattr(self, "_stream_temp_dir_handle", None)
+        if handle is not None:
+            try:
+                handle.cleanup()
+            except Exception:
+                pass
 
     def _collect_split_tf_record_pairs(self) -> List[Tuple[str, Path, str]]:
         """Helper to collect the pairings of the split names and the corresponding tf record file."""
         split_tf_record_pairs: List[Tuple[str, Path, str]] = []
-        split_name_mapping: Dict[str, str] = {
-            "wod-motion_train": "training",
-            "wod-motion_val": "validation",
-            "wod-motion_test": "testing",
-        }
 
         for split in self._splits:
-            assert split in split_name_mapping.keys()
-            split_folder = self._wod_motion_data_root / split_name_mapping[split]
+            assert split in WOD_MOTION_SPLIT_TO_GCS_FOLDER
+            split_folder = self._wod_motion_data_root / WOD_MOTION_SPLIT_TO_GCS_FOLDER[split]
             source_log_paths = [log_file for log_file in split_folder.iterdir() if ".tfrecord" in log_file.name]
             for source_log_path in source_log_paths:
                 scenario_ids = _get_all_tfrecord_scenario_ids(source_log_path)
@@ -153,6 +233,8 @@ class WODMotionParser(BaseDatasetParser):
 
     def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
+        if self._skip_maps:
+            return []
         return [
             WODMapParser(
                 dataset="wod-motion",
@@ -167,6 +249,8 @@ class WODMotionParser(BaseDatasetParser):
 
     def get_log_parsers(self) -> List[BaseLogParser]:
         """Inherited, see superclass."""
+        if self._skip_logs:
+            return []
         return [
             WODMotionLogParser(
                 split=split,
@@ -213,19 +297,30 @@ class WODMotionLogParser(BaseLogParser):
         all_ego_states = _extract_all_ego_states(scenario, all_timestamps, ego_metadata)
         all_box_detections = _extract_all_wod_motion_box_detections(scenario, all_timestamps, box_detections_metadata)
         all_traffic_lights = _extract_all_traffic_lights(scenario)
+        _, all_aux_modalities = _extract_all_custom_data(scenario, self._split, all_timestamps)
 
-        assert len(all_timestamps) == len(all_ego_states) == len(all_box_detections) == len(all_traffic_lights), (
-            "All extracted data lists must have the same length."
-        )
+        assert (
+            len(all_timestamps)
+            == len(all_ego_states)
+            == len(all_box_detections)
+            == len(all_traffic_lights)
+            == len(all_aux_modalities)
+        ), "All extracted data lists must have the same length."
 
         for time_idx in range(len(all_timestamps)):
+            modalities_at_timestamp = []
+            if all_ego_states[time_idx] is not None:
+                modalities_at_timestamp.append(all_ego_states[time_idx])
+            if all_box_detections[time_idx] is not None:
+                modalities_at_timestamp.append(all_box_detections[time_idx])
+            if all_traffic_lights[time_idx] is not None:
+                modalities_at_timestamp.append(all_traffic_lights[time_idx])
+            if all_aux_modalities[time_idx] is not None:
+                modalities_at_timestamp.append(all_aux_modalities[time_idx])
+
             yield ModalitiesSync(
                 timestamp=all_timestamps[time_idx],
-                modalities=[
-                    all_ego_states[time_idx],
-                    all_box_detections[time_idx],
-                    all_traffic_lights[time_idx],
-                ],
+                modalities=modalities_at_timestamp,
             )
 
 
@@ -242,39 +337,52 @@ def _extract_all_ego_states(
     scenario: scenario_pb2.Scenario,
     all_timestamps: List[Timestamp],
     ego_metadata: EgoStateSE3Metadata,
-) -> List[EgoStateSE3]:
+) -> List[Optional[EgoStateSE3]]:
     """Extracts the ego vehicle states from the SDC track in a WOD-Motion scenario.
 
     The SDC track is identified by ``scenario.sdc_track_index``. Each ``ObjectState``
     provides the bounding box center position and heading, which are used to construct
     an :class:`EgoStateSE3` via :meth:`EgoStateSE3.from_center`.
+
+    On test splits (``testing`` / ``testing_interactive``), future-frame SDC states are
+    masked (``valid=False``) and the center / dimension fields are unpopulated. We
+    carry forward the last observed pose so the ego stream stays frame-aligned with
+    ``scenario.timestamps_seconds``; the aux custom modality records ``sdc_valid[t]``
+    so consumers can distinguish observed poses from carry-forward-imputed ones.
+
     """
-    all_ego_states: List[EgoStateSE3] = []
+    all_ego_states: List[Optional[EgoStateSE3]] = []
+    num_timesteps = len(all_timestamps)
     for track_idx, track in enumerate(scenario.tracks):
         if scenario.sdc_track_index != track_idx:
             continue
 
-        for state in track.states:
-            assert state.valid, "Ego state is not valid."
-            quaternion = EulerAngles(roll=0.0, pitch=0.0, yaw=state.heading).quaternion
-            center_se3 = PoseSE3(
-                x=state.center_x,
-                y=state.center_y,
-                z=state.center_z,
-                qw=quaternion.qw,
-                qx=quaternion.qx,
-                qy=quaternion.qy,
-                qz=quaternion.qz,
-            )
-            assert ego_metadata.length == state.length, "Ego vehicle length does not match vehicle parameters."
-            assert ego_metadata.width == state.width, "Ego vehicle width does not match vehicle parameters."
-            assert ego_metadata.height == state.height, "Ego vehicle height does not match vehicle parameters."
-            ego_state = EgoStateSE3.from_center(
-                center_se3=center_se3,
-                metadata=ego_metadata,
-                dynamic_state_se3=None,
-                timestamp=all_timestamps[len(all_ego_states)],
-            )
+        for time_idx in range(num_timesteps):
+            state = track.states[time_idx] if time_idx < len(track.states) else None
+            timestamp = all_timestamps[time_idx]
+
+            ego_state: Optional[EgoStateSE3] = None
+
+            if state is not None and state.valid:
+                quaternion = EulerAngles(roll=0.0, pitch=0.0, yaw=state.heading).quaternion
+                center_se3 = PoseSE3(
+                    x=state.center_x,
+                    y=state.center_y,
+                    z=state.center_z,
+                    qw=quaternion.qw,
+                    qx=quaternion.qx,
+                    qy=quaternion.qy,
+                    qz=quaternion.qz,
+                )
+                assert ego_metadata.length == state.length, "Ego vehicle length does not match vehicle parameters."
+                assert ego_metadata.width == state.width, "Ego vehicle width does not match vehicle parameters."
+                assert ego_metadata.height == state.height, "Ego vehicle height does not match vehicle parameters."
+                ego_state = EgoStateSE3.from_center(
+                    center_se3=center_se3,
+                    metadata=ego_metadata,
+                    dynamic_state_se3=None,
+                    timestamp=timestamp,
+                )
             all_ego_states.append(ego_state)
 
     assert len(all_ego_states) == len(scenario.timestamps_seconds), (
@@ -290,8 +398,14 @@ def _extract_all_wod_motion_box_detections(
 ) -> List[BoxDetectionsSE3]:
     """Extracts all box detections from the WOD-Motion scenario."""
 
-    # We first collect all tracks over all timesteps in a dictionary, where the key is the track ID
+    # We first collect all tracks over all timesteps in a dictionary, where the key is the track ID.
+    # Some WOMD scenarios (notably in training_20s) have ``len(track.states)`` that does not match
+    # ``len(timestamps_seconds)`` exactly: trailing pad-states when longer, missing trailing states
+    # when shorter. Driving the loop by timestamp index drops extras and pads missing states with
+    # ``None`` (treated the same as ``state.valid=False``), keeping per-track lists aligned with
+    # the scenario clock.
     tracks_collection: Dict[str, List[Optional[BoxDetectionSE3]]] = {}
+    num_timesteps = len(all_timestamps)
     for track_idx, track in enumerate(scenario.tracks):
         # NOTE: We skip the track of the ego vehicle and include in the ego state extraction
         if scenario.sdc_track_index == track_idx:
@@ -300,8 +414,9 @@ def _extract_all_wod_motion_box_detections(
         track_id = str(track.id)
         tracks_collection[track_id] = []
         label = WODMotionBoxDetectionLabel(track.object_type)
-        for state in track.states:
-            if state.valid:
+        for time_idx in range(num_timesteps):
+            state = track.states[time_idx] if time_idx < len(track.states) else None
+            if state is not None and state.valid:
                 quaternion = EulerAngles(roll=0.0, pitch=0.0, yaw=state.heading).quaternion
                 center_se3 = PoseSE3(
                     x=state.center_x,
@@ -330,8 +445,8 @@ def _extract_all_wod_motion_box_detections(
             else:
                 tracks_collection[track_id].append(None)
 
-    # Check if all tracks have the same number of timesteps
-    num_timesteps = len(scenario.timestamps_seconds)
+    # Invariant check: the timestamp-indexed loop above always produces exactly ``num_timesteps``
+    # entries per track, so this assertion should never fire — it exists as a defensive guard.
     assert all(len(detections) == num_timesteps for detections in tracks_collection.values()), (
         "Not all tracks have the same number of timesteps."
     )
@@ -376,3 +491,90 @@ def _extract_all_traffic_lights(scenario: scenario_pb2.Scenario) -> List[Traffic
         all_traffic_lights.append(TrafficLightDetections(detections=detections, timestamp=Timestamp.from_s(ts)))
 
     return all_traffic_lights
+
+
+def _extract_all_custom_data(
+    scenario: "scenario_pb2.Scenario",
+    split: str,
+    all_timestamps: List[Timestamp],
+) -> Tuple[CustomModalityMetadata, List[CustomModality]]:
+    """Build the aux :class:`CustomModalityMetadata` + per-timestep :class:`CustomModality` list.
+
+    :param scenario: Parsed WOMD scenario.
+    :param split: 123D split name (key of :data:`WOD_MOTION_SPLIT_TO_GCS_FOLDER`); used to tag
+        ``scenario_variant`` in the static metadata.
+    :param all_timestamps: Timestamps for every scenario frame, one-to-one with
+        ``scenario.timestamps_seconds``.
+    :return: ``(static_metadata, per_timestep_modalities)`` — the static metadata is shared
+        by every returned :class:`CustomModality` and by the single Arrow column written for
+        this log.
+    """
+    variant: str = WOD_MOTION_SPLIT_TO_VARIANT[split]
+    num_timesteps: int = len(scenario.timestamps_seconds)
+    current_time_index: int = int(scenario.current_time_index)
+    sdc_track_index: int = int(scenario.sdc_track_index)
+
+    assert num_timesteps == len(all_timestamps), (
+        f"Timestamp count mismatch: scenario has {num_timesteps} frames, got {len(all_timestamps)} timestamps."
+    )
+
+    track_index_to_token: dict = {idx: str(track.id) for idx, track in enumerate(scenario.tracks)}
+    track_token_to_object_type: dict = {str(track.id): int(track.object_type) for track in scenario.tracks}
+    tracks_to_predict: List[dict] = [
+        {"track_index": int(rp.track_index), "difficulty": int(rp.difficulty)} for rp in scenario.tracks_to_predict
+    ]
+    objects_of_interest: List[int] = [int(idx) for idx in scenario.objects_of_interest]
+
+    static_metadata: dict = {
+        "scenario_id": str(scenario.scenario_id),
+        "scenario_variant": variant,
+        "current_time_index": current_time_index,
+        "sdc_track_index": sdc_track_index,
+        "objects_of_interest": objects_of_interest,
+        "tracks_to_predict": tracks_to_predict,
+        "track_index_to_token": track_index_to_token,
+        "track_token_to_object_type": track_token_to_object_type,
+        "num_timesteps": num_timesteps,
+        "timestamps_are_relative": True,
+    }
+    modality_metadata = CustomModalityMetadata(
+        modality_id=WOD_MOTION_AUX_MODALITY_ID,
+        metadata=static_metadata,
+    )
+
+    sdc_track = scenario.tracks[sdc_track_index]
+
+    aux_modalities: List[CustomModality] = []
+    for time_idx in range(num_timesteps):
+        if time_idx < current_time_index:
+            phase = "history"
+        elif time_idx == current_time_index:
+            phase = "current"
+        else:
+            phase = "future"
+
+        # Guard against tracks with fewer states than the scenario clock (rare but possible;
+        # the converse — trailing pad-states — is handled by the ego/box loops via truncation).
+        valid_track_tokens: List[str] = []
+        for track_idx, track in enumerate(scenario.tracks):
+            if track_idx == sdc_track_index:
+                continue
+            if time_idx < len(track.states) and track.states[time_idx].valid:
+                valid_track_tokens.append(str(track.id))
+
+        sdc_valid = time_idx < len(sdc_track.states) and bool(sdc_track.states[time_idx].valid)
+        data: dict = {
+            "frame_index": time_idx,
+            "phase": phase,
+            "sdc_valid": sdc_valid,
+            "valid_track_tokens": valid_track_tokens,
+        }
+        aux_modalities.append(
+            CustomModality(
+                data=data,
+                metadata=modality_metadata,
+                timestamp=all_timestamps[time_idx],
+            )
+        )
+
+    return modality_metadata, aux_modalities

@@ -9,6 +9,10 @@ parser:
   add_map_pose_offset: true
   add_dummy_lane_groups: false
 
+  # To stream perception segments from GCS instead of reading from disk, use the
+  # `dataset=wod-perception-stream` config variant, which attaches a WODPerceptionDownloader.
+  downloader: null
+
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
   _convert_: 'all'

@@ -116,6 +116,7 @@ class TestWrapFunction:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("ray_session")
 class TestRayObjectIterator:
     def test_iterates_all_objects(self):
@@ -142,6 +143,7 @@ class TestRayObjectIterator:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("ray_session")
 class TestRayMapItems:
     def test_map_single_arg_list(self):
@@ -194,6 +196,7 @@ class TestRayMapItems:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 class TestRayMap:
     @pytest.fixture(autouse=True)
     def _ray_per_test(self):

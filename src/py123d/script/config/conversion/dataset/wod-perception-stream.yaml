@@ -1,0 +1,90 @@
+# Streaming variant of dataset=wod-perception — downloads selected perception segments
+# from GCS into a managed temp directory at parser construction time, converts, and
+# cleans up on parser GC.
+#
+# NOTE: unlike the motion bucket, the perception bucket is NOT anonymously readable.
+# Authenticate via `gcloud auth application-default login` or point
+# dataset.parser.downloader.credentials_file at a service-account JSON.
+#
+# WARNING: Perception segments are ~1 GB each. Even small num_shards values imply
+# multi-GB of download traffic.
+#
+# Usage:
+#   gcloud auth application-default login
+#   py123d-conversion dataset=wod-perception-stream \
+#     dataset.parser.downloader.num_shards=1 \
+#     'dataset.parser.splits=[wod-perception_val]'
+
+parser:
+  _target_: py123d.parser.wod.wod_perception_parser.WODPerceptionParser
+  _convert_: 'all'
+
+  splits: ["wod-perception_val", "wod-perception_train", "wod-perception_test"]
+
+  # Ignored — the downloader materializes segments into a temp dir whose path becomes the root.
+  wod_perception_data_root: null
+  zero_roll_pitch: true
+  keep_polar_features: false
+  add_map_pose_offset: true
+  add_dummy_lane_groups: false
+
+  downloader:
+    _target_: py123d.parser.wod.wod_download.WODPerceptionDownloader
+    _convert_: 'all'
+
+    # null → parser assigns a tempfile.TemporaryDirectory for the duration of the run.
+    # Set to a persistent path to reuse downloads across runs.
+    output_dir: null
+
+    splits: ${dataset.parser.splits}
+
+    version: "1.4.3"
+
+    num_shards: null          # first N per split, or N random if sample_random=true
+    shard_indices: null       # e.g. {wod-perception_val: [0, 1, 2]}
+    sample_random: false
+    seed: 0
+
+    credentials_file: null    # service-account JSON; null → Application Default Credentials
+    max_workers: 4
+    overwrite: false
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the source
+  # TFRecord temp directory is deleted when the parser is garbage collected, which
+  # would leave the Arrow logs pointing at a vanished source.
+  camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4" — "path" forbidden here
+  lidar_store_option: "binary"       # "binary" — "path" forbidden here
+  lidar_codec: "laz"                 # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: lidar.lidar_merged.timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

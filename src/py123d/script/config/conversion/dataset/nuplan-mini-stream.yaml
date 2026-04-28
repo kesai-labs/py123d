@@ -1,0 +1,75 @@
+# Smoketest streaming variant — targets the nuPlan mini bundle (~10 GB logs +
+# ~1 GB maps by default). Useful to verify the whole download→extract→convert
+# chain end-to-end without committing to the full ~135 GB regular set.
+#
+# No credentials required — the nuPlan bucket is public.
+#
+# Usage:
+#   py123d-conversion dataset=nuplan-mini-stream
+#   py123d-conversion dataset=nuplan-mini-stream \
+#     dataset.parser.downloader.include_cameras=true \
+#     dataset.parser.downloader.include_lidar=true
+
+parser:
+  _target_: py123d.parser.nuplan.nuplan_parser.NuplanParser
+  _convert_: 'all'
+
+  splits: [nuplan-mini_train, nuplan-mini_val, nuplan-mini_test]
+
+  nuplan_data_root: null
+  nuplan_maps_root: null        # auto-detected at <temp>/maps
+  nuplan_sensor_root: null      # auto-detected at <temp>/nuplan-v1.1/sensor_blobs
+
+  downloader:
+    _target_: py123d.parser.nuplan.nuplan_download.NuplanDownloader
+    _convert_: 'all'
+
+    output_dir: null
+
+    splits: ${dataset.parser.splits}
+
+    include_maps: true
+    include_cameras: false
+    include_lidar: false
+
+    max_workers: 4
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  # Temp dir is deleted on parser destruction — "path" references would dangle.
+  camera_store_option: "jpeg_binary"
+  lidar_store_option: "binary"
+  lidar_codec: "laz"
+
+  infer_ego_dynamics: false
+  infer_box_dynamics: false
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: box_detections_se3.timestamp_us
+    direction: "forward"
+    target_iteration_duration_s: 0.1
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

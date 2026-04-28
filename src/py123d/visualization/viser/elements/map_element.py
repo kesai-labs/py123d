@@ -44,6 +44,7 @@ _MAP_DISPLAY_LAYERS: List[MapLayer] = [
     MapLayer.CARPARK,
     MapLayer.GENERIC_DRIVABLE,
     MapLayer.STOP_ZONE,
+    MapLayer.SPEED_BUMP,
 ]
 
 _ROAD_EDGE_COLOR_DARK: Tuple[int, int, int] = (255, 255, 255)
@@ -293,6 +294,7 @@ def _get_map_data(
         MapLayer.CARPARK,
         MapLayer.GENERIC_DRIVABLE,
         MapLayer.STOP_ZONE,
+        MapLayer.SPEED_BUMP,
     ]
     line_layers = [MapLayer.ROAD_EDGE]
 
@@ -334,7 +336,13 @@ def _get_map_data(
             trimesh_mesh = map_surface.trimesh_mesh
             trimesh_mesh.vertices -= scene_center_array
 
-            if map_layer in {MapLayer.WALKWAY, MapLayer.CROSSWALK, MapLayer.CARPARK, MapLayer.STOP_ZONE}:
+            if map_layer in {
+                MapLayer.WALKWAY,
+                MapLayer.CROSSWALK,
+                MapLayer.CARPARK,
+                MapLayer.STOP_ZONE,
+                MapLayer.SPEED_BUMP,
+            }:
                 trimesh_mesh.vertices[..., Point3DIndex.Z] += non_road_z_offset
 
             if z_offset_no_z != 0.0:

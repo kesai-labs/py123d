@@ -3,7 +3,11 @@ parser:
   _convert_: 'all'
 
   splits: ["av2-sensor_train", "av2-sensor_val", "av2-sensor_test"]
-  av2_data_root: ${dataset_paths.av2_data_root}
+  av2_sensor_root: ${dataset_paths.av2_sensor_data_root}
+
+  # To stream logs from S3 instead of reading from disk, use the
+  # `dataset=av2-sensor-stream` config variant, which attaches an Av2Downloader.
+  downloader: null
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig

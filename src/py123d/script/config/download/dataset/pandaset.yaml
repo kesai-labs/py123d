@@ -1,0 +1,24 @@
+downloader:
+  _target_: py123d.parser.pandaset.pandaset_download.PandasetDownloader
+  _convert_: 'all'
+
+  # Destination for extracted logs. Defaults to $PANDASET_DATA_ROOT
+  # (set via default_dataset_paths.yaml). Each selected log lands as output_dir/{log_name}/.
+  output_dir: ${dataset_paths.pandaset_data_root}
+
+  # py123d-download flow: the ~44.5 GB zip is downloaded into a session-scoped
+  # tempfile.TemporaryDirectory, the selected logs are extracted into output_dir,
+  # and the temp dir (with the zip) is deleted when `download()` returns.
+  # `zip_cache_dir` is only consulted by streaming mode — it is ignored here.
+  zip_cache_dir: null
+
+  revision: main                # HF branch / tag / commit
+  hf_token: null                # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN (mirror is public, so null is fine)
+
+  # Selection — mutually exclusive. When neither is set, all 103 logs are fetched.
+  log_names: null               # explicit list, e.g. ["001", "002", "005"]
+  num_logs: null                # first N logs, or N random if sample_random=true
+  sample_random: false
+  seed: 0
+
+  dry_run: false

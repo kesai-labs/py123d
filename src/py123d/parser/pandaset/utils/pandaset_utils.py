@@ -74,16 +74,37 @@ def rotate_pandaset_pose_to_iso_coordinates(pose: PoseSE3) -> PoseSE3:
     """
     F = np.array(
         [
-            [0.0, 1.0, 0.0],  # new X = old Y (forward)
-            [-1.0, 0.0, 0.0],  # new Y = old -X (left)
+            [0.0, -1.0, 0.0],  # new X = old Y (forward)
+            [1.0, 0.0, 0.0],  # new Y = old -X (left)
             [0.0, 0.0, 1.0],  # new Z = old Z (up)
         ],
         dtype=np.float64,
     ).T
     transformation_matrix = pose.transformation_matrix.copy()
-    transformation_matrix[0:3, 0:3] = transformation_matrix[0:3, 0:3] @ F
+    transformation_matrix[0:3, 0:3] @= F
 
     return PoseSE3.from_transformation_matrix(transformation_matrix)
+
+
+def compute_global_main_lidar_from_camera(
+    camera_pose: PoseSE3,
+    camera_extrinsic: PoseSE3,
+) -> PoseSE3:
+    """Compute the global main-lidar pose from a camera world pose and its extrinsic.
+
+    PandaSet lidar poses are unreliable. Instead, derive lidar-to-world from::
+
+        T_world_lidar = T_world_camera @ T_camera_lidar
+
+    The camera extrinsic from PandaSet calibration represents T_camera_lidar
+    (the transform from lidar frame to camera frame).
+
+    :param camera_pose: Camera-to-world pose (from camera/poses.json).
+    :param camera_extrinsic: Camera extrinsic (from static calibration).
+    :return: Global main-lidar pose in PandaSet coordinates.
+    """
+    lidar_to_world = camera_pose.transformation_matrix @ camera_extrinsic.transformation_matrix
+    return PoseSE3.from_transformation_matrix(lidar_to_world)
 
 
 def global_main_lidar_to_global_imu(pose: PoseSE3) -> PoseSE3:
@@ -101,51 +122,19 @@ def global_main_lidar_to_global_imu(pose: PoseSE3) -> PoseSE3:
     """
     F = np.array(
         [
-            [0.0, -1.0, 0.0],  # new X = old Y (forward)
+            [0.0, -1.0, 0.0],  # new X = old -Y (forward)
             [1.0, 0.0, 0.0],  # new Y = old X (left)
             [0.0, 0.0, 1.0],  # new Z = old Z (up)
         ],
         dtype=np.float64,
     ).T
     transformation_matrix = pose.transformation_matrix.copy()
-    transformation_matrix[0:3, 0:3] = transformation_matrix[0:3, 0:3] @ F
+    transformation_matrix[0:3, 0:3] @= F
 
     rotated_pose = PoseSE3.from_transformation_matrix(transformation_matrix)
-    imu_pose = translate_se3_along_body_frame(rotated_pose, translation=Vector3D(x=-0.840, y=0.0, z=0.0))
+    imu_pose = translate_se3_along_body_frame(rotated_pose, translation=Vector3D(x=-0.840, y=0.0, z=-1.85))
 
     return imu_pose
-
-
-def relative_main_lidar_to_relative_imu(pose: PoseSE3 = PoseSE3.identity()) -> PoseSE3:
-    """Compute the relative transform from the main-lidar origin to the IMU origin.
-
-    This is the inverse-direction counterpart of :func:`global_main_lidar_to_global_imu`:
-    it produces a static transform that maps coordinates expressed in the main-lidar frame
-    to the IMU frame.
-
-    1. Translates 0.84 m along the PandaSet +y axis (forward) to the IMU location.
-    2. Applies the inverse coordinate rotation (ISO → PandaSet body axes) so that the
-       resulting frame has ISO body-frame convention.
-
-    :param pose: Base pose (default: identity at the main-lidar origin).
-    :return: The pose of the IMU origin in the main-lidar frame, with ISO body-frame convention.
-    """
-    imu_location_pose = translate_se3_along_body_frame(pose, translation=Vector3D(x=0.0, y=0.840, z=0.0))
-
-    F = np.array(
-        [
-            [0.0, -1.0, 0.0],  # new X = old Y (forward)
-            [1.0, 0.0, 0.0],  # new Y = old X (left)
-            [0.0, 0.0, 1.0],  # new Z = old Z (up)
-        ],
-        dtype=np.float64,
-    ).T
-    transformation_matrix = PoseSE3.identity().transformation_matrix.copy()
-    transformation_matrix[0:3, 0:3] = transformation_matrix[0:3, 0:3] @ F
-    transformation_matrix[0:3, 3] = imu_location_pose.point_3d.array
-
-    rotated_pose = PoseSE3.from_transformation_matrix(transformation_matrix)
-    return rotated_pose
 
 
 def extrinsic_to_imu(pose: PoseSE3) -> PoseSE3:
@@ -163,7 +152,7 @@ def extrinsic_to_imu(pose: PoseSE3) -> PoseSE3:
     """
 
     main_lidar = PoseSE3.identity()
-    imu = relative_main_lidar_to_relative_imu(main_lidar)
+    imu = global_main_lidar_to_global_imu(main_lidar)
 
     new_pose = reframe_se3(
         from_origin=main_lidar,

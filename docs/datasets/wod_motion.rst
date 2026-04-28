@@ -122,6 +122,53 @@ The optional dependencies (``tensorflow-cpu`` and ``protobuf``) are only needed 
 After conversion, you may use any other ``py123d`` installation without these dependencies.
 
 
+Conversion
+~~~~~~~~~~
+
+**Local mode** — data already downloaded to ``$WOD_MOTION_DATA_ROOT``:
+
+.. code-block:: bash
+
+  py123d-conversion dataset=wod-motion
+
+**Streaming mode** — ``dataset=wod-motion-stream`` attaches a ``WODMotionDownloader`` to
+the parser; it fetches selected shards from GCS into a temp directory at parser
+construction time and cleans up when the parser is garbage-collected:
+
+.. code-block:: bash
+
+  # Stream the first shard of each default split:
+  py123d-conversion dataset=wod-motion-stream \
+      dataset.parser.downloader.num_shards=1
+
+  # Stream specific shard indices (keyed by 123D split name):
+  py123d-conversion dataset=wod-motion-stream \
+      'dataset.parser.downloader.shard_indices={wod-motion_train: [0, 1, 2], wod-motion_val: [0]}'
+
+  # Persist downloads under a dedicated cache dir instead of a tempdir:
+  py123d-conversion dataset=wod-motion-stream \
+      dataset.parser.downloader.num_shards=1 \
+      dataset.parser.downloader.output_dir=/mnt/scratch/wod_motion_cache
+
+The motion bucket is anonymously readable after license acceptance, so ADC is not strictly
+required; if available it will be used automatically.
+
+To pre-stage data outside the conversion pipeline, use ``py123d-download``:
+
+.. code-block:: bash
+
+  # Preview which shards would be downloaded (first 3 training shards):
+  py123d-download dataset=wod-motion \
+      'dataset.downloader.splits=[wod-motion_train]' \
+      dataset.downloader.num_shards=3 \
+      dataset.downloader.dry_run=true
+
+  # Download the first training shard to $WOD_MOTION_DATA_ROOT:
+  py123d-download dataset=wod-motion \
+      'dataset.downloader.splits=[wod-motion_train]' \
+      dataset.downloader.num_shards=1
+
+
 Dataset Specific Issues
 ~~~~~~~~~~~~~~~~~~~~~~~
 

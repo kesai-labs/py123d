@@ -31,6 +31,11 @@ class CustomModalityMetadata(BaseModalityMetadata):
         """Returns the ID of the custom modality that this metadata describes."""
         return self._modality_id
 
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Static, log-scoped metadata dictionary for this custom modality."""
+        return self._metadata
+
     def to_dict(self) -> Dict[str, Any]:
         return {"modality_id": self._modality_id, "metadata": self._metadata}
 

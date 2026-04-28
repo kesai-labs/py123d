@@ -1,0 +1,96 @@
+# Streaming variant of dataset=nuplan — the parser materializes a chosen archive
+# subset from the public nuPlan AWS bucket into a session-scoped
+# tempfile.TemporaryDirectory at construction time, converts from it, and deletes
+# the temp dir on parser destruction.
+#
+# Mirrors `nuplan.yaml` for splits + sync_config + writer flags; the data paths
+# are null (filled in by the downloader), sensor storage is forced to self-contained
+# binary, and the downloader block is added.
+#
+# No credentials are required — the nuPlan bucket is public. Review the upstream
+# license at https://motional-nuplan.s3-ap-northeast-1.amazonaws.com/LICENSE.
+#
+# Default selection (logs + maps, no sensors) is ~135 GB for the full regular set.
+# For a cheaper smoketest, use `dataset=nuplan-mini-stream` which targets the
+# ~10 GB mini archive instead.
+#
+# Usage:
+#   py123d-conversion dataset=nuplan-stream
+#   py123d-conversion dataset=nuplan-stream 'dataset.parser.splits=[nuplan_val]'
+#   py123d-conversion dataset=nuplan-stream \
+#     dataset.parser.downloader.include_cameras=true \
+#     dataset.parser.downloader.include_lidar=true
+
+parser:
+  _target_: py123d.parser.nuplan.nuplan_parser.NuplanParser
+  _convert_: 'all'
+
+  splits: [nuplan_train, nuplan_val, nuplan_test]
+
+  # Ignored when `downloader` is set — the parser materializes archives into a temp dir.
+  nuplan_data_root: null
+  nuplan_maps_root: null        # auto-detected at <temp>/maps
+  nuplan_sensor_root: null      # auto-detected at <temp>/nuplan-v1.1/sensor_blobs
+
+  downloader:
+    _target_: py123d.parser.nuplan.nuplan_download.NuplanDownloader
+    _convert_: 'all'
+
+    # Ignored in streaming mode — archives land in the parser's tempfile.TemporaryDirectory.
+    output_dir: null
+
+    # Kept in lockstep with parser.splits so the downloader fetches exactly what the
+    # parser will consume.
+    splits: ${dataset.parser.splits}
+
+    include_maps: true
+    include_cameras: false
+    include_lidar: false
+
+    max_workers: 4
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the temp
+  # directory holding the materialized archives is deleted when the parser is garbage
+  # collected, which would leave the Arrow logs pointing at a vanished source.
+  camera_store_option: "jpeg_binary"  # "jpeg_binary", "png_binary" — "path" forbidden here
+  lidar_store_option: "binary"        # "binary" — "path" forbidden here
+  lidar_codec: "laz"                  # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: false
+  infer_box_dynamics: false
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+
+    # NOTE: we use the box detections as reference which are equal to lidar timestamp,
+    # but also work if sensor data is missing.
+    reference_column: box_detections_se3.timestamp_us
+    direction: "forward" # "forward" or "backward"
+    # NOTE: We use 10Hz for indexing, native 20Hz modalities will still be included.
+    target_iteration_duration_s: 0.1
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

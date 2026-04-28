@@ -20,6 +20,7 @@ from py123d.geometry.rotation import EulerAngles, Quaternion
 from py123d.geometry.utils.rotation_utils import (
     get_quaternion_array_from_euler_array,
     get_quaternion_array_from_rotation_matrix,
+    get_rotation_matrix_from_quaternion_array,
     invert_quaternion_array,
 )
 from py123d.geometry.vector import Vector2D, Vector3D
@@ -460,8 +461,10 @@ class PoseSE3(ArrayMixin):
     def inverse(self) -> PoseSE3:
         """Returns the inverse of the SE3 pose."""
         inverse_array = np.zeros_like(self.array)
-        inverse_array[PoseSE3Index.QUATERNION] = invert_quaternion_array(self.array[PoseSE3Index.QUATERNION])
-        inverse_array[PoseSE3Index.XYZ] = -self.array[PoseSE3Index.XYZ]
+        inv_quat = invert_quaternion_array(self.array[PoseSE3Index.QUATERNION])
+        inverse_array[PoseSE3Index.QUATERNION] = inv_quat
+        r_inv = get_rotation_matrix_from_quaternion_array(inv_quat)
+        inverse_array[PoseSE3Index.XYZ] = -r_inv @ self.array[PoseSE3Index.XYZ]
         return PoseSE3.from_array(inverse_array, copy=False)
 
     def __repr__(self) -> str:

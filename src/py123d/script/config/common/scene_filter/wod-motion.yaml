@@ -1,9 +1,20 @@
 _target_: py123d.api.scene.scene_filter.SceneFilter
 _convert_: 'all'
 
-datasets: ["wod-motion"]
+# All six WOMD variants share LogMetadata.dataset="wod-motion". To filter to a specific
+# variant (20s or interactive), use split_names rather than datasets, e.g.:
+#   split_names: ["wod-motion-interactive_val", "wod-motion-interactive_test"]
+#   split_names: ["wod-motion-20s_train"]
+# See WOD_MOTION_SPLIT_TO_GCS_FOLDER for the full list of valid split names.
+datasets: null
 split_types: null
-split_names: null
+split_names:
+  - "wod-motion_train"
+  - "wod-motion_val"
+  - "wod-motion_test"
+  - "wod-motion-20s_train"
+  - "wod-motion-interactive_val"
+  - "wod-motion-interactive_test"
 log_names: null
 
 has_map: null

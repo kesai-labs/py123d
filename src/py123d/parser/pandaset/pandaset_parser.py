@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import contextlib
+import logging
+import tempfile
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from py123d.parser.pandaset.pandaset_download import PandasetDownloader
+
+logger = logging.getLogger(__name__)
 
 from py123d.datatypes import (
     BoxDetectionAttributes,
@@ -43,6 +51,7 @@ from py123d.parser.pandaset.utils.pandaset_constants import (
     PANDASET_SPLITS,
 )
 from py123d.parser.pandaset.utils.pandaset_utils import (
+    compute_global_main_lidar_from_camera,
     extrinsic_to_imu,
     global_main_lidar_to_global_imu,
     pandaset_pose_dict_to_pose_se3,
@@ -58,55 +67,121 @@ class PandasetParser(BaseDatasetParser):
     def __init__(
         self,
         splits: List[str],
-        pandaset_data_root: Union[Path, str],
-        train_log_names: List[str],
-        val_log_names: List[str],
-        test_log_names: List[str],
+        pandaset_data_root: Optional[Union[Path, str]] = None,
+        train_log_names: Optional[List[str]] = None,
+        val_log_names: Optional[List[str]] = None,
+        test_log_names: Optional[List[str]] = None,
+        downloader: Optional["PandasetDownloader"] = None,
     ) -> None:
         """Initializes the :class:`PandasetParser`.
 
         :param splits: List of splits to include in the conversion. \
             Available splits: 'pandaset_train', 'pandaset_val', 'pandaset_test'.
-        :param pandaset_data_root: Path to the root directory of the Pandaset dataset
-        :param train_log_names: List of log names to include in the training split
-        :param val_log_names: List of log names to include in the validation split
-        :param test_log_names: List of log names to include in the test split
+        :param pandaset_data_root: Path to the root directory of the Pandaset dataset.
+            Required when ``downloader`` is ``None``; ignored otherwise.
+        :param train_log_names: List of log names to include in the training split.
+        :param val_log_names: List of log names to include in the validation split.
+        :param test_log_names: List of log names to include in the test split.
+        :param downloader: Optional :class:`~py123d.parser.pandaset.pandaset_download.PandasetDownloader`
+            used for streaming mode. When provided, each log parser extracts its assigned
+            log from the cached ``pandaset.zip`` into a per-log
+            :class:`tempfile.TemporaryDirectory`, converts it, and deletes the temp dir
+            before moving on. Log selection comes from
+            :meth:`PandasetDownloader.resolve_log_names`, intersected with the
+            per-split lists so each log is routed to the right split. No local
+            ``pandaset_data_root`` is required in this mode.
         """
         for split in splits:
             assert split in PANDASET_SPLITS, f"Split {split} is not available. Available splits: {PANDASET_SPLITS}"
-        assert pandaset_data_root is not None, "The variable `pandaset_data_root` must be provided."
 
         self._splits: List[str] = splits
-        self._pandaset_data_root: Path = Path(pandaset_data_root)
+        self._train_log_names: List[str] = list(train_log_names) if train_log_names else []
+        self._val_log_names: List[str] = list(val_log_names) if val_log_names else []
+        self._test_log_names: List[str] = list(test_log_names) if test_log_names else []
+        self._downloader: Optional["PandasetDownloader"] = downloader
 
-        self._train_log_names: List[str] = train_log_names
-        self._val_log_names: List[str] = val_log_names
-        self._test_log_names: List[str] = test_log_names
-        self._log_paths_and_split: List[Tuple[Path, str]] = self._collect_log_paths()
+        if downloader is not None:
+            self._pandaset_data_root: Optional[Path] = None
+            self._log_entries: List[Tuple[Optional[Path], str, str]] = self._collect_log_entries_streaming()
+        else:
+            assert pandaset_data_root is not None, "`pandaset_data_root` must be provided when `downloader` is None."
+            self._pandaset_data_root = Path(pandaset_data_root)
+            self._log_entries = self._collect_log_entries_local()
 
-    def _collect_log_paths(self) -> List[Tuple[Path, str]]:
-        log_paths_and_split: List[Tuple[Path, str]] = []
+    def _split_for_log(self, log_name: str) -> Optional[str]:
+        """Return the active split a ``log_name`` belongs to, or ``None`` if none matches.
 
+        Streaming-mode convenience: when a downloader is configured AND none of the
+        per-split log-name lists are populated, every valid log is routed to
+        ``splits[0]``. This lets ``dataset=pandaset-stream`` keep its config short —
+        the caller only specifies which logs to stream; split routing defaults to the
+        first active split. Local mode requires explicit per-split lists as before.
+        """
+        streaming_fallback = (
+            self._downloader is not None
+            and not (self._train_log_names or self._val_log_names or self._test_log_names)
+            and log_name in PANDASET_LOG_NAMES
+        )
+        if streaming_fallback:
+            return self._splits[0] if self._splits else None
+
+        result: Optional[str] = None
+        if (log_name in self._train_log_names) and ("pandaset_train" in self._splits):
+            result = "pandaset_train"
+        elif (log_name in self._val_log_names) and ("pandaset_val" in self._splits):
+            result = "pandaset_val"
+        elif (log_name in self._test_log_names) and ("pandaset_test" in self._splits):
+            result = "pandaset_test"
+        return result
+
+    def _collect_log_entries_local(self) -> List[Tuple[Optional[Path], str, str]]:
+        """Discover logs under ``{pandaset_data_root}/{log_name}/`` and route them to splits."""
+        assert self._pandaset_data_root is not None
+        entries: List[Tuple[Optional[Path], str, str]] = []
         for log_folder in self._pandaset_data_root.iterdir():
             if not log_folder.is_dir():
                 continue
-
             log_name = log_folder.name
             assert log_name in PANDASET_LOG_NAMES, f"Log name {log_name} is not recognized."
-            if (log_name in self._train_log_names) and ("pandaset_train" in self._splits):
-                log_paths_and_split.append((log_folder, "pandaset_train"))
-            elif (log_name in self._val_log_names) and ("pandaset_val" in self._splits):
-                log_paths_and_split.append((log_folder, "pandaset_val"))
-            elif (log_name in self._test_log_names) and ("pandaset_test" in self._splits):
-                log_paths_and_split.append((log_folder, "pandaset_test"))
+            split = self._split_for_log(log_name)
+            if split is not None:
+                entries.append((log_folder, log_name, split))
+        return entries
 
-        return log_paths_and_split
+    def _collect_log_entries_streaming(self) -> List[Tuple[Optional[Path], str, str]]:
+        """Enumerate log names from the downloader and route them to splits.
+
+        Logs the downloader selects that are not present in any active split's log-name
+        list are skipped with a warning — the per-split lists remain authoritative for
+        split routing even in streaming mode.
+        """
+        assert self._downloader is not None
+        selected = self._downloader.resolve_log_names()
+        logger.info("PandaSet streaming: %d logs selected by downloader", len(selected))
+
+        entries: List[Tuple[Optional[Path], str, str]] = []
+        for log_name in selected:
+            split = self._split_for_log(log_name)
+            if split is None:
+                logger.warning(
+                    "PandaSet streaming: log %s is not assigned to any active split "
+                    "(train/val/test name lists); skipping.",
+                    log_name,
+                )
+                continue
+            entries.append((None, log_name, split))
+        return entries
 
     def get_log_parsers(self) -> List[PandasetLogParser]:  # type: ignore
         """Inherited, see superclass."""
         return [
-            PandasetLogParser(source_log_path=source_log_path, split=split)
-            for source_log_path, split in self._log_paths_and_split
+            PandasetLogParser(
+                source_log_path=source_log_path,
+                log_name=log_name,
+                split=split,
+                downloader=self._downloader,
+            )
+            for source_log_path, log_name, split in self._log_entries
         ]
 
     def get_map_parsers(self) -> List[BaseMapParser]:
@@ -117,23 +192,57 @@ class PandasetParser(BaseDatasetParser):
 class PandasetLogParser(BaseLogParser):
     """Lightweight, picklable handle to one Pandaset log."""
 
-    def __init__(self, source_log_path: Path, split: str) -> None:
+    def __init__(
+        self,
+        source_log_path: Optional[Path],
+        log_name: str,
+        split: str,
+        downloader: Optional["PandasetDownloader"] = None,
+    ) -> None:
         self._source_log_path = source_log_path
+        self._log_name = log_name
         self._split = split
+        self._downloader = downloader
 
     def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
         return LogMetadata(
             dataset="pandaset",
             split=self._split,
-            log_name=self._source_log_path.name,
+            log_name=self._log_name,
             location=None,  # TODO: Add location information.
         )
 
+    @contextlib.contextmanager
+    def _resolved_log(self) -> Iterator[Path]:
+        """Yield the on-disk log path for the duration of one iterator pass.
+
+        In local mode this is the pre-set ``source_log_path``. In streaming mode
+        the log is extracted from the cached ``pandaset.zip`` into a fresh
+        :class:`tempfile.TemporaryDirectory` which is deleted when the context
+        manager exits (i.e. after ``iter_modalities_sync`` is exhausted).
+        """
+        if self._downloader is None:
+            assert self._source_log_path is not None
+            yield self._source_log_path
+            return
+
+        with tempfile.TemporaryDirectory(prefix=f"py123d-pandaset-{self._log_name}-") as tmp:
+            tmp_root = Path(tmp)
+            logger.info("Streaming PandaSet log %s to %s", self._log_name, tmp_root)
+            log_path = self._downloader.download_single_log(
+                log_name=self._log_name,
+                output_dir=tmp_root,
+            )
+            yield log_path
+
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Inherited, see superclass."""
-        source_log_path = self._source_log_path
+        with self._resolved_log() as source_log_path:
+            yield from self._iter_modalities_sync_from_path(source_log_path)
 
+    def _iter_modalities_sync_from_path(self, source_log_path: Path) -> Iterator[ModalitiesSync]:
+        """Emit synchronized modalities from an on-disk log directory."""
         ego_state_se3_metadata = PANDASET_EGO_STATE_SE3_METADATA
         box_detections_se3_metadata = PANDASET_BOX_DETECTIONS_SE3_METADATA
         pinhole_cameras_metadata = _get_pandaset_camera_metadata(source_log_path)
@@ -142,7 +251,6 @@ class PandasetLogParser(BaseLogParser):
         # Read files from pandaset
         lidar_timestamps_s = read_json(source_log_path / "meta" / "timestamps.json")
 
-        lidar_poses: List[Dict[str, Dict[str, float]]] = read_json(source_log_path / "lidar" / "poses.json")
         camera_poses: Dict[str, List[Dict[str, Dict[str, float]]]] = {
             camera_name: read_json(source_log_path / "camera" / camera_name / "poses.json")
             for camera_name in PANDASET_CAMERA_MAPPING.keys()
@@ -155,9 +263,9 @@ class PandasetLogParser(BaseLogParser):
         for iteration, timestep_s in enumerate(lidar_timestamps_s):
             timestamp = Timestamp.from_s(timestep_s)
             ego_state = _extract_pandaset_sensor_ego_state(
-                lidar_pose=lidar_poses[iteration],
+                front_camera_pose=camera_poses["front_camera"][iteration],
                 ego_metadata=ego_state_se3_metadata,
-                timestamp=timestamp,
+                timestamp=Timestamp.from_s(camera_timestamps_s["front_camera"][iteration]),
             )
             box_detections = _extract_pandaset_box_detections(
                 source_log_path, iteration, timestamp, box_detections_se3_metadata
@@ -198,6 +306,7 @@ def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[Dict[Camera
         assert intrinsics_file.exists(), f"Camera intrinsics file {intrinsics_file} does not exist."
 
         intrinsics_data = read_json(intrinsics_file)
+
         camera_metadata[camera_type] = PinholeCameraMetadata(
             camera_name=camera_name,
             camera_id=camera_type,
@@ -218,12 +327,24 @@ def _get_pandaset_camera_metadata(source_log_path: Path) -> Optional[Dict[Camera
 
 
 def _extract_pandaset_sensor_ego_state(
-    lidar_pose: Dict[str, Dict[str, float]],
+    front_camera_pose: Dict[str, Dict[str, float]],
     ego_metadata: EgoStateSE3Metadata,
     timestamp: Timestamp,
 ) -> EgoStateSE3:
-    """Extracts the ego state from PandaSet lidar pose data."""
-    imu_se3 = global_main_lidar_to_global_imu(pandaset_pose_dict_to_pose_se3(lidar_pose))
+    """Extracts the ego state from PandaSet front camera pose data.
+
+    NOTE @DanielDauner: The lidar poses were not reliable in general and are inconsistant across logs.
+    We use the same strategy as Neurad studio and use the front camera as reference ego pose.
+    https://github.com/georghess/neurad-studio/blob/main/nerfstudio/data/dataparsers/pandaset_dataparser.py#L217-L218
+
+    PandaSet lidar poses are unreliable, so the lidar-to-world transform is derived
+    from the front camera pose and its static extrinsic calibration.
+    """
+    global_lidar = compute_global_main_lidar_from_camera(
+        camera_pose=pandaset_pose_dict_to_pose_se3(front_camera_pose),
+        camera_extrinsic=PANDASET_CAMERA_EXTRINSICS["front_camera"],
+    )
+    imu_se3 = global_main_lidar_to_global_imu(global_lidar)
 
     return EgoStateSE3.from_imu(
         imu_se3=imu_se3,

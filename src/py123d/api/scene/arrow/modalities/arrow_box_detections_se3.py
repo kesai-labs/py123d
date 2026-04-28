@@ -39,6 +39,7 @@ class ArrowBoxDetectionsSE3Writer(ArrowBaseModalityWriter):
         # Optional: For inferring box dynamics from bounding box and timestamps.
         self._infer_box_dynamics = infer_box_dynamics
         self._inference_window: List[BoxDetectionsSE3] = []
+        self._deferred_count: int = 0  # frames accepted but not yet emitted
 
         file_path = log_dir / f"{metadata.modality_key}.arrow"
 
@@ -62,6 +63,11 @@ class ArrowBoxDetectionsSE3Writer(ArrowBaseModalityWriter):
             max_batch_size=1000,
         )
 
+    @property
+    def row_count(self) -> int:
+        """Row count including frames accepted but not yet emitted."""
+        return self._row_count + self._deferred_count
+
     def write_modality(self, modality: BaseModality):
         assert isinstance(modality, BoxDetectionsSE3), f"Expected BoxDetectionsSE3, got {type(modality)}"
         if not self._infer_box_dynamics:
@@ -69,15 +75,18 @@ class ArrowBoxDetectionsSE3Writer(ArrowBaseModalityWriter):
             return
 
         self._inference_window.append(modality)
+        self._deferred_count += 1
         if len(self._inference_window) == 2:
             # First frame: forward-difference against the second frame. Keep both in the window so the
             # second frame can still be centered once a third frame arrives.
             first, second = self._inference_window
             self._emit(_with_inferred_velocities(first, prev=None, nxt=second, metadata=self._modality_metadata))
+            self._deferred_count -= 1
         elif len(self._inference_window) == 3:
             prev, curr, nxt = self._inference_window
             self._emit(_with_inferred_velocities(curr, prev=prev, nxt=nxt, metadata=self._modality_metadata))
             self._inference_window.pop(0)
+            self._deferred_count -= 1
 
     def close(self) -> None:
         if self._infer_box_dynamics and self._inference_window:

@@ -143,9 +143,15 @@ class CameraFrustumElement(ViewerElement):
             show_frames = self._gui_show_frames_handle is not None and self._gui_show_frames_handle.value
             if show_frames:
                 if camera_type in self._frame_handles:
+                    # _camera_position, _camera_quaternion = get_static_camera_pose(
+                    #     self._context.scene, scene_center_pose, camera_type, iteration
+                    # )
                     self._frame_handles[camera_type].position = camera_position
                     self._frame_handles[camera_type].wxyz = camera_quaternion
                 else:
+                    # _camera_position, _camera_quaternion = get_static_camera_pose(
+                    #     self._context.scene, scene_center_pose, camera_type, iteration
+                    # )
                     self._frame_handles[camera_type] = self._server.scene.add_frame(
                         f"camera_frames/{camera_type.serialize()}",
                         axes_length=0.5,
@@ -210,3 +216,32 @@ class CameraFrustumElement(ViewerElement):
         self._config.image_scale = int(self._gui_image_scale_handle.value)
         self.remove()
         self.update(self._current_iteration)
+
+
+# NOTE: usefull for debugging. Should be removed or integrated in the future.
+# def get_static_camera_pose(scene: SceneAPI, scene_center_pose: PoseSE3, cam_id: CameraID, iteration: int) -> PoseSE3:
+#     """Get a static camera pose for the scene, e.g. to be used as the initial viewer camera pose.
+
+#     The pose is determined by looking up the ego state at iteration 0 and then applying a fixed
+#     offset and rotation to position the camera above and behind the ego vehicle, looking at the
+#     scene center.
+
+#     :param scene: SceneAPI instance to get the initial ego state from.
+#     :return: PoseSE3 of the static camera in the scene.
+#     """
+
+#     current_ego_state = scene.get_ego_state_se3_at_iteration(iteration)
+#     if current_ego_state is None:
+#         raise ValueError(f"Scene does not have ego state at iteration {iteration}")
+
+#     camera_metadata = scene.get_camera_metadatas()[cam_id]
+
+#     camera_to_imus_se3 = camera_metadata.camera_to_imu_se3
+
+#     out = reframe_se3(
+#         from_origin=current_ego_state.imu_se3,
+#         to_origin=scene_center_pose,
+#         pose_se3=camera_to_imus_se3,
+#     )
+
+#     return out.point_3d.array, out.quaternion.array

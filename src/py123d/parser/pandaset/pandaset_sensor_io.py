@@ -5,7 +5,9 @@ import numpy as np
 
 from py123d.datatypes import LidarFeature, LidarID
 from py123d.geometry.transform import abs_to_rel_points_3d_array
+from py123d.parser.pandaset.utils.pandaset_constants import PANDASET_CAMERA_EXTRINSICS
 from py123d.parser.pandaset.utils.pandaset_utils import (
+    compute_global_main_lidar_from_camera,
     global_main_lidar_to_global_imu,
     pandaset_pose_dict_to_pose_se3,
     read_json,
@@ -38,10 +40,14 @@ def load_pandaset_point_cloud_data_from_path(
     # Use float64 precision for global coordinates.
     point_cloud_3d_global_frame = all_lidar_df[["x", "y", "z"]].to_numpy(dtype=np.float64)
 
-    # Convert global point cloud to ego frame using the pose information from the "poses.json" file.
-    ego_pose = global_main_lidar_to_global_imu(
-        pandaset_pose_dict_to_pose_se3(read_json(pkl_gz_path.parent / "poses.json")[iteration])
+    # Derive lidar-to-world from front camera pose + extrinsic (lidar poses.json is unreliable).
+    log_path = pkl_gz_path.parent.parent
+    front_camera_poses = read_json(log_path / "camera" / "front_camera" / "poses.json")
+    global_lidar = compute_global_main_lidar_from_camera(
+        camera_pose=pandaset_pose_dict_to_pose_se3(front_camera_poses[iteration]),
+        camera_extrinsic=PANDASET_CAMERA_EXTRINSICS["front_camera"],
     )
+    ego_pose = global_main_lidar_to_global_imu(global_lidar)
     point_cloud_3d = abs_to_rel_points_3d_array(ego_pose, point_cloud_3d_global_frame)
 
     # Convert lidar ids of PandaSet to 123D LidarIDs.

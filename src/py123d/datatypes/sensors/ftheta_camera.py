@@ -36,30 +36,36 @@ class FThetaIntrinsicsIndex(IntEnum):
     FW_POLY_4 = 6
     """Forward polynomial coefficient 4."""
 
-    BW_POLY_0 = 7
+    FW_POLY_5 = 7
+    """Forward polynomial coefficient 5."""
+
+    BW_POLY_0 = 8
     """Backward polynomial coefficient 0."""
 
-    BW_POLY_1 = 8
+    BW_POLY_1 = 9
     """Backward polynomial coefficient 1."""
 
-    BW_POLY_2 = 9
+    BW_POLY_2 = 10
     """Backward polynomial coefficient 2."""
 
-    BW_POLY_3 = 10
+    BW_POLY_3 = 11
     """Backward polynomial coefficient 3."""
 
-    BW_POLY_4 = 11
+    BW_POLY_4 = 12
     """Backward polynomial coefficient 4."""
+
+    BW_POLY_5 = 13
+    """Backward polynomial coefficient 5."""
 
     @classproperty
     def FW_POLY(cls) -> slice:
         """Slice for the forward polynomial coefficients."""
-        return slice(cls.FW_POLY_0, cls.FW_POLY_4 + 1)
+        return slice(cls.FW_POLY_0, cls.FW_POLY_5 + 1)
 
     @classproperty
     def BW_POLY(cls) -> slice:
         """Slice for the backward polynomial coefficients."""
-        return slice(cls.BW_POLY_0, cls.BW_POLY_4 + 1)
+        return slice(cls.BW_POLY_0, cls.BW_POLY_5 + 1)
 
 
 class FThetaIntrinsics(ArrayMixin):
@@ -79,11 +85,11 @@ class FThetaIntrinsics(ArrayMixin):
 
         :param cx: Principal point x-coordinate.
         :param cy: Principal point y-coordinate.
-        :param fw_poly: Forward polynomial coefficients (5 values).
-        :param bw_poly: Backward polynomial coefficients (5 values).
+        :param fw_poly: Forward polynomial coefficients (6 values).
+        :param bw_poly: Backward polynomial coefficients (6 values).
         """
-        assert len(fw_poly) == 5, f"Expected 5 forward polynomial coefficients, got {len(fw_poly)}"
-        assert len(bw_poly) == 5, f"Expected 5 backward polynomial coefficients, got {len(bw_poly)}"
+        assert len(fw_poly) == 6, f"Expected 6 forward polynomial coefficients, got {len(fw_poly)}"
+        assert len(bw_poly) == 6, f"Expected 6 backward polynomial coefficients, got {len(bw_poly)}"
         array = np.zeros(len(FThetaIntrinsicsIndex), dtype=np.float64)
         array[FThetaIntrinsicsIndex.CX] = cx
         array[FThetaIntrinsicsIndex.CY] = cy
@@ -122,12 +128,12 @@ class FThetaIntrinsics(ArrayMixin):
 
     @property
     def fw_poly(self) -> npt.NDArray[np.float64]:
-        """Forward polynomial coefficients (5 values)."""
+        """Forward polynomial coefficients (6 values)."""
         return self._array[FThetaIntrinsicsIndex.FW_POLY]
 
     @property
     def bw_poly(self) -> npt.NDArray[np.float64]:
-        """Backward polynomial coefficients (5 values)."""
+        """Backward polynomial coefficients (6 values)."""
         return self._array[FThetaIntrinsicsIndex.BW_POLY]
 
     def __repr__(self) -> str:

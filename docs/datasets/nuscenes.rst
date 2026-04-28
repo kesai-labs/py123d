@@ -84,16 +84,56 @@ Available Modalities
 Download
 ~~~~~~~~
 
-You need to download the nuScenes dataset from the `official website <https://www.nuscenes.org/download>`_.
-From there, you need the following parts:
+You need to `register at nuScenes <https://www.nuscenes.org/nuscenes>`_ and accept the
+CC BY-NC-SA 4.0 dataset terms before any download succeeds.
 
-* CAN bus expansion pack
-* Map expansion pack (v1.3)
+py123d ships an automated downloader that wraps the nuScenes AWS Cognito auth flow
+and per-archive CloudFront API — so you don't need to click through the download page
+manually.
+
+**Requires** ``$NUSCENES_EMAIL`` and ``$NUSCENES_PASSWORD`` to be set.
+
+.. code-block:: bash
+
+  export NUSCENES_EMAIL=...
+  export NUSCENES_PASSWORD=...
+
+  # Minimal smoketest (~600 MB): mini split + HD maps + CAN bus
+  py123d-download dataset=nuscenes downloader.preset=mini
+
+  # Smallest useful trainval slice (~75 GB): trainval metadata + first blob + maps + CAN bus
+  py123d-download dataset=nuscenes downloader.preset=trainval_one
+
+  # Full dataset (~700 GB): every archive in the catalog
+  py123d-download dataset=nuscenes downloader.preset=full
+
+  # Or a custom archive list:
+  py123d-download dataset=nuscenes \
+      'downloader.archives=[v1.0-trainval_meta.tgz, v1.0-trainval03_blobs.tgz, nuScenes-map-expansion-v1.3.zip, can_bus.zip]'
+
+The archives are downloaded into a session-scoped temp directory, extracted into
+``$NUSCENES_DATA_ROOT``, and deleted — only the standard nuScenes tree survives.
+
+.. dropdown:: Downloader attribution
+
+  The nuScenes Cognito ``USER_PASSWORD_AUTH`` flow, the API gateway path, and the
+  13-entry MD5 checksum catalog for the core trainval/test archives used in
+  :class:`~py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader` are adapted
+  from the MIT-licensed community project
+  `li-xl/nuscenes-download <https://github.com/li-xl/nuscenes-download>`_
+  (Copyright (c) 2025 Xiang-Li Li).
+
+**Alternative: manual download.** If you prefer to click through the
+`official download page <https://www.nuscenes.org/download>`_, you need the same
+parts:
+
+* CAN bus expansion pack — ``can_bus.zip``
+* Map expansion pack (v1.3) — ``nuScenes-map-expansion-v1.3.zip``
 * Full dataset (v1.0)
 
-  * Mini dataset (v1.0-mini) (for quick testing)
-  * Train/Val split (v1.0-trainval) (for the complete dataset)
-  * Test split (v1.0-test) (for the complete dataset)
+  * Mini dataset (``v1.0-mini.tgz``) (for quick testing)
+  * Train/Val split (``v1.0-trainval_meta.tgz`` + ``v1.0-trainval{01..10}_blobs.tgz``)
+  * Test split (``v1.0-test_meta.tgz`` + ``v1.0-test_blobs.tgz``)
 
 
 
@@ -167,7 +207,8 @@ For nuScenes, additional installation that are included as optional dependencies
 Conversion
 ~~~~~~~~~~~~
 
-You can convert the nuScenes dataset (or mini dataset) by running:
+**Local mode** — data already extracted to ``$NUSCENES_DATA_ROOT`` (see the `Download`_
+section above):
 
 .. code-block:: bash
 
@@ -178,6 +219,39 @@ You can convert the nuScenes dataset (or mini dataset) by running:
 .. note::
   The conversion of nuScenes by default does not store sensor data in the logs, but only relative file paths.
   To change this behavior, you need to adapt the ``nuscenes-sensor.yaml`` or ``nuscenes-mini.yaml`` converter configuration.
+
+**Streaming mode** — materialize a chosen archive subset from nuScenes' CloudFront
+API into a session-scoped temp directory at parser construction time, convert from
+it, and delete the temp directory on parser destruction. The ``maps/`` subdirectory
+extracted from the map expansion is auto-detected (no ``nuscenes_map_root`` override
+needed).
+
+.. code-block:: bash
+
+  export NUSCENES_EMAIL=...
+  export NUSCENES_PASSWORD=...
+
+  # Smoketest (~600 MB download): mini dataset + HD maps + CAN bus.
+  py123d-conversion dataset=nuscenes-mini-stream
+
+  # Smallest useful trainval slice (~75 GB download):
+  py123d-conversion dataset=nuscenes-stream
+  py123d-conversion dataset=nuscenes-stream 'dataset.parser.splits=[nuscenes_val]'
+
+  # Specific archive selection (skip auto-preset):
+  py123d-conversion dataset=nuscenes-stream \
+      'dataset.parser.stream_archives=[v1.0-trainval_meta.tgz, v1.0-trainval03_blobs.tgz, nuScenes-map-expansion-v1.3.zip, can_bus.zip]'
+
+.. warning::
+  Streaming downloads can be large even for a "small" slice — the smallest trainval
+  preset is ~75 GB on the wire. Use ``dataset=nuscenes-mini-stream`` (~600 MB) when
+  smoke-testing the pipeline.
+
+.. note::
+  Streaming mode forces ``camera_store_option: "jpeg_binary"`` and
+  ``lidar_store_option: "binary"`` — the temp directory is deleted immediately after
+  the parser is garbage-collected, so any ``"path"`` references would point at
+  vanished sources.
 
 
 Interpolated Conversion (10 Hz)

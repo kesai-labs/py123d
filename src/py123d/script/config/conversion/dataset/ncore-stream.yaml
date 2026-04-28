@@ -1,0 +1,87 @@
+# Streaming variant of dataset=ncore — each Ray worker downloads its assigned clip from
+# Hugging Face into a per-clip temp directory, converts it, and deletes the temp dir
+# before moving on.
+#
+# Clip-level parallelism therefore also parallelizes downloads. Each clip is ~1.2 GB
+# (1 x LiDAR + 7 x camera archives) — even small max_clips values imply multi-GB of
+# download traffic.
+#
+# Usage:
+#   export HF_TOKEN=hf_...
+#   py123d-conversion dataset=ncore-stream dataset.parser.max_clips=5
+#   py123d-conversion dataset=ncore-stream \
+#     'dataset.parser.downloader.clip_ids=[000da9de-0ee5-465a-9a2d-e7e91d3016bb]'
+
+parser:
+  _target_: py123d.parser.ncore.ncore_parser.NCoreParser
+  _convert_: 'all'
+
+  splits: ["ncore_train"]
+
+  # Ignored when `downloader` is set — clips land in per-clip temp directories.
+  ncore_data_root: null
+  max_clips: null
+
+  downloader:
+    _target_: py123d.parser.ncore.ncore_download.NCoreDownloader
+    _convert_: 'all'
+
+    # Not used in streaming — each clip goes to its own per-clip tempfile.TemporaryDirectory.
+    output_dir: null
+
+    revision: main
+    hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+    # Selection — mutually exclusive. When neither is set, the full HF catalog is enumerated
+    # and max_clips (on the parser) truncates it.
+    clip_ids: null
+    num_clips: null
+    sample_random: false
+    seed: 0
+
+    modality: all             # "all" | "metadata" | "lidar" | "cameras"
+    cameras: null             # only honored when modality == "cameras"
+
+    max_workers: 4
+    clips_only: false
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the per-clip
+  # temp directory is deleted immediately after conversion, which would leave the
+  # Arrow logs pointing at a vanished source.
+  camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4" — "path" forbidden here
+  lidar_store_option: "binary"       # "binary" — "path" forbidden here
+  lidar_codec: "draco"               # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: lidar.lidar_merged.timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

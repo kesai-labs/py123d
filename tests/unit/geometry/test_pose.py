@@ -417,6 +417,19 @@ class TestPoseSE3:
         T = pose.transformation_matrix @ inv.transformation_matrix
         np.testing.assert_allclose(T, np.eye(4), atol=1e-10)
 
+    def test_inverse_with_rotation(self):
+        """Test inverse of a pose with non-trivial rotation (90° around Y-axis)."""
+        # 90° rotation around Y-axis: qw=cos(45°), qy=sin(45°)
+        c = np.cos(np.pi / 4)
+        pose = PoseSE3(x=1.0, y=2.0, z=3.0, qw=c, qx=0.0, qy=c, qz=0.0)
+        inv = pose.inverse
+        # pose * inverse should give identity
+        T = pose.transformation_matrix @ inv.transformation_matrix
+        np.testing.assert_allclose(T, np.eye(4), atol=1e-10)
+        # inverse * pose should also give identity
+        T2 = inv.transformation_matrix @ pose.transformation_matrix
+        np.testing.assert_allclose(T2, np.eye(4), atol=1e-10)
+
     def test_repr(self):
         """Test __repr__ returns a string containing the class name."""
         pose = PoseSE3(x=1.0, y=2.0, z=3.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0)

@@ -44,6 +44,7 @@ class ArrowEgoStateSE3Writer(ArrowBaseModalityWriter):
         # Optional: For inferring ego dynamics from pose.
         self._infer_ego_dynamics = infer_ego_dynamics
         self._inference_window: List[EgoStateSE3] = []
+        self._deferred_count: int = 0  # frames accepted but not yet emitted
 
         file_path = log_dir / f"{metadata.modality_key}.arrow"
         schema = pa.schema(
@@ -62,6 +63,11 @@ class ArrowEgoStateSE3Writer(ArrowBaseModalityWriter):
             max_batch_size=1000,
         )
 
+    @property
+    def row_count(self) -> int:
+        """Row count including frames accepted but not yet emitted."""
+        return self._row_count + self._deferred_count
+
     def write_modality(self, modality: BaseModality) -> None:
         assert isinstance(modality, EgoStateSE3), f"Expected EgoStateSE3, got {type(modality)}"
         if not self._infer_ego_dynamics:
@@ -69,17 +75,20 @@ class ArrowEgoStateSE3Writer(ArrowBaseModalityWriter):
             return
 
         self._inference_window.append(modality)
+        self._deferred_count += 1
         if len(self._inference_window) == 2:
             # First frame: emit with forward difference against the second frame. The buffer is kept
             # intact so the second frame will later be emitted with a centered difference once a third
             # frame arrives.
             first, second = self._inference_window
             self._emit(_with_dynamics(first, _infer_ego_dynamics(prev=None, curr=first, nxt=second)))
+            self._deferred_count -= 1
         elif len(self._inference_window) == 3:
             # Middle frame: centered difference, then drop the oldest.
             prev, curr, nxt = self._inference_window
             self._emit(_with_dynamics(curr, _infer_ego_dynamics(prev=prev, curr=curr, nxt=nxt)))
             self._inference_window.pop(0)
+            self._deferred_count -= 1
 
     def close(self) -> None:
         if self._infer_ego_dynamics and self._inference_window:

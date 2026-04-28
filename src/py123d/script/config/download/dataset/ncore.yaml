@@ -1,0 +1,23 @@
+downloader:
+  _target_: py123d.parser.ncore.ncore_download.NCoreDownloader
+  _convert_: 'all'
+
+  # Destination. Defaults to $NCORE_DATA_ROOT (set via default_dataset_paths.yaml).
+  # Override to null to let a streaming parser manage a temp directory.
+  output_dir: ${dataset_paths.ncore_data_root}
+
+  revision: main            # HF branch / tag / commit
+  hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+  # Selection — mutually exclusive. When neither is set, the full catalog is downloaded.
+  clip_ids: null            # explicit list of UUIDs
+  num_clips: null           # first N clips, or N random if sample_random=true
+  sample_random: false
+  seed: 0
+
+  modality: all             # "all" | "metadata" | "lidar" | "cameras"
+  cameras: null             # only honored when modality == "cameras"; defaults to all 7
+
+  max_workers: 8
+  clips_only: false         # when true, skip README.md / rename_clip_folders.py at repo root
+  dry_run: false

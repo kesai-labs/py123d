@@ -38,7 +38,14 @@ WAYMO_LANE_TYPE_CONVERSION: Dict[int, LaneType] = {
 
 # Perception:
 # ----------------------------------------------------------------------------------------------------------------------
-WOD_PERCEPTION_AVAILABLE_SPLITS: List[str] = ["wod-perception_train", "wod-perception_val", "wod-perception_test"]
+# Single source of truth for WOD-Perception splits. Mirrors the motion pattern and is used by
+# both the parser (local file discovery) and the downloader (GCS prefix construction).
+WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER: Dict[str, str] = {
+    "wod-perception_train": "training",
+    "wod-perception_val": "validation",
+    "wod-perception_test": "testing",
+}
+WOD_PERCEPTION_AVAILABLE_SPLITS: List[str] = list(WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER)
 
 # https://github.com/waymo-research/waymo-open-dataset/blob/master/src/waymo_open_dataset/dataset.proto#L50
 WOD_PERCEPTION_CAMERA_IDS: Dict[int, CameraID] = {
@@ -63,7 +70,30 @@ WOD_PERCEPTION_LIDAR_IDS: Dict[int, LidarID] = {
 # Motion:
 # ----------------------------------------------------------------------------------------------------------------------
 
-WOD_MOTION_AVAILABLE_SPLITS: List[str] = ["wod-motion_train", "wod-motion_val", "wod-motion_test"]
+# Single source of truth for WOD-Motion splits. Only splits that actually exist on GCS are listed —
+# training_20s has no val/test counterpart, and *_interactive has no train counterpart.
+#
+# On-disk layout of converted logs: ``logs_root/<split>/<scenario_id>/``, so each split here maps
+# to its own folder (e.g. ``logs_root/wod-motion-interactive_val/...``).
+WOD_MOTION_SPLIT_TO_GCS_FOLDER: Dict[str, str] = {
+    "wod-motion_train": "training",
+    "wod-motion_val": "validation",
+    "wod-motion_test": "testing",
+    "wod-motion-20s_train": "training_20s",
+    "wod-motion-interactive_val": "validation_interactive",
+    "wod-motion-interactive_test": "testing_interactive",
+}
+# Scenario flavor per split — surfaced via the aux custom modality so downstream code can branch
+# without string-parsing the split name. Keys must match WOD_MOTION_SPLIT_TO_GCS_FOLDER.
+WOD_MOTION_SPLIT_TO_VARIANT: Dict[str, str] = {
+    "wod-motion_train": "default",
+    "wod-motion_val": "default",
+    "wod-motion_test": "default",
+    "wod-motion-20s_train": "20s",
+    "wod-motion-interactive_val": "interactive",
+    "wod-motion-interactive_test": "interactive",
+}
+WOD_MOTION_AVAILABLE_SPLITS: List[str] = list(WOD_MOTION_SPLIT_TO_GCS_FOLDER)
 
 # https://github.com/waymo-research/waymo-open-dataset/blob/master/src/waymo_open_dataset/protos/map.proto#L39
 WOD_MOTION_TRAFFIC_LIGHT_MAPPING: Dict[int, TrafficLightStatus] = {

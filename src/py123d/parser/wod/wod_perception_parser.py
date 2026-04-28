@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union
 
@@ -53,7 +54,9 @@ from py123d.parser.wod.utils.wod_constants import (
     WOD_PERCEPTION_AVAILABLE_SPLITS,
     WOD_PERCEPTION_CAMERA_IDS,
     WOD_PERCEPTION_LIDAR_IDS,
+    WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER,
 )
+from py123d.parser.wod.wod_download import WODPerceptionDownloader
 from py123d.parser.wod.wod_map_parser import WODMapParser
 
 if TYPE_CHECKING:
@@ -116,21 +119,30 @@ class WODPerceptionParser(BaseDatasetParser):
     def __init__(
         self,
         splits: List[str],
-        wod_perception_data_root: Union[Path, str],
-        zero_roll_pitch: bool,
-        keep_polar_features: bool,
-        add_map_pose_offset: bool,
-        add_dummy_lane_groups: bool,
+        wod_perception_data_root: Optional[Union[Path, str]] = None,
+        zero_roll_pitch: bool = True,
+        keep_polar_features: bool = False,
+        add_map_pose_offset: bool = True,
+        add_dummy_lane_groups: bool = False,
+        downloader: Optional[WODPerceptionDownloader] = None,
     ) -> None:
         """Initializes the :class:`WODPerceptionParser`.
 
         :param splits: List of splits to convert, e.g. ``["wod-perception_train", "wod-perception_val"]``.
         :param wod_perception_data_root: Path to the root directory of the WOD Perception dataset
+            (contains ``training/``, ``validation/``, ``testing/`` subdirectories). Required when
+            ``downloader`` is ``None``; ignored otherwise.
         :param zero_roll_pitch: Whether to zero out roll and pitch angles in the vehicle pose
         :param keep_polar_features: Whether to keep polar features in the Lidar point clouds
         :param add_map_pose_offset: Whether to add a pose offset to the map
         :param add_dummy_lane_groups: Whether to add dummy lane groups. \
             If True, creates a lane group for each lane since WOD does not provide lane groups.
+        :param downloader: Optional :class:`WODPerceptionDownloader` to run at construction time.
+            When provided, the downloader's :attr:`output_dir` is used as the data root
+            (a managed :class:`tempfile.TemporaryDirectory` is assigned if it is ``None``),
+            and ``wod_perception_data_root`` is ignored. The temp dir, if any, is cleaned
+            up when the parser is garbage collected. Requires an authenticated GCS client
+            (the perception bucket is not anonymously readable, unlike the motion bucket).
         """
         for split in splits:
             assert split in WOD_PERCEPTION_AVAILABLE_SPLITS, (
@@ -138,26 +150,62 @@ class WODPerceptionParser(BaseDatasetParser):
             )
 
         self._splits: List[str] = splits
-        self._wod_perception_data_root: Path = Path(wod_perception_data_root)
         self._zero_roll_pitch: bool = zero_roll_pitch
         self._keep_polar_features: bool = keep_polar_features
         self._add_map_pose_offset: bool = add_map_pose_offset
         self._add_dummy_lane_groups: bool = add_dummy_lane_groups
+        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
+
+        if downloader is not None:
+            self._wod_perception_data_root = self._run_downloader(downloader)
+        else:
+            assert wod_perception_data_root is not None, (
+                "`wod_perception_data_root` must be provided when `downloader` is None."
+            )
+            assert Path(wod_perception_data_root).exists(), (
+                f"The provided `wod_perception_data_root` path {wod_perception_data_root} does not exist."
+            )
+            self._wod_perception_data_root = Path(wod_perception_data_root)
 
         self._split_tf_record_pairs: List[Tuple[str, Path]] = self._collect_split_tf_record_pairs()
+
+    def _run_downloader(self, downloader: WODPerceptionDownloader) -> Path:
+        """Resolve ``downloader.output_dir`` (assigning a temp dir if needed), run the
+        download, and return the populated root directory.
+
+        The returned path mimics the on-disk layout a locally-downloaded perception dataset has
+        (``<root>/{training,validation,testing}/segment-*.tfrecord``), so the rest of the parser
+        is unchanged.
+        """
+        downloader._splits = list(self._splits)  # type: ignore[attr-defined]
+
+        if downloader.output_dir is None:
+            self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-wod-perception-")
+            downloader.output_dir = Path(self._stream_temp_dir_handle.name)
+            logger.info("WOD Perception streaming temp dir: %s", downloader.output_dir)
+
+        downloader.download()
+        return downloader.output_dir
+
+    def __del__(self) -> None:
+        """Clean up the streaming temp directory when the parser is garbage collected."""
+        # TODO(wod): move to explicit context manager — __del__ semantics are unreliable
+        # (GC ordering, exception swallowing) and this pattern is flagged in the project
+        # weaknesses analysis. Mirrors the same TODO on WODMotionParser.
+        handle = getattr(self, "_stream_temp_dir_handle", None)
+        if handle is not None:
+            try:
+                handle.cleanup()
+            except Exception:
+                pass
 
     def _collect_split_tf_record_pairs(self) -> List[Tuple[str, Path]]:
         """Helper to collect the pairings of the split names and the corresponding tf record file."""
         split_tf_record_pairs: List[Tuple[str, Path]] = []
-        split_name_mapping: Dict[str, str] = {
-            "wod-perception_train": "training",
-            "wod-perception_val": "validation",
-            "wod-perception_test": "testing",
-        }
 
         for split in self._splits:
-            assert split in split_name_mapping.keys()
-            split_folder = self._wod_perception_data_root / split_name_mapping[split]
+            assert split in WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER
+            split_folder = self._wod_perception_data_root / WOD_PERCEPTION_SPLIT_TO_GCS_FOLDER[split]
             source_log_paths = [log_file for log_file in split_folder.glob("*.tfrecord")]
             for source_log_path in source_log_paths:
                 split_tf_record_pairs.append((split, source_log_path))

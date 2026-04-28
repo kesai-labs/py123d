@@ -2,9 +2,29 @@ parser:
   _target_: py123d.parser.wod.wod_motion_parser.WODMotionParser
   _convert_: 'all'
 
+  # splits: one or more of the six WOMD splits exposed by py123d (see WOD_MOTION_SPLIT_TO_GCS_FOLDER):
+  #
+  #   wod-motion_train              → training                 (1000 shards, 9s scenarios @ 10 Hz)
+  #   wod-motion_val                → validation               ( 150 shards, 9s)
+  #   wod-motion_test               → testing                  ( 150 shards, 9s; future frames masked)
+  #   wod-motion-20s_train          → training_20s             (1000 shards, 20s scenarios — 201 frames)
+  #   wod-motion-interactive_val    → validation_interactive   ( 150 shards, 9s; interaction pairs)
+  #   wod-motion-interactive_test   → testing_interactive      ( 150 shards, 9s; futures masked)
+  #
+  # Asymmetric availability on GCS: training_20s has no val/test counterpart, and *_interactive
+  # has no train counterpart — those combinations are not in the registry and will raise.
+  #
+  # Each split's converted logs land in logs_root/<split>/<scenario_id>/, giving every variant
+  # its own folder. All variants share LogMetadata.dataset="wod-motion".
   splits: ["wod-motion_val", "wod-motion_train", "wod-motion_test"]
   wod_motion_data_root: ${dataset_paths.wod_motion_data_root}
   add_dummy_lane_groups: false
+  skip_maps: false        # when true, get_map_parsers() returns [] — saves disk when tight
+  skip_logs: false        # when true, get_log_parsers() returns [] — for maps-only runs
+
+  # To stream scenario shards from GCS instead of reading from disk, use the
+  # `dataset=wod-motion-stream` config variant, which attaches a WODMotionDownloader.
+  downloader: null
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig

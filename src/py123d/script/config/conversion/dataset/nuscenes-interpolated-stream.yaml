@@ -1,0 +1,99 @@
+# Streaming variant of dataset=nuscenes-interpolated — 10Hz interpolated nuScenes
+# conversion, with the same CloudFront-backed downloader used by `nuscenes-stream`.
+#
+# Mirrors `nuscenes-interpolated.yaml` exactly for splits + sync_config + writer flags
+# (including `target_iteration_duration_s: 0.1`); only the data paths, sensor storage
+# options (forced to self-contained binary), and the downloader block differ.
+#
+# Default preset is `trainval_one` — trainval metadata + first trainval blob + HD maps
+# + CAN bus (~75 GB). The interpolated path uses `sweeps/` from the blob archives and
+# CAN bus messages for ego dynamics at non-keyframe timestamps — both are included in
+# this preset.
+#
+# Credentials (required): $NUSCENES_EMAIL and $NUSCENES_PASSWORD. Register and accept
+# the dataset terms at https://www.nuscenes.org/nuscenes first.
+#
+# Usage:
+#   py123d-conversion dataset=nuscenes-interpolated-stream
+#   py123d-conversion dataset=nuscenes-interpolated-stream \
+#     'dataset.parser.splits=[nuscenes-interpolated_val]'
+
+parser:
+  _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
+  _convert_: 'all'
+
+  splits: ["nuscenes-interpolated_train", "nuscenes-interpolated_val", "nuscenes-interpolated_test"]
+
+  # Ignored when `downloader` is set — the parser materializes archives into a temp dir.
+  nuscenes_data_root: null
+
+  # Auto-detected in streaming mode: if `nuScenes-map-expansion-v1.3.zip` is in the
+  # materialized archive set, `<temp_root>/maps` is picked up automatically. Override
+  # here to point at a pre-downloaded map directory.
+  nuscenes_map_root: null
+
+  # Optional override — the exact archive list to fetch and extract. `null` uses the
+  # downloader's preset resolution (default: `trainval_one`).
+  stream_archives: null
+
+  downloader:
+    _target_: py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader
+    _convert_: 'all'
+
+    # Ignored in streaming mode — archives land in the parser's tempfile.TemporaryDirectory.
+    output_dir: null
+
+    email: null                  # falls back to $NUSCENES_EMAIL
+    password: null               # falls back to $NUSCENES_PASSWORD
+    region: us                   # "us" or "asia"
+
+    # Selection — preset wins when stream_archives is null.
+    preset: trainval_one         # "mini" | "trainval_one" | "test" | "full"
+    archives: null
+    num_archives: null
+    sample_random: false
+    seed: 0
+
+    max_workers: 4
+    verify_md5: true
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the temp
+  # directory holding the materialized archives is deleted when the parser is garbage
+  # collected, which would leave the Arrow logs pointing at a vanished source.
+  camera_store_option: "jpeg_binary"  # "jpeg_binary", "png_binary" — "path" forbidden here
+  lidar_store_option: "binary"        # "binary" — "path" forbidden here
+  lidar_codec: "laz"                  # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: box_detections_se3.timestamp_us
+    direction: "backward" # "forward" or "backward"
+    target_iteration_duration_s: 0.1 # 10Hz iteration frequency
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}
