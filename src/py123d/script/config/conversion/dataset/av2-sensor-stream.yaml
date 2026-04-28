@@ -17,8 +17,9 @@ parser:
 
   splits: ["av2-sensor_train", "av2-sensor_val", "av2-sensor_test"]
 
-  # Ignored — the downloader materializes logs into a temp dir whose path becomes the root.
-  av2_data_root: null
+  # Ignored — the downloader materializes logs into a temp dir; the parser uses
+  # `<temp_dir>/sensor` as the sensor root.
+  av2_sensor_root: null
   lidar_camera_matching: "sweep"
 
   downloader:
@@ -56,7 +57,7 @@ log_writer_config:
   # which would leave the Arrow logs pointing at a vanished source.
   camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4" — "path" forbidden here
   lidar_store_option: "binary"       # "binary" — "path" forbidden here
-  lidar_codec: "laz"                 # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+  lidar_codec: "ipc_zstd"                 # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
 
   infer_ego_dynamics: true
   infer_box_dynamics: true

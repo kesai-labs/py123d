@@ -18,12 +18,44 @@
 
 ## Features
 
-- **Unified API**: Read cameras, lidar, maps, and labels through a single interface, regardless of the source dataset.
+- **Dataset download**: Fetch supported datasets from their official sources via the CLI, and optionally convert directly into the unified format.
+- **Hydra-based conversion CLI**: YAML configs to manage your data pipelines.
 - **Apache Arrow storage**: columnar, memory-mapped, zero-copy reads. Fast and memory efficient.
 - **Multiple sensor codecs**: MP4/JPEG/PNG for cameras; LAZ/Draco/Arrow IPC for lidar.
+- **No sensor duplication**: Converted logs reference source camera/lidar files via relative paths, so you don't store sensors twice.
+- **Unified API**: Read cameras, lidar, maps, and labels through a single interface, regardless of the source dataset.
 - **Built-in visualization**: interactive 3D viewer ([Viser](https://viser.studio/main/)), and [matplotlib](https://matplotlib.org/) plotting.
-- **No sensor data duplication**: By default, converted logs reference original camera and lidar files via relative paths. No need to store sensor data twice.
-- **Hydra-based conversion CLI**: YAML configs to manage your data pipelines.
+
+## Installation
+
+```bash
+pip install py123d
+```
+
+Per-dataset extras (e.g. `py123d[av2]`, `py123d[nuscenes]`, `py123d[waymo]`) install the parser dependencies for each dataset on demand. See the [Demo](#demo) below for an example.
+
+## Demo
+
+Demo using the Argoverse 2 Sensor dataset, which is publicly readable from S3 and requires no cloud authentication.
+
+The `av2-sensor-stream` config downloads the requested logs/maps into a managed temp directory, converts them into our self-contained Arrow format, and cleans up the source files afterwards. `PY123D_DATA_ROOT` controls where the converted logs/maps are written. The script below installs the AV2 extra, converts the first 3 validation logs (~250 MB each), and launches the Viser viewer:
+
+```bash
+# 1. Install
+pip install py123d[av2]
+
+export PY123D_DATA_ROOT=/path/to/py123d_data
+
+# 2. Download + Convert
+py123d-conversion dataset=av2-sensor-stream \
+  dataset.parser.splits='[av2-sensor_val]' \
+  dataset.parser.downloader.num_logs=3
+
+# 3. Launch Viewer
+py123d-viser scene_filter=av2-sensor
+```
+
+Open `http://localhost:8080` to browse the converted scenes interactively.
 
 ## Viewer
 
@@ -49,6 +81,20 @@
 ## Changelog
 
 <details open>
+<summary><b>v0.3.0</b> (2026-04-28)</summary>
+
+- Refactored dataset download interface, with new download/stream options for nuScenes, PandaSet (HF mirror), AV2-sensor, WOD-perception, WOMD ([#126](https://github.com/kesai-labs/py123d/pull/126)), and nuPlan.
+- Added ncore dataset support with parser, downloader, and on-the-fly conversion ([#125](https://github.com/kesai-labs/py123d/pull/125)).
+- Waymo Open Motion: remaining WOMD splits, WOMD-specific fields via custom modalities, and skip-logs / skip-map options for storage-constrained runs.
+- Map improvements: speed bumps as surface map objects in Waymo ([#130](https://github.com/kesai-labs/py123d/pull/130)); `align_road_edges_to_traffic` for traffic-aligned road edges ([#123](https://github.com/kesai-labs/py123d/pull/123)).
+- Parser fixes across PandaSet (lidar/ego poses, extrinsics), nuPlan ([#128](https://github.com/kesai-labs/py123d/pull/128)), KITTI-360 labels, nuScenes map path in stream mode, WOD motion streaming, and `pai-av` / `ncore` labels.
+- Runtime and packaging: corrected sync-table entries when inferring dynamics; Ray executor compatibility; `google-cloud-storage` moved to the Waymo extra.
+
+Includes all fixes from v0.2.1 and v0.2.2. No breaking changes to the public API, Arrow schema, or CLI entry points.
+
+</details>
+
+<details>
 <summary><b>v0.2.0</b> (2026-04-14)</summary>
 
 - Transferred repository to [KE:SAI]( https://kesai.eu).

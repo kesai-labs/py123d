@@ -62,21 +62,25 @@ class Av2SensorParser(BaseDatasetParser):
     def __init__(
         self,
         splits: List[str],
-        av2_data_root: Optional[Union[Path, str]] = None,
+        av2_sensor_root: Optional[Union[Path, str]] = None,
         lidar_camera_matching: Literal["nearest", "sweep"] = "sweep",
         downloader: Optional[Av2Downloader] = None,
     ) -> None:
         """Initializes the Av2SensorParser.
 
         :param splits: List of dataset splits, e.g. ["av2-sensor_train", "av2-sensor_val"].
-        :param av2_data_root: Root directory of the AV2 sensor dataset. Required when
-            ``downloader`` is ``None``; ignored otherwise (the downloader provides the root).
+        :param av2_sensor_root: Root directory of the AV2 sensor variant — the directory
+            that contains ``train/``, ``val/``, ``test/`` immediately (i.e. equivalent
+            to ``<av2_umbrella>/sensor``). Required when ``downloader`` is ``None``;
+            ignored otherwise (the downloader provides the root).
         :param lidar_camera_matching: Criterion for matching lidar-to-camera timestamps.
         :param downloader: Optional :class:`Av2Downloader` to run at construction time.
-            When provided, the downloader's :attr:`output_dir` is used as the data root
-            (a managed :class:`tempfile.TemporaryDirectory` is assigned if it is ``None``),
-            and ``av2_data_root`` is ignored. The temp dir, if any, is cleaned up
-            when the parser is garbage collected.
+            When provided, the parser uses ``downloader.output_dir / "sensor"`` as the
+            sensor root (the downloader preserves the S3 ``sensor/`` prefix on disk).
+            A managed :class:`tempfile.TemporaryDirectory` is assigned to
+            ``downloader.output_dir`` if it is ``None``, and ``av2_sensor_root`` is
+            ignored. The temp dir, if any, is cleaned up when the parser is garbage
+            collected.
         """
         for split in splits:
             assert split in AV2_SENSOR_SPLITS, f"Split {split} is not available. Available splits: {AV2_SENSOR_SPLITS}"
@@ -86,21 +90,24 @@ class Av2SensorParser(BaseDatasetParser):
         self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
 
         if downloader is not None:
-            self._av2_data_root = self._run_downloader(downloader)
+            self._av2_sensor_root = self._run_downloader(downloader)
         else:
-            assert av2_data_root is not None, "`av2_data_root` must be provided when `downloader` is None."
-            assert Path(av2_data_root).exists(), f"The provided `av2_data_root` path {av2_data_root} does not exist."
-            self._av2_data_root = Path(av2_data_root)
+            assert av2_sensor_root is not None, "`av2_sensor_root` must be provided when `downloader` is None."
+            assert Path(av2_sensor_root).exists(), (
+                f"The provided `av2_sensor_root` path {av2_sensor_root} does not exist."
+            )
+            self._av2_sensor_root = Path(av2_sensor_root)
 
         self._log_paths_and_split: List[Tuple[Path, str]] = self._collect_log_paths()
 
     def _run_downloader(self, downloader: Av2Downloader) -> Path:
         """Resolve ``downloader.output_dir`` (assigning a temp dir if needed), run the
-        download, and return the populated root directory.
+        download, and return the sensor-rooted directory.
 
-        The returned path mimics the on-disk layout a locally-downloaded AV2 Sensor
-        dataset has (``<root>/sensor/{train,val,test}/<log_uuid>/...``), so the rest
-        of the parser is unchanged.
+        The downloader writes ``<output_dir>/sensor/{train,val,test}/<log_uuid>/...``
+        (the S3 ``sensor/`` prefix is preserved by ``_key_to_local_path``). The
+        returned path is ``<output_dir>/sensor`` so it matches what the parser
+        expects from ``av2_sensor_root`` in local mode.
         """
         downloader._splits = list(self._splits)  # type: ignore[attr-defined]
 
@@ -110,7 +117,7 @@ class Av2SensorParser(BaseDatasetParser):
             logger.info("AV2 Sensor streaming temp dir: %s", downloader.output_dir)
 
         downloader.download()
-        return downloader.output_dir
+        return downloader.output_dir / "sensor"
 
     def __del__(self) -> None:
         """Clean up the streaming temp directory when the parser is garbage collected."""
@@ -131,10 +138,8 @@ class Av2SensorParser(BaseDatasetParser):
             dataset_name = split.split("_")[0]
             split_type = split.split("_")[-1]
             assert split_type in {"train", "val", "test"}, f"Split type {split_type} is not valid."
-            if "av2-sensor" == dataset_name:
-                log_folder = self._av2_data_root / "sensor" / split_type
-            else:
-                raise ValueError(f"Unknown dataset name {dataset_name} in split {split}.")
+            assert dataset_name == "av2-sensor", f"Unknown dataset name {dataset_name} in split {split}."
+            log_folder = self._av2_sensor_root / split_type
             log_paths_and_split.extend([(log_path, split) for log_path in log_folder.iterdir()])
         return log_paths_and_split
 

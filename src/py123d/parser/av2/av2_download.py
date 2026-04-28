@@ -35,8 +35,9 @@ On-disk output layout under the downloader's ``output_dir``::
             test/<log_uuid>/...
 
 This matches what :class:`~py123d.parser.av2.av2_sensor_parser.Av2SensorParser`
-expects in local mode: ``av2_data_root`` should point at ``<output_dir>``, and the
-parser walks ``<av2_data_root>/sensor/<split_type>/<log_uuid>/`` internally.
+expects in local mode: ``av2_sensor_root`` points at ``<output_dir>/sensor`` (the
+``sensor/`` prefix is preserved by ``_key_to_local_path``), and the parser walks
+``<av2_sensor_root>/<split_type>/<log_uuid>/`` from there.
 
 This module backs both ``py123d-download dataset=av2-sensor`` and the
 ``av2-sensor-stream`` conversion config.
