@@ -150,10 +150,13 @@ class NuScenesParser(BaseDatasetParser):
         # Resolve map_root. Priority: explicit user arg > streaming auto-detect > None.
         # The auto-detect covers the common case where `nuScenes-map-expansion-v1.3.zip`
         # was in the streaming archive set and extracted a populated `maps/` dir.
+        # NuScenesMap (devkit) joins ``<dataroot>/maps/expansion/<location>.json``, so
+        # ``nuscenes_map_root`` must be the *parent* of ``maps/`` — same convention as
+        # ``nuscenes_data_root`` in local mode.
         if nuscenes_map_root is not None:
             self._nuscenes_map_root: Optional[Path] = Path(nuscenes_map_root)
-        elif downloader is not None and (self._nuscenes_data_root / "maps").is_dir():
-            self._nuscenes_map_root = self._nuscenes_data_root / "maps"
+        elif downloader is not None and (self._nuscenes_data_root / "maps" / "expansion").is_dir():
+            self._nuscenes_map_root = self._nuscenes_data_root
             logger.info("nuScenes streaming: auto-detected map_root at %s", self._nuscenes_map_root)
         else:
             self._nuscenes_map_root = None
