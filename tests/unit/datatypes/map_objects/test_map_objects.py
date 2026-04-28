@@ -11,6 +11,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     LaneType,
     RoadEdgeType,
     RoadLineType,
+    SpeedBumpType,
     StopZoneType,
 )
 from py123d.datatypes.map_objects.map_objects import (
@@ -19,6 +20,7 @@ from py123d.datatypes.map_objects.map_objects import (
     GenericDrivable,
     RoadEdge,
     RoadLine,
+    SpeedBump,
     StopZone,
     Walkway,
 )
@@ -941,6 +943,44 @@ class TestRoadLine:
         for line_type in RoadLineType:
             road_line = RoadLine(object_id=6, road_line_type=line_type, polyline=polyline)
             assert road_line.road_line_type == line_type
+
+
+class TestSpeedBump:
+    def test_properties(self):
+        """Test that the properties of the SpeedBump object are correct."""
+        outline = Polyline3D.from_array(
+            np.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [3.0, 0.5, 0.0], [0.0, 0.5, 0.0], [0.0, 0.0, 0.0]])
+        )
+        speed_bump = SpeedBump(object_id=7, outline=outline)
+        assert speed_bump.layer == MapLayer.SPEED_BUMP
+        assert speed_bump.object_id == 7
+        assert speed_bump.speed_bump_type == SpeedBumpType.UNKNOWN
+        assert isinstance(speed_bump.outline, Polyline3D)
+        assert isinstance(speed_bump.shapely_polygon, shapely.Polygon)
+
+    def test_init_with_shapely_polygon(self):
+        """Test initialization with shapely polygon."""
+        shapely_polygon = shapely.Polygon([(0.0, 0.0), (3.0, 0.0), (3.0, 0.5), (0.0, 0.5)])
+        speed_bump = SpeedBump(object_id=7, shapely_polygon=shapely_polygon)
+        assert speed_bump.object_id == 7
+        assert isinstance(speed_bump.shapely_polygon, shapely.Polygon)
+        assert isinstance(speed_bump.outline_2d, Polyline2D)
+
+    def test_init_with_polyline2d(self):
+        """Test initialization with Polyline2D outline."""
+        outline = Polyline2D.from_array(np.array([[0.0, 0.0], [3.0, 0.0], [3.0, 0.5], [0.0, 0.5], [0.0, 0.0]]))
+        speed_bump = SpeedBump(object_id=7, outline=outline)
+        assert isinstance(speed_bump.outline_2d, Polyline2D)
+        assert isinstance(speed_bump.shapely_polygon, shapely.Polygon)
+
+    def test_speed_bump_type_roundtrip(self):
+        """Speed bump type should be stored and returned exactly."""
+        outline = Polyline3D.from_array(
+            np.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [3.0, 0.5, 0.0], [0.0, 0.5, 0.0], [0.0, 0.0, 0.0]])
+        )
+        for bump_type in SpeedBumpType:
+            speed_bump = SpeedBump(object_id=7, outline=outline, speed_bump_type=bump_type)
+            assert speed_bump.speed_bump_type == bump_type
 
 
 class TestMockMapAPI:

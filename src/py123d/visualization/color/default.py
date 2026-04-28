@@ -90,6 +90,15 @@ MAP_SURFACE_CONFIG: Dict[MapLayer, PlotConfig] = {
         line_style="-",
         zorder=1,
     ),
+    MapLayer.SPEED_BUMP: PlotConfig(
+        fill_color=Color("#FFC400"),
+        fill_color_alpha=1.0,
+        line_color=Color("#FFC400"),
+        line_color_alpha=0.0,
+        line_width=linewidth,
+        line_style="-",
+        zorder=2,
+    ),
 }
 
 

@@ -11,7 +11,16 @@ check_dependencies(modules=["google.protobuf"], optional_name="waymo")
 
 from py123d.datatypes import BaseMapObject, MapMetadata
 from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType, StopZoneType
-from py123d.datatypes.map_objects.map_objects import Carpark, Crosswalk, Lane, LaneGroup, RoadEdge, RoadLine, StopZone
+from py123d.datatypes.map_objects.map_objects import (
+    Carpark,
+    Crosswalk,
+    Lane,
+    LaneGroup,
+    RoadEdge,
+    RoadLine,
+    SpeedBump,
+    StopZone,
+)
 from py123d.geometry import Polyline3D
 from py123d.geometry.utils.units import mph_to_mps
 from py123d.parser.base_dataset_parser import BaseMapParser
@@ -24,7 +33,6 @@ from py123d.parser.wod.utils.wod_constants import (
 from py123d.parser.wod.waymo_open_dataset.protos import map_pb2
 
 # TODO:
-# - Implement speed bumps
 # - Implement driveways with a different semantic type if needed
 # - Implement intersections and lane group logic
 
@@ -303,7 +311,9 @@ def _get_waymo_misc_surfaces(map_features: List[map_pb2.MapFeature], lane_dict: 
             if stop_zone is not None:
                 surfaces.append(stop_zone)
         elif map_feature.HasField("speed_bump"):
-            pass  # TODO: Implement speed bumps
+            outline = _extract_outline_from_waymo_proto(map_feature.speed_bump)
+            if outline is not None:
+                surfaces.append(SpeedBump(object_id=map_feature.id, outline=outline))
     return surfaces
 
 

@@ -21,6 +21,7 @@ from py123d.datatypes import (
     MapMetadata,
     RoadEdge,
     RoadLine,
+    SpeedBump,
     StopZone,
     Walkway,
 )
@@ -30,6 +31,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     MapLayer,
     RoadEdgeType,
     RoadLineType,
+    SpeedBumpType,
     StopZoneType,
 )
 from py123d.geometry import Point2D, Polyline2D, Polyline3D
@@ -43,6 +45,7 @@ from ..conftest import (
     make_lane_group,
     make_road_edge,
     make_road_line,
+    make_speed_bump,
     make_stop_zone,
     make_walkway,
     write_and_read_map,
@@ -167,6 +170,15 @@ class TestRoundTripBasic:
         assert isinstance(read, StopZone)
         assert read.stop_zone_type == StopZoneType.YIELD_SIGN
         assert 1 in read.lane_ids
+
+    def test_roundtrip_speed_bump(self, tmp_path: Path) -> None:
+        sb = make_speed_bump(object_id=12, speed_bump_type=SpeedBumpType.UNKNOWN)
+        api = write_and_read_map(tmp_path, _meta(), [sb])
+
+        read = api.get_map_object_in_layer(12, MapLayer.SPEED_BUMP)
+        assert isinstance(read, SpeedBump)
+        assert read.speed_bump_type == SpeedBumpType.UNKNOWN
+        np.testing.assert_allclose(read.outline.array, sb.outline.array, atol=1e-6)
 
     def test_roundtrip_road_edge(self, tmp_path: Path) -> None:
         re = make_road_edge(object_id=10, z_values=True)

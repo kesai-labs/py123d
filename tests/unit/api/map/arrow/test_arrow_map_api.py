@@ -46,6 +46,7 @@ from ..conftest import (
     make_lane_group,
     make_road_edge,
     make_road_line,
+    make_speed_bump,
     make_stop_zone,
     make_walkway,
     write_and_read_map,
@@ -73,6 +74,7 @@ def _build_all_object_types() -> list:
     carpark = make_carpark(object_id=4000)
     generic_drivable = make_generic_drivable(object_id=5000)
     stop_zone = make_stop_zone(object_id=6000, lane_ids=[10])
+    speed_bump = make_speed_bump(object_id=6500)
     road_edge = make_road_edge(object_id=7000)
     road_line = make_road_line(object_id=8000)
     return [
@@ -84,6 +86,7 @@ def _build_all_object_types() -> list:
         carpark,
         generic_drivable,
         stop_zone,
+        speed_bump,
         road_edge,
         road_line,
     ]
@@ -119,7 +122,7 @@ class TestArrowMapAPIAvailableLayers:
         api = write_and_read_map(tmp_path, metadata, objects)
 
         layers = api.get_available_map_layers()
-        assert len(layers) == 10
+        assert len(layers) == len(MapLayer)
         for layer in MapLayer:
             assert layer in layers
 

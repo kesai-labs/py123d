@@ -71,6 +71,7 @@ def add_default_map_on_ax(
         MapLayer.INTERSECTION,
         MapLayer.WALKWAY,
         MapLayer.STOP_ZONE,
+        MapLayer.SPEED_BUMP,
     ]
     x_min, x_max = point_2d.x - radius, point_2d.x + radius
     y_min, y_max = point_2d.y - radius, point_2d.y + radius
@@ -92,6 +93,7 @@ def add_default_map_on_ax(
                 MapLayer.CROSSWALK,
                 MapLayer.INTERSECTION,
                 MapLayer.WALKWAY,
+                MapLayer.SPEED_BUMP,
             ]:
                 polygons = []
                 for map_object in map_objects:
