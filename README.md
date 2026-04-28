@@ -4,7 +4,7 @@
     <source media="(prefers-color-scheme: light)" srcset="https://kesai.eu/py123d/_static/123D_logo_transparent_black.svg" width="500">
     <img alt="Logo" src="https://kesai.eu/py123d/_static/123D_logo_transparent_black.svg" width="500">
   </picture>
-  <h2 align="center">123D: A Unified Library for Multi-Modal Autonomous Driving Data</h2>
+  <h2 align="center">123D: An Open-Source Library for Multi-Modal Autonomous Driving Datasets</h2>
   <h3 align="center"><a href="https://youtu.be/Q4q29fpXnx8">Video</a> | <a href="https://kesai.eu/py123d/">Documentation</a></h3>
 </h1>
 
