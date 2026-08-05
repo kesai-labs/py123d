@@ -14,17 +14,16 @@ NuRec (PhysicalAI-AV NuRec)
   `GitHub Issues <https://github.com/kesai-labs/py123d/issues>`_ page. Your feedback helps us improve!
 
 NuRec is NVIDIA's ``PhysicalAI-Autonomous-Vehicles-NuRec`` dataset: neural-reconstruction
-assets for closed-loop simulation. Each scene is a single ``.usdz`` archive holding one
-~20 s clip — rig-to-world ego poses, auto-labeled 3D cuboid tracks, an HD map, and the
-3D Gaussian reconstruction used for rendering. The parser converts the driving log and
-the map; the reconstruction assets are left untouched.
+assets for closed-loop simulation. Each scene is one ``.usdz`` archive covering about
+20 s: rig-to-world ego poses, auto-labeled 3D cuboid tracks, an HD map, and the 3D
+Gaussian reconstruction used for rendering. The parser converts the driving log and the
+map. The reconstruction assets are left untouched.
 
 Scenes carry the HD map in two forms: the MADS ``clipgt/*.parquet`` layers and a
 USDZ-internal OpenDRIVE map (``map.xodr``). The parser reads the clipgt layers, which
-NVIDIA's own simulator prefers; the OpenDRIVE map is not converted, so a scene without
-clipgt layers is rejected rather than converted at lower fidelity. Every scene of the
-``26.04`` release carries them (1607 of 1607, verified across the whole release), but
-``26.01`` does not — 184 of its 916 scenes ship only ``map.xodr`` (see Dataset Issues).
+NVIDIA's own simulator also prefers. The OpenDRIVE map is not converted, so a scene
+without clipgt layers is rejected. All 1607 scenes of the ``26.04`` release carry clipgt.
+In ``26.01``, 184 of 916 scenes ship only ``map.xodr`` (see Dataset Issues).
 
 
 .. dropdown:: Overview
@@ -56,7 +55,7 @@ Available Modalities
      - **Description**
    * - Ego Vehicle
      - ✓
-     - Rig-to-world poses, resampled to a uniform 10 Hz. NuRec stores poses only; ``infer_ego_dynamics: true`` derives velocity/acceleration during conversion. Vehicle dimensions and the rig-to-box-centre offset come from the rig bounding box, and the wheel base from the rig calibration's axle positions — the release spans several platforms, from 2.73 m to 3.22 m. See :class:`~py123d.datatypes.EgoStateSE3`.
+     - Rig-to-world poses, resampled to a uniform 10 Hz. NuRec stores poses only; ``infer_ego_dynamics: true`` derives velocity/acceleration during conversion. Vehicle dimensions and the rig-to-box-centre offset come from the rig bounding box, and the wheel base from the rig calibration's axle positions. The release spans several vehicle platforms, with wheel bases from 2.73 m to 3.22 m. See :class:`~py123d.datatypes.EgoStateSE3`.
    * - Map
      - ✓
      - Lanes with connectivity, neighbours, lane groups and speed limits, road edges, crosswalks, stop zones (typed by the light or sign controlling their lane, and linked to it), painted road lines, and intersection areas typed by their control. See :class:`~py123d.datatypes.Lane`.
@@ -68,7 +67,7 @@ Available Modalities
      - No per-timestep light states are recorded. Light-controlled stopping points are converted as :class:`~py123d.datatypes.StopZone` instead.
    * - Cameras
      - X
-     - Camera frames are rendered from the reconstruction rather than stored as sensor recordings.
+     - The dataset ships no recorded camera frames. Views are rendered from the reconstruction.
    * - Lidars
      - X
      - Not converted.
@@ -125,9 +124,9 @@ Conversion
 cuboid tracks onto it, since the recorded timestamps are only nominally uniform and
 tracks run on their own clock (see Dataset Issues).
 
-The ``nurec-alpasim`` variant additionally applies the transforms NVIDIA's simulator
-performs at replay time — smoothing track positions with a cubic smoothing spline and
-dropping tracks shorter than 3 s within the scene window:
+The ``nurec-alpasim`` variant also applies the transforms NVIDIA's simulator performs
+at replay time. It smooths track positions with a cubic smoothing spline and drops
+tracks shorter than 3 s within the scene window:
 
 .. code-block:: bash
 
@@ -137,9 +136,9 @@ dropping tracks shorter than 3 s within the scene window:
 Not Converted
 ~~~~~~~~~~~~~
 
-NuRec labels more of the road than the 123D map schema can currently hold. The
-following clipgt layers and fields are read past rather than dropped silently —
-they are listed here in case the schema grows a home for them:
+NuRec labels more of the road than the 123D map schema can represent. Some of the
+layers below are never opened. The rest are fields on rows the parser reads and
+ignores. They are listed here in case the schema later covers them:
 
 .. list-table::
    :header-rows: 1
@@ -156,7 +155,7 @@ they are listed here in case the schema grows a home for them:
    * - ``pole``
      - Sign and signal poles (polylines).
    * - ``traffic_light`` / ``traffic_sign`` geometry
-     - 3D boxes with position, dimensions, orientation and sign category (``..._R1_STOP``, ``..._R2_SPEED_LIMIT``, ...). The map schema has no layer for a physical roadside device, so only their effect is converted, as the type of the :class:`~py123d.datatypes.StopZone` and :class:`~py123d.datatypes.Intersection` they control.
+     - 3D boxes with position, dimensions, orientation and sign category (``..._R1_STOP``, ``..._R2_SPEED_LIMIT``, ...). The map schema has no layer for a roadside device, so only their effect is converted, as the type of the :class:`~py123d.datatypes.StopZone` and :class:`~py123d.datatypes.Intersection` they control.
    * - ``lane.lane_direction``
      - Whether a lane goes straight, turns, or both. :class:`~py123d.datatypes.Lane` has no turn-direction field.
    * - ``lane.left_edge_styles`` / ``colors``
@@ -175,17 +174,17 @@ they are listed here in case the schema grows a home for them:
      - Intrinsics and rig extrinsics for 6 cameras and 1 lidar, with per-frame poses and timestamps (~600 camera frames, ~200 lidar frames per scene). A scene ships no recorded frames to point at, so no camera or lidar modality is registered.
    * - ``map.xodr``
      - The OpenDRIVE copy of the map, present in every scene alongside the clipgt layers. It describes the same roads in less detail and in a different coordinate frame, so the richer clipgt source is converted instead (see Dataset Issues).
-   * - The reconstruction itself
-     - ``checkpoint.ckpt`` and ``volume.nurec``, roughly 97% of each archive. These render camera views at arbitrary poses, which is what makes NuRec a closed-loop simulation asset; 123D has no concept for a renderable scene.
+   * - The scene reconstruction
+     - ``checkpoint.ckpt`` and ``volume.nurec``, which render camera views at arbitrary poses. 123D has no concept for a renderable scene. Camera data could still be obtained by replaying the groundtruth trajectories in AlpaSim.
 
 
 Derived Values
 ~~~~~~~~~~~~~~
 
-Most fields are read straight from clipgt. The following are computed instead, because
-the 123D schema asks for something the source does not state directly. Only the first is
-a number the dataset does not contain in any form; the rest are derivations from recorded
-data. Everything else, including the ego dimensions and wheel base, is read as recorded.
+Most fields are read straight from clipgt. The values below are computed, because the
+123D schema asks for something the source does not state directly. The first is invented;
+the rest are derived from recorded data. Everything not listed, including the ego
+dimensions and wheel base, is read as recorded.
 
 .. list-table::
    :header-rows: 1
@@ -194,11 +193,11 @@ data. Everything else, including the ego dimensions and wheel base, is read as r
    * - **Value**
      - **How it is produced**
    * - :class:`~py123d.datatypes.StopZone` outline
-     - **Fabricated.** A wait line is a two-point segment and the schema wants a surface, so it is widened to a fixed 1 m depth. Nothing in the dataset states how deep a stopping area is, so any distance measured across a stop zone is this constant, not a measurement.
+     - A wait line is a two-point segment and :class:`~py123d.datatypes.StopZone` needs a surface, so it is widened to a fixed 1 m depth. NuRec does not record how deep a stopping area is, so this number is invented.
    * - Which wait lines become stop zones
      - Those whose ``intersection_subtype`` is ``ENTRY`` or ``CROSSWALK_ENTRY``. ``EXIT`` marks where traffic leaves an intersection, and ``NOT_APPLICABLE``/``BUFFER_ZONE`` do not oblige a stop. Any other value is dropped with a warning.
    * - :class:`~py123d.datatypes.StopZoneType`
-     - From the traffic light or sign controlling the lane, then the crossing the line guards (``CROSSWALK_ENTRY`` becomes ``PEDESTRIAN_CROSSING``), and only then the wait line's own category. That category marks a painted stop bar and is set for signal-controlled lines too, so it types just the lines nothing else accounts for.
+     - Taken from the traffic light or sign controlling the lane, then from the crossing the line guards (``CROSSWALK_ENTRY`` becomes ``PEDESTRIAN_CROSSING``), and last from the wait line's own category. That category marks a painted stop bar and is set on signal-controlled lines too, so it only types the lines nothing else covers.
    * - :class:`~py123d.datatypes.IntersectionType`
      - From the lights and signs on the intersection's lanes; the clipgt category describes shape (``FOUR_WAY``, ...) rather than control.
    * - Lane centerline
@@ -206,7 +205,7 @@ data. Everything else, including the ego dimensions and wheel base, is read as r
    * - Lane ordering within a group
      - Geometric, by offset along the normal of the shared heading. The left/right relations are incomplete for roads whose neighbouring lanes leave the clip.
    * - Lane speed limit
-     - clipgt stores mph; converted to m/s. A limit of 0 becomes ``None`` rather than a standstill.
+     - clipgt stores mph, converted to m/s. A limit of 0 means unset and becomes ``None``.
    * - Frame timestamps
      - An exact 10 Hz grid anchored at the second rig timestamp, with ego poses and cuboid tracks interpolated onto it (see Dataset Issues).
    * - Ego velocity and acceleration
@@ -218,21 +217,18 @@ Dataset Issues
 
 - **No traffic-light states.** The map layers contain traffic-light geometry, but the
   dataset records no per-timestep light states, so no traffic-light modality is emitted.
-  A converted map says where traffic must stop for a signal, never when.
-- **The bundled ``map.xodr`` is not converted, so 184 scenes of the ``26.01`` release
-  cannot be converted at all.** clipgt is the richer source and the whole ``26.04``
-  release carries it, so the OpenDRIVE copy is unused there; in ``26.01`` those 184
-  scenes ship no clipgt layers and the parser rejects them with a clear error. Reading
-  the OpenDRIVE copy instead would need work first:
-  :mod:`py123d.parser.opendrive` raises on it, because NuRec omits attributes the
-  parser reads unconditionally that OpenDRIVE 1.4 makes optional: in a 12-scene sample,
-  ``header``'s ``north``/``south``/``east``/``west`` are absent in every scene (where
-  parsing stops first), ``controller``'s ``sequence`` in all 24 controllers, and
-  ``object``'s ``roll`` and ``pitch`` in all 538 objects, while 76 of 416 junction
-  connections reference roads outside the clip. Its ``geoReference`` is malformed too
-  (``+=alt_0=0`` for ``+alt_0=0``, which PROJ rejects) and names an EGM96 geoid grid that
-  ships with neither pyproj nor PROJ, so heights would need care as well. Supporting it
-  means fixing the OpenDRIVE parser first, which is out of scope for this dataset.
+  A converted map records where traffic must stop for a signal, but not the signal state.
+- **The bundled ``map.xodr`` is not converted.** The whole ``26.04`` release carries
+  clipgt, so the OpenDRIVE copy is unused there. In ``26.01``, 184 of 916 scenes ship no
+  clipgt layers and the parser rejects them. Reading the OpenDRIVE copy would first need
+  work in :mod:`py123d.parser.opendrive`, which raises on these files. NuRec omits
+  several attributes that OpenDRIVE 1.4 makes optional but the parser reads
+  unconditionally. In a 12-scene sample, ``header``'s ``north``/``south``/``east``/``west``
+  are absent in every scene, ``controller``'s ``sequence`` in all 24 controllers, and
+  ``object``'s ``roll`` and ``pitch`` in all 538 objects. A further 76 of 416 junction
+  connections reference roads outside the clip. The ``geoReference`` is malformed as well
+  (``+=alt_0=0`` instead of ``+alt_0=0``, which PROJ rejects) and names an EGM96 geoid
+  grid that ships with neither pyproj nor PROJ.
 - **Speed limits are sparse.** Lane speed limits are present in recent releases and
   absent in older ones; lanes without a speed limit convert with ``speed_limit_mps=None``.
 - **Non-uniform source timestamps.** Rig timestamps are nominally 10 Hz but drift by
