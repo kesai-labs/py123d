@@ -103,6 +103,9 @@ griffin = [
     "plyfile>=0.7",
     "scipy",
 ]
+nurec = [
+    "csaps>=1.2.1",
+]
 ffmpeg = [
     "imageio[ffmpeg]",
 ]

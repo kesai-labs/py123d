@@ -1,0 +1,14 @@
+defaults:
+  - nurec
+  - _self_
+
+# AlpaSim-parity profile: converts each scene into the world AlpaSim replays,
+# rather than the scene exactly as recorded.
+#
+# On top of the base config's uniform 10 Hz resampling, AlpaSim smooths track
+# positions with a cubic smoothing spline and drops tracks living less than 3 s
+# inside the scene window. Applying both at conversion time keeps replayed
+# agents where AlpaSim puts them.
+parser:
+  min_traffic_duration_us: 3000000
+  smooth_track_positions: true

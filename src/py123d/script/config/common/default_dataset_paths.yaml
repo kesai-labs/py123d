@@ -46,3 +46,6 @@ dataset_paths:
 
   # TruckDrive defaults
   truckdrive_data_root: ${oc.env:TRUCKDRIVE_DATA_ROOT,null}
+
+  # NuRec defaults
+  nurec_data_root: ${oc.env:NUREC_DATA_ROOT,null}
