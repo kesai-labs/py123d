@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import contextlib
 import io
 import logging
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Generator, Iterable, Iterator, List, Optional, Set, Tuple, Union
 from zipfile import ZipFile
+
+if TYPE_CHECKING:
+    from py123d.parser.nurec.nurec_download import NuRecDownloader
 
 import numpy as np
 import pandas as pd
@@ -14,6 +19,7 @@ from typing_extensions import override
 from py123d.datatypes import (
     BaseMapObject,
     Crosswalk,
+    GenericDrivable,
     Intersection,
     IntersectionType,
     Lane,
@@ -26,6 +32,7 @@ from py123d.datatypes import (
     RoadLineType,
     StopZone,
     StopZoneType,
+    Walkway,
 )
 from py123d.geometry import Polyline3D
 from py123d.parser.base_dataset_parser import BaseMapParser
@@ -101,9 +108,33 @@ class NuRecMapParser(BaseMapParser):
     appear twice.
     """
 
-    def __init__(self, usdz_path: Union[str, Path], location: str) -> None:
-        self._usdz_path = Path(usdz_path)
+    def __init__(
+        self,
+        usdz_path: Optional[Union[str, Path]] = None,
+        location: str = "",
+        downloader: Optional[NuRecDownloader] = None,
+        split: Optional[str] = None,
+        log_name: Optional[str] = None,
+    ) -> None:
+        self._usdz_path = Path(usdz_path) if usdz_path is not None else None
         self._location = location
+        self._downloader = downloader
+        self._split = split
+        self._log_name = log_name
+
+    @contextlib.contextmanager
+    def _resolved_usdz(self) -> Generator[Path, None, None]:
+        """Yields the USDZ path, downloading to a temp dir in streaming mode."""
+        if self._downloader is None:
+            assert self._usdz_path is not None
+            yield self._usdz_path
+            return
+        with tempfile.TemporaryDirectory(prefix=f"nurec_{self._location}_map_") as tmp:
+            sequence_root = self._downloader.download_single_sequence(
+                sequence_id=self._location,
+                output_dir=Path(tmp),
+            )
+            yield sequence_root / f"{self._location}.usdz"
 
     @override
     def get_map_metadata(self) -> MapMetadata:
@@ -112,7 +143,9 @@ class NuRecMapParser(BaseMapParser):
             dataset="nurec",
             location=self._location,
             map_has_z=True,
-            map_is_per_log=False,
+            map_is_per_log=True,
+            split=self._split,
+            log_name=self._log_name,
         )
 
     def _read_layer(self, archive: ZipFile, layer: str) -> List[Dict]:
@@ -197,7 +230,7 @@ class NuRecMapParser(BaseMapParser):
     @override
     def iter_map_objects(self) -> Iterator[BaseMapObject]:
         """Inherited, see superclass."""
-        with ZipFile(self._usdz_path) as archive:
+        with self._resolved_usdz() as usdz_path, ZipFile(usdz_path) as archive:
             if not _has_clipgt_layers(set(archive.namelist())):
                 raise ValueError(
                     f"NuRec map {self._location}: no clipgt map layers, which are the only map source supported"
@@ -206,6 +239,8 @@ class NuRecMapParser(BaseMapParser):
             boundaries = self._read_layer(archive, "road_boundary")
             relations = self._read_associations(archive)
             crosswalks = self._read_layer(archive, "crosswalk")
+            gore_areas = self._read_layer(archive, "gore_area")
+            road_islands = self._read_layer(archive, "road_island")
             wait_line_rows = self._read_layer_rows(archive, "wait_line")
             lane_lines = self._read_layer(archive, "lane_line")
             intersection_rows = self._read_layer_rows(archive, "intersection_area")
@@ -346,6 +381,20 @@ class NuRecMapParser(BaseMapParser):
             if pts is None or len(pts) < 3:
                 continue
             yield Crosswalk(object_id=next_id, outline=Polyline3D.from_array(pts))
+            next_id += 1
+
+        for gore_area in gore_areas:
+            pts = _mads_points_xyz(gore_area, "location")
+            if pts is None or len(pts) < 3:
+                continue
+            yield GenericDrivable(object_id=next_id, outline=Polyline3D.from_array(pts))
+            next_id += 1
+
+        for road_island in road_islands:
+            pts = _mads_points_xyz(road_island, "location")
+            if pts is None or len(pts) < 3:
+                continue
+            yield Walkway(object_id=next_id, outline=Polyline3D.from_array(pts))
             next_id += 1
 
         unknown_subtypes: Dict[str, int] = {}

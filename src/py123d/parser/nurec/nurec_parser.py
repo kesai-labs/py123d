@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import bisect
+import contextlib
 import io
 import json
 import logging
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Union
+from typing import Dict, Generator, Iterator, List, Optional, Tuple, Union
 from zipfile import ZipFile
 
 import numpy as np
@@ -27,6 +29,7 @@ from py123d.datatypes import (
 )
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
 from py123d.parser.base_dataset_parser import BaseDatasetParser, BaseLogParser, BaseMapParser, ModalitiesSync
+from py123d.parser.nurec.nurec_download import NuRecDownloader
 from py123d.parser.nurec.nurec_map_parser import NuRecMapParser, _clipgt_member
 from py123d.parser.registry import PhysicalAIAVBoxDetectionLabel
 
@@ -35,6 +38,27 @@ import csaps
 
 logger = logging.getLogger(__name__)
 
+# All 1607 NuRec scenes are Hyperion 8.1 rigs on four distinct Mercedes-Benz platforms.
+# Wheelbases measured from calibration_estimate.parquet across the full 26.04 release.
+# platform_name lives in rig_json.rig.properties (26.04 branch only).
+_NUREC_PLATFORM_WHEEL_BASE_M: Dict[str, float] = {
+    "hy8.1_daimler_gls": 3.135,  # X167 GLS       — 949 scenes
+    "hy8.1_daimler_c118": 2.730,  # C118 CLA Coupé — 319 scenes
+    "hy8.1_daimler_s223v2.9": 3.216,  # W223 S-Class   — 240 scenes
+    "hy8.1_daimler_s222v2.9": 3.165,  # W222 S-Class   —  75 scenes
+    "hy8.1_daimler_c118v2.9": 2.730,  # C118 CLA Coupé —  20 scenes
+    "hy8.1_daimler_s223v3": 3.216,  # W223 S-Class   —   2 scenes
+    "hy8.1_daimler_s223v2.9_new": 3.216,  # W223 S-Class   —   2 scenes
+}
+# (bbox_length_m, wheelbase_m) — nearest-neighbour fallback when rig.properties is
+# absent (main branch).  Lengths from rig_trajectories.json rig_bbox.dim[0].
+_NUREC_VEHICLE_BY_LENGTH: List[Tuple[float, float]] = [
+    (4.688, 2.730),  # CLA C118
+    (5.207, 3.135),  # GLS X167
+    (5.255, 3.165),  # S-Class W222
+    (5.393, 3.216),  # S-Class W223
+]
+_NUREC_WHEEL_BASE_FALLBACK_M: float = 3.135  # GLS — most common (949/1607 scenes)
 
 NUREC_BOX_DETECTIONS_SE3_METADATA = BoxDetectionsSE3Metadata(PhysicalAIAVBoxDetectionLabel)
 
@@ -65,28 +89,63 @@ class NuRecParser(BaseDatasetParser):
 
     def __init__(
         self,
-        nurec_root: Union[str, Path],
-        max_maps: Optional[int] = None,
+        nurec_root: Optional[Union[str, Path]] = None,
+        num_sequences: Optional[int] = None,
+        sample_random: bool = False,
+        seed: int = 0,
         split: str = "nurec_train",
         min_traffic_duration_us: int = 0,
         smooth_track_positions: bool = False,
+        downloader: Optional[NuRecDownloader] = None,
     ) -> None:
-        self._nurec_root = Path(nurec_root)
-        self._max_maps = max_maps
+        self._num_sequences = num_sequences
         self._split = split
         self._min_traffic_duration_us = min_traffic_duration_us
         self._smooth_track_positions = smooth_track_positions
+        self._downloader = downloader
+
+        if downloader is not None:
+            self._nurec_root = None
+            if num_sequences is not None:
+                downloader._num_sequences = num_sequences
+            if sample_random:
+                downloader._sample_random = sample_random
+                downloader._seed = seed
+            self._sequence_ids: Optional[List[str]] = downloader.resolve_sequence_ids()
+            self._usdz_paths: Optional[List[Path]] = None
+        else:
+            assert nurec_root is not None, "`nurec_root` must be provided when `downloader` is None."
+            self._nurec_root = Path(nurec_root)
+            self._sequence_ids = None
+            self._usdz_paths = self._discover_usdz_maps()
 
     @override
     def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
+        if self._downloader is not None:
+            return [
+                NuRecMapParser(location=seq_id, downloader=self._downloader, split=self._split, log_name=seq_id)
+                for seq_id in (self._sequence_ids or [])
+            ]
         return [
-            NuRecMapParser(usdz_path=usdz_path, location=usdz_path.stem) for usdz_path in self._discover_usdz_maps()
+            NuRecMapParser(usdz_path=usdz_path, location=usdz_path.stem, split=self._split, log_name=usdz_path.stem)
+            for usdz_path in (self._usdz_paths or [])
         ]
 
     @override
     def get_log_parsers(self) -> List[BaseLogParser]:
         """Inherited, see superclass."""
+        if self._downloader is not None:
+            return [
+                NuRecLogParser(
+                    sequence_id=seq_id,
+                    split=self._split,
+                    min_traffic_duration_us=self._min_traffic_duration_us,
+                    smooth_track_positions=self._smooth_track_positions,
+                    downloader=self._downloader,
+                )
+                for seq_id in (self._sequence_ids or [])
+            ]
         return [
             NuRecLogParser(
                 usdz_path=usdz_path,
@@ -94,15 +153,16 @@ class NuRecParser(BaseDatasetParser):
                 min_traffic_duration_us=self._min_traffic_duration_us,
                 smooth_track_positions=self._smooth_track_positions,
             )
-            for usdz_path in self._discover_usdz_maps()
+            for usdz_path in (self._usdz_paths or [])
         ]
 
     def _discover_usdz_maps(self) -> List[Path]:
+        assert self._nurec_root is not None
         all_usdzs_root = self._nurec_root / "all-usdzs"
         if not all_usdzs_root.is_dir():
             raise FileNotFoundError(f"NuRec all-usdzs directory not found: {all_usdzs_root}")
         usdz_paths = sorted(all_usdzs_root.glob("*.usdz"))
-        return usdz_paths if self._max_maps is None else usdz_paths[: self._max_maps]
+        return usdz_paths if self._num_sequences is None else usdz_paths[: self._num_sequences]
 
 
 class NuRecLogParser(BaseLogParser):
@@ -110,12 +170,16 @@ class NuRecLogParser(BaseLogParser):
 
     def __init__(
         self,
-        usdz_path: Union[str, Path],
+        usdz_path: Optional[Union[str, Path]] = None,
+        sequence_id: Optional[str] = None,
         split: str = "nurec_train",
         min_traffic_duration_us: int = 0,
         smooth_track_positions: bool = False,
+        downloader: Optional[NuRecDownloader] = None,
     ) -> None:
-        self._usdz_path = Path(usdz_path)
+        self._usdz_path = Path(usdz_path) if usdz_path is not None else None
+        self._sequence_id = sequence_id
+        self._downloader = downloader
         self._split = split
         self._smooth_track_positions = smooth_track_positions
         # AlpaSim drops tracks shorter than this within the scene window; 0 keeps all.
@@ -123,7 +187,26 @@ class NuRecLogParser(BaseLogParser):
 
     @property
     def _uuid(self) -> str:
-        return self._usdz_path.stem
+        if self._usdz_path is not None:
+            return self._usdz_path.stem
+        assert self._sequence_id is not None
+        return self._sequence_id
+
+    @contextlib.contextmanager
+    def _resolved_usdz(self) -> Generator[Path, None, None]:
+        """Yields the USDZ path, downloading to a temp dir in streaming mode."""
+        if self._downloader is None:
+            assert self._usdz_path is not None
+            yield self._usdz_path
+            return
+        with tempfile.TemporaryDirectory(prefix=f"nurec_{self._sequence_id}_") as tmp:
+            tmp_root = Path(tmp)
+            logger.info("Streaming NuRec sequence %s to %s", self._sequence_id, tmp_root)
+            sequence_root = self._downloader.download_single_sequence(
+                sequence_id=self._sequence_id,  # type: ignore[arg-type]
+                output_dir=tmp_root,
+            )
+            yield sequence_root / f"{self._sequence_id}.usdz"
 
     @override
     def get_log_metadata(self) -> LogMetadata:
@@ -136,18 +219,22 @@ class NuRecLogParser(BaseLogParser):
             map_metadata=MapMetadata(
                 dataset="nurec",
                 location=self._uuid,
+                split=self._split,
+                log_name=self._uuid,
                 map_has_z=True,
-                map_is_per_log=False,
+                map_is_per_log=True,
             ),
         )
 
     @override
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Inherited, see superclass."""
-        with ZipFile(self._usdz_path) as archive:
-            rig_root = json.loads(archive.read("rig_trajectories.json"))
-            tracks_root = json.loads(archive.read("sequence_tracks.json"))
-            wheel_base_m = _rig_wheel_base_m(archive)
+        with self._resolved_usdz() as usdz_path:
+            with ZipFile(usdz_path) as archive:
+                rig_root = json.loads(archive.read("rig_trajectories.json"))
+                tracks_root = json.loads(archive.read("sequence_tracks.json"))
+                bbox_length_m = float(rig_root["rig_trajectories"][0]["rig_bbox"]["dim"][0])
+                wheel_base_m = _rig_wheel_base_m(archive, bbox_length_m)
 
         # One clip is one vehicle's drive, so the single rig trajectory is the ego.
         rig_trajectories = rig_root["rig_trajectories"]
@@ -215,12 +302,37 @@ def _uniform_grid_us(rig_timestamps_us: List[int]) -> List[int]:
     return [t0_us + step * step_us for step in range(num_steps)]
 
 
-def _rig_wheel_base_m(archive: ZipFile) -> float:
-    """Wheel base from the rig calibration: the front axle's offset from the rear."""
+def _rig_wheel_base_m(archive: ZipFile, bbox_length_m: float) -> float:
+    """Wheel base resolved in priority order:
+
+    1. calibration_estimate vehicle block (26.04 branch) — exact axle positions.
+    2. calibration_estimate rig.properties.platform_name (26.04 fallback) — table lookup.
+    3. Nearest-neighbour on bbox_length_m (main branch) — table lookup.
+    4. Hard constant fallback.
+    """
     frame = pd.read_parquet(io.BytesIO(archive.read(_clipgt_member("calibration_estimate"))))
-    rig_json = frame["calibration_estimate"].iloc[0]["rig_json"]
-    vehicle = (json.loads(rig_json) if isinstance(rig_json, str) else rig_json)["rig"]["vehicle"]["value"]
-    return float(vehicle["axleFront"]["position"]) - float(vehicle["axleRear"]["position"])
+    cal_row = frame["calibration_estimate"].iloc[0]
+    rig_json_raw = cal_row["rig_json"] if "rig_json" in cal_row else cal_row
+    rig = (json.loads(rig_json_raw) if isinstance(rig_json_raw, str) else rig_json_raw).get("rig", {})
+
+    vehicle_entry = rig.get("vehicle")
+    if vehicle_entry is not None:
+        vehicle = vehicle_entry["value"] if "value" in vehicle_entry else vehicle_entry
+        return float(vehicle["axleFront"]["position"]) - float(vehicle["axleRear"]["position"])
+
+    platform_name = rig.get("properties", {}).get("platform_name", "")
+    if platform_name in _NUREC_PLATFORM_WHEEL_BASE_M:
+        wb = _NUREC_PLATFORM_WHEEL_BASE_M[platform_name]
+        logger.debug("NuRec platform %r → wheel base %.3f m", platform_name, wb)
+        return wb
+
+    if _NUREC_VEHICLE_BY_LENGTH:
+        length, wb = min(_NUREC_VEHICLE_BY_LENGTH, key=lambda v: abs(v[0] - bbox_length_m))
+        logger.debug("NuRec bbox length %.3f m → nearest vehicle %.3f m → wheel base %.3f m", bbox_length_m, length, wb)
+        return wb
+
+    logger.warning("NuRec: could not determine wheel base; using fallback %.3f m", _NUREC_WHEEL_BASE_FALLBACK_M)
+    return _NUREC_WHEEL_BASE_FALLBACK_M
 
 
 def _extract_ego_metadata(rig: Dict, wheel_base_m: float) -> EgoStateSE3Metadata:

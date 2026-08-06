@@ -1,0 +1,79 @@
+# Streaming variant of dataset=nurec — each Ray worker downloads its assigned sequence from
+# Hugging Face into a per-sequence temp directory, converts it, and deletes the temp dir
+# before moving on.
+#
+# Only the USDZ package is downloaded per sequence (include_sidecars=false); camera MP4
+# sidecars are not needed for ego/box conversion and would add ~1 GB per sequence.
+# Map and log parsing each download the USDZ independently (two downloads per sequence).
+#
+# Usage:
+#   export HF_TOKEN=hf_...
+#   py123d-conversion dataset=nurec-stream dataset.parser.num_sequences=3
+#   py123d-conversion dataset=nurec-stream \
+#     'dataset.parser.downloader.sequence_ids=["<uuid1>","<uuid2>"]'
+
+parser:
+  _target_: py123d.parser.nurec.nurec_parser.NuRecParser
+  _convert_: 'all'
+
+  # Ignored when `downloader` is set — sequences land in per-sequence temp directories.
+  nurec_root: null
+  num_sequences: null
+  sample_random: false  # randomize num_sequences selection (useful for testing)
+  seed: 0
+
+  split: nurec_train
+
+  downloader:
+    _target_: py123d.parser.nurec.nurec_download.NuRecDownloader
+    _convert_: 'all'
+
+    # Not used in streaming — each sequence goes to its own tempfile.TemporaryDirectory.
+    output_dir: null
+
+    hf_repo_id: nvidia/PhysicalAI-Autonomous-Vehicles-NuRec
+    hf_sequences_prefix: sample_set/26.04_release
+    revision: main
+    hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+    # Selection — mutually exclusive. num_sequences is also overwritten by parser.num_sequences
+    # when that is set, so both dataset.parser.num_sequences and dataset.parser.downloader.num_sequences
+    # control the same limit.
+    sequence_ids: null
+    num_sequences: null
+    sample_random: false
+    seed: 0
+
+    cameras: null
+    include_usdz: true
+    include_sidecars: false   # camera MP4s not needed for conversion; saves ~1 GB per sequence
+
+    max_workers: 4
+    dry_run: false
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

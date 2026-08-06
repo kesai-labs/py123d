@@ -3,7 +3,7 @@ parser:
   _convert_: 'all'
 
   nurec_root: ${dataset_paths.nurec_data_root}
-  max_maps: null
+  num_sequences: null
 
   # NuRec ships as a single collection with no official splits, so this one is
   # synthetic; converted logs land in logs_root/<split>/<scene_uuid>/.

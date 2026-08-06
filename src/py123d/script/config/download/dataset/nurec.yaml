@@ -1,0 +1,25 @@
+downloader:
+  _target_: py123d.parser.nurec.nurec_download.NuRecDownloader
+  _convert_: 'all'
+
+  # Destination. Defaults to $NUREC_DATA_ROOT (set via default_dataset_paths.yaml).
+  # Override to null to let a streaming parser manage a temp directory.
+  output_dir: ${dataset_paths.nurec_data_root}
+
+  hf_repo_id: nvidia/PhysicalAI-Autonomous-Vehicles-NuRec
+  hf_sequences_prefix: sample_set/26.04_release
+  revision: main            # HF branch / tag / commit
+  hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+  # Selection — mutually exclusive. When neither is set, the full catalog is downloaded.
+  sequence_ids: null        # explicit list of UUIDs
+  num_sequences: null       # first N sequences, or N random if sample_random=true
+  sample_random: false
+  seed: 0
+
+  cameras: null             # null = all 7 sidecar cameras
+  include_usdz: true        # download the USDZ package per sequence
+  include_sidecars: true    # download sidecar camera MP4 files
+
+  max_workers: 4
+  dry_run: false

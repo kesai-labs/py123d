@@ -58,7 +58,7 @@ Available Modalities
      - Rig-to-world poses, resampled to a uniform 10 Hz. NuRec stores poses only; ``infer_ego_dynamics: true`` derives velocity/acceleration during conversion. Vehicle dimensions and the rig-to-box-centre offset come from the rig bounding box, and the wheel base from the rig calibration's axle positions. The release spans several vehicle platforms, with wheel bases from 2.73 m to 3.22 m. See :class:`~py123d.datatypes.EgoStateSE3`.
    * - Map
      - ✓
-     - Lanes with connectivity, neighbours, lane groups and speed limits, road edges, crosswalks, stop zones (typed by the light or sign controlling their lane, and linked to it), painted road lines, and intersection areas typed by their control. See :class:`~py123d.datatypes.Lane`.
+     - Lanes with connectivity, neighbours, lane groups and speed limits, road edges, crosswalks, stop zones (typed by the light or sign controlling their lane, and linked to it), painted road lines, intersection areas typed by their control, generic drivable areas (gore areas), and walkways (traffic islands). See :class:`~py123d.datatypes.Lane`.
    * - Bounding Boxes
      - ✓
      - Auto-labeled 3D cuboid tracks, interpolated onto the same 10 Hz grid as the ego poses. NuRec shares the Physical AI AV taxonomy (:class:`~py123d.parser.registry.PhysicalAIAVBoxDetectionLabel`). See :class:`~py123d.datatypes.BoxDetectionsSE3`.
@@ -146,10 +146,6 @@ ignores. They are listed here in case the schema later covers them:
 
    * - **Source**
      - **Content**
-   * - ``road_island``
-     - Traffic islands and pedestrian refuges (polygons). Closest existing layers are ``WALKWAY`` and ``GENERIC_DRIVABLE``, neither of which matches.
-   * - ``gore_area``
-     - Painted no-drive triangles where roads diverge (polygons).
    * - ``road_marking``
      - Arrows, text and symbols painted on the road (polygons). ``ROAD_LINE`` covers painted *lines* only.
    * - ``pole``
