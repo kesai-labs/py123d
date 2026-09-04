@@ -21,8 +21,10 @@ from py123d.datatypes import (
     LaneGroup,
     MapLayer,
     MapMetadata,
+    NoneLane,
     RoadEdge,
     RoadLine,
+    Shoulder,
     SpeedBump,
     StopZone,
     Walkway,
@@ -94,6 +96,10 @@ class ArrowMapWriter(BaseMapWriter):
             self._write_walkway(map_object)
         elif isinstance(map_object, GenericDrivable):
             self._write_generic_drivable(map_object)
+        elif isinstance(map_object, Shoulder):
+            self._write_shoulder(map_object)
+        elif isinstance(map_object, NoneLane):
+            self._write_none_lane(map_object)
         elif isinstance(map_object, StopZone):
             self._write_stop_zone(map_object)
         elif isinstance(map_object, RoadEdge):
@@ -146,10 +152,20 @@ class ArrowMapWriter(BaseMapWriter):
         """Inherited, see superclass."""
         self._write_surface_layer(MapLayer.GENERIC_DRIVABLE, obj)
 
+    def _write_shoulder(self, obj: Shoulder) -> None:
+        """Inherited, see superclass."""
+        self._write_surface_layer(MapLayer.SHOULDER, obj)
+
+    def _write_none_lane(self, obj: NoneLane) -> None:
+        """Inherited, see superclass."""
+        self._write_surface_layer(MapLayer.NONE_LANE, obj)
+
     def _write_stop_zone(self, stop_zone: StopZone) -> None:
         self._write_surface_layer(MapLayer.STOP_ZONE, stop_zone)
         self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"].append(int(stop_zone.stop_zone_type))
         self._map_data[MapLayer.STOP_ZONE]["lane_ids"].append(stop_zone.lane_ids)
+        self._map_data[MapLayer.STOP_ZONE]["intersection_id"].append(stop_zone.intersection_id)
+        self._map_data[MapLayer.STOP_ZONE]["phase_idx"].append(stop_zone.phase_idx)
 
     def _write_speed_bump(self, speed_bump: SpeedBump) -> None:
         self._write_surface_layer(MapLayer.SPEED_BUMP, speed_bump)
@@ -290,6 +306,8 @@ class ArrowMapWriter(BaseMapWriter):
                     "outline": self._map_data[MapLayer.STOP_ZONE]["outline"][idx],
                     "stop_zone_type": self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"][idx],
                     "lane_ids": self._map_data[MapLayer.STOP_ZONE]["lane_ids"][idx],
+                    "intersection_id": self._map_data[MapLayer.STOP_ZONE]["intersection_id"][idx],
+                    "phase_idx": self._map_data[MapLayer.STOP_ZONE]["phase_idx"][idx],
                 }
                 all_features.append(msgpack_encode_with_numpy(stop_zone_dict))  # type: ignore
 
@@ -326,6 +344,28 @@ class ArrowMapWriter(BaseMapWriter):
                     "road_line_type": self._map_data[MapLayer.ROAD_LINE]["road_line_type"][idx],
                 }
                 all_features.append(msgpack_encode_with_numpy(road_line_dict))  # type: ignore
+
+            # 12. Shoulders
+            for idx in range(len(self._map_data[MapLayer.SHOULDER]["id"])):
+                all_object_ids.append(self._map_data[MapLayer.SHOULDER]["id"][idx])
+                all_wkbs.append(self._map_data[MapLayer.SHOULDER]["wkb"][idx])
+                all_map_layers.append(int(MapLayer.SHOULDER))
+
+                shoulder_dict = {
+                    "outline": self._map_data[MapLayer.SHOULDER]["outline"][idx],
+                }
+                all_features.append(msgpack_encode_with_numpy(shoulder_dict))  # type: ignore
+
+            # 13. None lanes
+            for idx in range(len(self._map_data[MapLayer.NONE_LANE]["id"])):
+                all_object_ids.append(self._map_data[MapLayer.NONE_LANE]["id"][idx])
+                all_wkbs.append(self._map_data[MapLayer.NONE_LANE]["wkb"][idx])
+                all_map_layers.append(int(MapLayer.NONE_LANE))
+
+                none_lane_dict = {
+                    "outline": self._map_data[MapLayer.NONE_LANE]["outline"][idx],
+                }
+                all_features.append(msgpack_encode_with_numpy(none_lane_dict))  # type: ignore
 
             # Create final table and write to file
             object_ids_ = pa.array(all_object_ids, type=object_id_type)
@@ -405,6 +445,8 @@ def _map_ids_to_integer(map_data: Dict[MapLayer, Dict[str, Any]]) -> None:
     walkway_id_mapping = ToIntMapping.from_list(map_data[MapLayer.WALKWAY]["id"])
     carpark_id_mapping = ToIntMapping.from_list(map_data[MapLayer.CARPARK]["id"])
     generic_drivable_id_mapping = ToIntMapping.from_list(map_data[MapLayer.GENERIC_DRIVABLE]["id"])
+    shoulder_id_mapping = ToIntMapping.from_list(map_data[MapLayer.SHOULDER]["id"])
+    none_lane_id_mapping = ToIntMapping.from_list(map_data[MapLayer.NONE_LANE]["id"])
     stop_zone_id_mapping = ToIntMapping.from_list(map_data[MapLayer.STOP_ZONE]["id"])
     speed_bump_id_mapping = ToIntMapping.from_list(map_data[MapLayer.SPEED_BUMP]["id"])
     road_line_id_mapping = ToIntMapping.from_list(map_data[MapLayer.ROAD_LINE]["id"])
@@ -467,6 +509,14 @@ def _map_ids_to_integer(map_data: Dict[MapLayer, Dict[str, Any]]) -> None:
         for idx in range(len(map_data[MapLayer.GENERIC_DRIVABLE]["id"])):
             map_data[MapLayer.GENERIC_DRIVABLE]["id"][idx] = generic_drivable_id_mapping.map(
                 map_data[MapLayer.GENERIC_DRIVABLE]["id"][idx]
+            )
+    if len(map_data[MapLayer.SHOULDER]["id"]) > 0:
+        for idx in range(len(map_data[MapLayer.SHOULDER]["id"])):
+            map_data[MapLayer.SHOULDER]["id"][idx] = shoulder_id_mapping.map(map_data[MapLayer.SHOULDER]["id"][idx])
+    if len(map_data[MapLayer.NONE_LANE]["id"]) > 0:
+        for idx in range(len(map_data[MapLayer.NONE_LANE]["id"])):
+            map_data[MapLayer.NONE_LANE]["id"][idx] = none_lane_id_mapping.map(
+                map_data[MapLayer.NONE_LANE]["id"][idx]
             )
     if len(map_data[MapLayer.STOP_ZONE]["id"]) > 0:
         for idx in range(len(map_data[MapLayer.STOP_ZONE]["id"])):

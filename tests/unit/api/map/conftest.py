@@ -19,7 +19,9 @@ from py123d.datatypes import (
     LaneGroup,
     MapMetadata,
     RoadEdge,
+    NoneLane,
     RoadLine,
+    Shoulder,
     SpeedBump,
     StopZone,
     Walkway,
@@ -204,12 +206,24 @@ def make_generic_drivable(object_id: MapObjectIDType = 0, cx: float = 60.0, cy: 
     return GenericDrivable(object_id=object_id, outline=outline)
 
 
+def make_shoulder(object_id: MapObjectIDType = 0, cx: float = 65.0, cy: float = 5.0) -> Shoulder:
+    outline = make_square_outline(cx, cy, size=10.0)
+    return Shoulder(object_id=object_id, outline=outline)
+
+
+def make_none_lane(object_id: MapObjectIDType = 0, cx: float = 67.0, cy: float = 5.0) -> NoneLane:
+    outline = make_square_outline(cx, cy, size=10.0)
+    return NoneLane(object_id=object_id, outline=outline)
+
+
 def make_stop_zone(
     object_id: MapObjectIDType = 0,
     lane_ids: Optional[Sequence[MapObjectIDType]] = None,
     stop_zone_type: StopZoneType = StopZoneType.TRAFFIC_LIGHT,
     cx: float = 70.0,
     cy: float = 5.0,
+    intersection_id: Optional[MapObjectIDType] = None,
+    phase_idx: Optional[int] = None,
 ) -> StopZone:
     outline = make_square_outline(cx, cy, size=5.0)
     return StopZone(
@@ -217,6 +231,8 @@ def make_stop_zone(
         stop_zone_type=stop_zone_type,
         outline=outline,
         lane_ids=lane_ids,
+        intersection_id=intersection_id,
+        phase_idx=phase_idx,
     )
 
 

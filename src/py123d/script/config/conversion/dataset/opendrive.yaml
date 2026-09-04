@@ -21,6 +21,31 @@ parser:
   connection_distance_threshold: 0.1
   internal_only: true
 
+  # None lanes on non-junction roads at least this wide are median strips (not drivable);
+  # junction-interior none-lane surfaces stay drivable (crossing pavement). Currently disabled.
+  non_drivable_none_lane_min_width: null
+
+  # Shoulder/none-lane surfaces containing these (x, y) points are carved out of the drivable
+  # envelope: areas the source .xodr types as lanes but that are not drivable in reality.
+  # (Town03 carve-out to be revisited.)
+  road_edge_non_drivable_points:
+    Town06:
+      - [-1.4, 28.2]    # traffic island on none-lane surface
+
+  # Road-edge holes to fill per town: (x, y) points inside areas that are drivable
+  # in reality but lack surface coverage in the source .xodr (upstream CARLA map bugs).
+  road_edge_fill_hole_points:
+    Town03:
+      - [78.4, 7.5]     # road area missing from xodr (upstream bug)
+    Town06:
+      - [9.4, 22.7]     # road area missing from xodr (upstream bug)
+      - [10.2, 5.1]     # road area missing from xodr (upstream bug)
+    Town07:
+      - [-64.3, 100.8]  # plaza west pocket
+      - [-27.6, 100.7]  # plaza east pocket
+      - [-141.7, 99.0]  # roundabout east splitter island
+      - [-149.5, 88.7]  # roundabout south splitter island
+
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
   _convert_: 'all'

@@ -1,8 +1,8 @@
-from typing import List, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import shapely
-from shapely import LinearRing, LineString, Polygon, box, union_all
+from shapely import LinearRing, LineString, Point, Polygon, box, union_all
 from shapely.strtree import STRtree
 
 
@@ -10,11 +10,29 @@ def get_road_edge_linear_rings(
     drivable_polygons: List[Polygon],
     buffer_distance: float = 0.05,
     add_interiors: bool = True,
+    min_interior_width: float = 0.0,
+    fill_hole_points: Optional[List[Tuple[float, float]]] = None,
+    non_drivable_polygons: Optional[List[Polygon]] = None,
 ) -> List[LinearRing]:
     """
     Helper function to extract road edges (i.e. linear rings) from drivable area polygons.
+    Interior rings (holes) with a mean width (2 * area / perimeter) below min_interior_width are
+    skipped; such hairline slivers between adjacent drivable surfaces are artifacts, not real holes.
+    Interior rings containing one of fill_hole_points are also skipped; this patches known source-map
+    bugs where an area is drivable in reality but has no surface coverage in the map data.
+    non_drivable_polygons are subtracted from the drivable union (even where other surfaces overlap
+    them), and the resulting holes are kept regardless of their width.
     TODO: Move and rename for general use.
     """
+    fill_points = [Point(p) for p in fill_hole_points] if fill_hole_points else []
+    non_drivable_union = (
+        union_all([polygon.buffer(0) for polygon in non_drivable_polygons]) if non_drivable_polygons else None
+    )
+
+    def _is_deliberate_hole(hole: Polygon) -> bool:
+        if non_drivable_union is None:
+            return False
+        return hole.intersection(non_drivable_union).area > 0.3 * hole.area
 
     def _polygon_to_linear_rings(polygon: Polygon) -> List[LinearRing]:
         assert polygon.geom_type == "Polygon"
@@ -22,12 +40,22 @@ def get_road_edge_linear_rings(
         linear_ring_list.append(polygon.exterior)
         if add_interiors:
             for interior in polygon.interiors:
+                hole = Polygon(interior)
+                if not _is_deliberate_hole(hole):
+                    if min_interior_width > 0.0 and 2.0 * hole.area / hole.exterior.length < min_interior_width:
+                        continue
+                    if any(hole.contains(point) for point in fill_points):
+                        continue
                 linear_ring_list.append(interior)
         return linear_ring_list
 
+    # Round join on the erosion: mitre projections on spiky interior rings (e.g. the ring enclosing
+    # a roundabout center island) can cross the hole and fill it entirely.
     union_polygon = union_all([polygon.buffer(buffer_distance, join_style=2) for polygon in drivable_polygons]).buffer(
-        -buffer_distance, join_style=2
+        -buffer_distance
     )
+    if non_drivable_union is not None:
+        union_polygon = union_polygon.difference(non_drivable_union)
 
     linear_ring_list = []
     if union_polygon.geom_type == "Polygon":

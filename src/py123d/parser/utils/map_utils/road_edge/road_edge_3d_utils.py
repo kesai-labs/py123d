@@ -1,12 +1,13 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import shapely
 import shapely.geometry as geom
+from scipy.spatial import cKDTree
 
 from py123d.datatypes.map_objects.map_objects import (
     BaseMapSurfaceObject,
@@ -23,12 +24,29 @@ from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import get_road_
 
 logger = logging.getLogger(__name__)
 
+FLANK_MATCH_MAX_DISTANCE = 0.5  # [m] a flanking surface must share an edge with the lane group
+FLANK_MATCH_MIN_POINTS = 5  # a shared edge, not just a corner touch at a section boundary
+FLANK_MATCH_MAX_Z_DIFF = 2.5  # [m] and lie on the same vertical layer (not a road passing above/below)
+FLANK_CAP_MIN_LENGTH = 1.5  # [m] outline segments longer than this are transverse end caps
+FLANK_CAP_MEDIAN_FACTOR = 1.5  # relative to the outline's median segment length
+FLANK_CAP_MAX_TURN = np.pi / 4.0  # [rad] outline corners turning sharper than this start/end a cap
+FLANK_TURN_MIN_SEGMENT = 0.05  # [m] ignore turns between near-duplicate points
+FLANK_RUN_MIN_FRACTION = 0.3  # pieces shorter than this fraction of the longest piece are caps
+FLANK_GUIDE_MIN_OUTLINE_LENGTH = 10.0  # [m] smaller surfaces are seam slivers: merged in 2D, never lift guides
+LIFT_PARALLEL_MIN_COS = np.cos(np.pi / 4.0)  # ring direction vs guide direction, modulo half-turn
+DUPLICATE_EDGE_MAX_DISTANCE = 0.5  # [m]
+DUPLICATE_EDGE_MAX_Z_DIFF = 1.5  # [m]
+MIN_RESOLVED_EDGE_LENGTH = 2.0  # [m] drops degenerate fragments from union corner densification
+
 
 def get_road_edges_3d_from_drivable_surfaces(
     lanes: List[Lane],
     lane_groups: List[LaneGroup],
     car_parks: List[Carpark],
     generic_drivables: List[GenericDrivable],
+    min_interior_width: float = 0.0,
+    fill_hole_points: Optional[List[Tuple[float, float]]] = None,
+    non_drivable_polygons: Optional[List[shapely.Polygon]] = None,
 ) -> List[Polyline3D]:
     """Generates 3D road edges from drivable surfaces, i.e., lane groups, car parks, and generic drivables.
     This method merges polygons in 2D and lifts them to 3D using the boundaries/outlines of elements.
@@ -38,6 +56,9 @@ def get_road_edges_3d_from_drivable_surfaces(
     :param lane_groups: A list of lane groups in the map.
     :param car_parks: A list of car parks in the map.
     :param generic_drivables: A list of generic drivable areas in the map.
+    :param min_interior_width: Interior rings (holes) with a smaller mean width are dropped, defaults to 0.0.
+    :param fill_hole_points: Interior rings containing one of these points are dropped, defaults to None.
+    :param non_drivable_polygons: Areas subtracted from the drivable union, defaults to None.
     :return: A list of 3D interpolatable polylines representing the road edges.
     """
 
@@ -49,7 +70,12 @@ def get_road_edges_3d_from_drivable_surfaces(
     for map_surface in lane_groups + generic_drivables:
         map_surface: BaseMapSurfaceObject
         drivable_polygons.append(map_surface.shapely_polygon)
-    road_edges_2d = get_road_edge_linear_rings(drivable_polygons)
+    road_edges_2d = get_road_edge_linear_rings(
+        drivable_polygons,
+        min_interior_width=min_interior_width,
+        fill_hole_points=fill_hole_points,
+        non_drivable_polygons=non_drivable_polygons,
+    )
 
     # 3. Collect 3D boundaries of non-conflicting lane groups and other drivable areas
     non_conflicting_boundaries: List[Polyline3D] = []
@@ -64,8 +90,9 @@ def get_road_edges_3d_from_drivable_surfaces(
     # 4. Lift road edges to 3D using the boundaries of non-conflicting elements
     non_conflicting_road_edges = lift_road_edges_to_3d(road_edges_2d, non_conflicting_boundaries)
 
-    # 5. Add road edges from conflicting lane groups
-    resolved_road_edges = _resolve_conflicting_lane_groups(conflicting_lane_groups, lane_groups)
+    # 5. Add road edges from conflicting lane groups, keeping only stretches the merged union missed
+    resolved_road_edges = _resolve_conflicting_lane_groups(conflicting_lane_groups, lane_groups, generic_drivables)
+    resolved_road_edges = _drop_duplicate_road_edges(resolved_road_edges, non_conflicting_road_edges)
 
     all_road_edges = non_conflicting_road_edges + resolved_road_edges
 
@@ -150,12 +177,15 @@ def lift_road_edges_to_3d(
     road_edges_2d: List[shapely.LinearRing],
     boundaries: List[Polyline3D],
     max_distance: float = 0.5,
+    require_parallel_direction: bool = False,
 ) -> List[Polyline3D]:
     """Lift 2D road edges to 3D by querying elevation from boundary segments.
 
     :param road_edges_2d: List of 2D road edge geometries.
     :param boundaries: List of 3D boundary geometries.
     :param max_distance: Maximum 2D distance for edge-boundary association.
+    :param require_parallel_direction: Only lift ring points whose local direction runs parallel
+        to the matched boundary, dropping transverse construction cuts, defaults to False.
     :return: List of lifted 3D road edge geometries.
     """
 
@@ -184,6 +214,8 @@ def lift_road_edges_to_3d(
             # 3. Batch query for all points
             query_points = shapely.creation.points(points_2d)
             results = occupancy_map.query_nearest(query_points, max_distance=max_distance, exclusive=True)
+            if require_parallel_direction:
+                results = _filter_parallel_matches(points_2d, boundary_segments, results)
 
             for query_idx, geometry_idx in zip(*results):
                 query_point = query_points[query_idx]
@@ -260,11 +292,13 @@ def lift_outlines_to_3d(
 def _resolve_conflicting_lane_groups(
     conflicting_lane_groups: Dict[MapObjectIDType, List[MapObjectIDType]],
     lane_groups: List[LaneGroup],
+    drivable_surfaces: List[BaseMapSurfaceObject],
 ) -> List[Polyline3D]:
     """Resolve conflicting lane groups by merging their geometries.
 
     :param conflicting_lane_groups: A dictionary mapping lane group IDs to their conflicting lane group IDs.
     :param lane_groups: A list of all lane groups.
+    :param drivable_surfaces: All non-lane-group drivable surfaces (shoulders, none lanes, generic drivables).
     :return: A list of merged 3D road edge geometries.
     """
 
@@ -275,35 +309,205 @@ def _resolve_conflicting_lane_groups(
     # For each non-conflicting set, we can repeat the process of merging polygons in 2D and lifting to 3D.
     # For edge-continuity, we include the neighboring lane groups (predecessors and successors) as well in the 2D merging
     # but only use the original lane group boundaries for lifting to 3D.
+    # Flanking surfaces (shoulders/none lanes) on the same vertical layer are merged in as well, so the
+    # ring follows the drivable envelope instead of the bare driving-lane block.
 
     # Split conflicting lane groups into non-conflicting sets for further merging
     non_conflicting_sets = _create_non_conflicting_sets(conflicting_lane_groups)
 
+    involved_lane_group_ids: Set[MapObjectIDType] = set()
+    for non_conflicting_set in non_conflicting_sets:
+        for lane_group_id in non_conflicting_set:
+            involved_lane_group_ids.add(lane_group_id)
+            involved_lane_group_ids.update(lane_group_dict[lane_group_id].predecessor_ids)
+            involved_lane_group_ids.update(lane_group_dict[lane_group_id].successor_ids)
+    flank_surfaces_by_group = _match_flanking_surfaces(involved_lane_group_ids, lane_group_dict, drivable_surfaces)
+
     road_edges_3d: List[Polyline3D] = []
     for non_conflicting_set in non_conflicting_sets:
-        # Collect 2D polygons of non-conflicting lane group set and their neighbors
-        merge_lane_group_data: Dict[MapObjectIDType, geom.Polygon] = {}
+        # Collect 2D polygons of non-conflicting lane group set, their neighbors, and flanking surfaces
+        merge_surface_data: Dict[MapObjectIDType, geom.Polygon] = {}
         for lane_group_id in non_conflicting_set:
-            merge_lane_group_data[lane_group_id] = lane_group_dict[lane_group_id].shapely_polygon
-            for neighbor_id in (
-                lane_group_dict[lane_group_id].predecessor_ids + lane_group_dict[lane_group_id].successor_ids
-            ):
-                merge_lane_group_data[neighbor_id] = lane_group_dict[neighbor_id].shapely_polygon
+            member_and_neighbor_ids = (
+                [lane_group_id]
+                + lane_group_dict[lane_group_id].predecessor_ids
+                + lane_group_dict[lane_group_id].successor_ids
+            )
+            for merge_id in member_and_neighbor_ids:
+                merge_surface_data[merge_id] = lane_group_dict[merge_id].shapely_polygon
+                for flank_surface in flank_surfaces_by_group.get(merge_id, []):
+                    merge_surface_data[flank_surface.object_id] = flank_surface.shapely_polygon
 
         # Get 2D road edge linestrings for the non-conflicting set
-        set_road_edges_2d = get_road_edge_linear_rings(list(merge_lane_group_data.values()))
+        set_road_edges_2d = get_road_edge_linear_rings(list(merge_surface_data.values()))
 
-        #  Collect 3D boundaries only of non-conflicting lane groups
+        #  Collect 3D boundaries of non-conflicting lane groups and their flanking surfaces
         set_boundaries_3d: List[Polyline3D] = []
         for lane_group_id in non_conflicting_set:
             set_boundaries_3d.append(lane_group_dict[lane_group_id].left_boundary_3d)
             set_boundaries_3d.append(lane_group_dict[lane_group_id].right_boundary_3d)
+            for flank_surface in flank_surfaces_by_group.get(lane_group_id, []):
+                if _get_polyline_length(flank_surface.outline.array) < FLANK_GUIDE_MIN_OUTLINE_LENGTH:
+                    continue
+                set_boundaries_3d.extend(_split_outline_at_caps(flank_surface.outline))
 
         # Lift road edges to 3D using the boundaries of non-conflicting lane groups
-        lifted_road_edges_3d = lift_road_edges_to_3d(set_road_edges_2d, set_boundaries_3d)
+        lifted_road_edges_3d = lift_road_edges_to_3d(
+            set_road_edges_2d, set_boundaries_3d, require_parallel_direction=True
+        )
         road_edges_3d.extend(lifted_road_edges_3d)
 
-    return road_edges_3d
+    return [road_edge for road_edge in road_edges_3d if _get_polyline_length(road_edge.array) >= MIN_RESOLVED_EDGE_LENGTH]
+
+
+def _match_flanking_surfaces(
+    lane_group_ids: Set[MapObjectIDType],
+    lane_group_dict: Dict[MapObjectIDType, LaneGroup],
+    drivable_surfaces: List[BaseMapSurfaceObject],
+) -> Dict[MapObjectIDType, List[BaseMapSurfaceObject]]:
+    """Match flanking drivable surfaces (shoulders/none lanes) to the lane groups they border.
+
+    A surface matches a lane group when it touches the group's boundary in 2D at a consistent
+    height, so surfaces of a road passing above/below never merge into the wrong layer.
+
+    :param lane_group_ids: IDs of the lane groups to match against.
+    :param lane_group_dict: Mapping of all lane group IDs to lane groups.
+    :param drivable_surfaces: All non-lane-group drivable surfaces.
+    :return: Mapping of lane group ID to its flanking surfaces.
+    """
+    flank_surfaces_by_group: Dict[MapObjectIDType, List[BaseMapSurfaceObject]] = defaultdict(list)
+    if len(drivable_surfaces) == 0 or len(lane_group_ids) == 0:
+        return flank_surfaces_by_group
+
+    occupancy_map = OccupancyMap2D([surface.shapely_polygon for surface in drivable_surfaces])
+    for lane_group_id in sorted(lane_group_ids, key=str):
+        lane_group = lane_group_dict[lane_group_id]
+        boundary_points = np.concatenate(
+            [lane_group.left_boundary_3d.array, lane_group.right_boundary_3d.array], axis=0
+        )
+        boundary_tree = cKDTree(boundary_points[:, :2])
+        candidate_region = lane_group.shapely_polygon.buffer(FLANK_MATCH_MAX_DISTANCE)
+        for surface_id in sorted(occupancy_map.intersects(candidate_region), key=int):
+            outline_points = drivable_surfaces[int(surface_id)].outline.array
+            nearest_distances, nearest_indices = boundary_tree.query(outline_points[:, :2])
+            touching_mask = nearest_distances <= FLANK_MATCH_MAX_DISTANCE
+            if np.count_nonzero(touching_mask) < FLANK_MATCH_MIN_POINTS:
+                continue
+            outline_z = outline_points[touching_mask, 2] if outline_points.shape[-1] > 2 else 0.0
+            z_diffs = np.abs(outline_z - boundary_points[nearest_indices[touching_mask], 2])
+            if np.median(z_diffs) <= FLANK_MATCH_MAX_Z_DIFF:
+                flank_surfaces_by_group[lane_group_id].append(drivable_surfaces[int(surface_id)])
+    return flank_surfaces_by_group
+
+
+def _filter_parallel_matches(
+    points_2d: npt.NDArray[np.float64],
+    boundary_segments: npt.NDArray[np.float64],
+    results: Tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]],
+) -> Tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """Keep only matches where the ring runs parallel to the matched boundary segment.
+
+    A transverse construction cut (e.g. where a merged patch ends across a road) touches
+    longitudinal boundaries only at its corners, at a right angle; those matches are dropped.
+
+    :param points_2d: The ring vertices, shape (N, 2).
+    :param boundary_segments: The boundary segments, shape (M, 2, 3).
+    :param results: Query/segment index pairs from the nearest query.
+    :return: The filtered query/segment index pairs.
+    """
+    point_directions = np.zeros_like(points_2d)
+    point_directions[:-1] = np.diff(points_2d, axis=0)
+    point_directions[-1] = point_directions[-2] if len(points_2d) > 1 else 0.0
+
+    query_indices, segment_indices = results
+    ring_dirs = point_directions[query_indices]
+    segment_dirs = boundary_segments[segment_indices, 1, :2] - boundary_segments[segment_indices, 0, :2]
+    norms = np.linalg.norm(ring_dirs, axis=1) * np.linalg.norm(segment_dirs, axis=1)
+    cos_angles = np.abs(np.sum(ring_dirs * segment_dirs, axis=1)) / np.maximum(norms, 1e-12)
+    keep = (cos_angles >= LIFT_PARALLEL_MIN_COS) | (norms < 1e-12)
+    return query_indices[keep], segment_indices[keep]
+
+
+def _split_outline_at_caps(outline: Polyline3D) -> List[Polyline3D]:
+    """Split a closed surface outline at its transverse end caps so only longitudinal runs guide lifting.
+
+    :param outline: The closed outline of a flanking surface.
+    :return: The longitudinal pieces of the outline.
+    """
+    points = outline.array
+    if len(points) < 4:
+        return [outline]
+    diffs = np.diff(points[:, :2], axis=0)
+    segment_lengths = np.linalg.norm(diffs, axis=1)
+    cap_threshold = max(FLANK_CAP_MIN_LENGTH, FLANK_CAP_MEDIAN_FACTOR * float(np.median(segment_lengths)))
+    headings = np.arctan2(diffs[:, 1], diffs[:, 0])
+    turns = np.diff(headings)
+    turns = np.abs((turns + np.pi) % (2.0 * np.pi) - np.pi)
+
+    piece_arrays: List[npt.NDArray[np.float64]] = []
+    start = 0
+    for segment_idx in range(len(diffs)):
+        is_sharp_corner = (
+            segment_idx > start
+            and turns[segment_idx - 1] > FLANK_CAP_MAX_TURN
+            and min(segment_lengths[segment_idx - 1], segment_lengths[segment_idx]) > FLANK_TURN_MIN_SEGMENT
+        )
+        if segment_lengths[segment_idx] > cap_threshold:
+            piece_arrays.append(points[start : segment_idx + 1])
+            start = segment_idx + 1
+        elif is_sharp_corner:
+            piece_arrays.append(points[start : segment_idx + 1])
+            start = segment_idx
+    piece_arrays.append(points[start:])
+
+    if len(piece_arrays) == 1:
+        return [outline]
+    piece_lengths = [_get_polyline_length(piece) if len(piece) >= 2 else 0.0 for piece in piece_arrays]
+    min_length = FLANK_RUN_MIN_FRACTION * max(piece_lengths)
+    return [
+        Polyline3D.from_array(piece)
+        for piece, piece_length in zip(piece_arrays, piece_lengths)
+        if len(piece) >= 2 and piece_length >= min_length
+    ]
+
+
+def _drop_duplicate_road_edges(
+    road_edges: List[Polyline3D],
+    reference_road_edges: List[Polyline3D],
+) -> List[Polyline3D]:
+    """Drop road-edge stretches that duplicate an already-emitted reference edge at the same height.
+
+    :param road_edges: Candidate road edges (from conflicting lane groups).
+    :param reference_road_edges: Reference road edges (from the merged drivable union).
+    :return: Candidate edges with duplicated stretches removed.
+    """
+    if len(road_edges) == 0 or len(reference_road_edges) == 0:
+        return road_edges
+
+    reference_segments = []
+    for reference_edge in reference_road_edges:
+        coords = reference_edge.array.reshape(-1, 1, 3)
+        reference_segments.append(np.concatenate([coords[:-1], coords[1:]], axis=1))
+    reference_segments = np.concatenate(reference_segments, axis=0)
+    occupancy_map = OccupancyMap2D(shapely.creation.linestrings(reference_segments))
+
+    deduplicated: List[Polyline3D] = []
+    for road_edge in road_edges:
+        points_3d = road_edge.array
+        query_points = shapely.creation.points(points_3d[:, :2])
+        query_indices, segment_indices = occupancy_map.query_nearest(
+            query_points, max_distance=DUPLICATE_EDGE_MAX_DISTANCE
+        )
+        duplicate_mask = np.zeros(len(points_3d), dtype=bool)
+        for query_idx, segment_idx in zip(query_indices, segment_indices):
+            reference_z = _interpolate_z_on_segment(query_points[query_idx], reference_segments[segment_idx])
+            if abs(points_3d[query_idx, 2] - reference_z) <= DUPLICATE_EDGE_MAX_Z_DIFF:
+                duplicate_mask[query_idx] = True
+        kept_indices = np.nonzero(~duplicate_mask)[0]
+        for segment in _split_continuous_segments(kept_indices):
+            if _get_polyline_length(points_3d[segment]) >= MIN_RESOLVED_EDGE_LENGTH:
+                deduplicated.append(Polyline3D.from_array(points_3d[segment]))
+    return deduplicated
 
 
 def _get_polyline_length(points: npt.NDArray[np.float64]) -> float:

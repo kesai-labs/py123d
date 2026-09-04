@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Dict, Final, Iterator, List, Optional
+from typing import Dict, Final, Iterator, List, Optional, Tuple
 
 import numpy as np
 import shapely
@@ -17,8 +17,10 @@ from py123d.datatypes import (
     LaneType,
     RoadEdge,
     RoadEdgeType,
+    NoneLane,
     RoadLine,
     RoadLineType,
+    Shoulder,
     Walkway,
 )
 from py123d.datatypes.metadata.map_metadata import MapMetadata
@@ -26,7 +28,7 @@ from py123d.geometry.geometry_index import Point3DIndex
 from py123d.geometry.polyline import Polyline3D
 from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.opendrive.utils.collection import collect_element_helpers
-from py123d.parser.opendrive.utils.id_system import lane_section_id_from_lane_group_id
+from py123d.parser.opendrive.utils.id_system import build_lane_id, lane_section_id_from_lane_group_id
 from py123d.parser.opendrive.utils.lane_helper import OpenDriveLaneGroupHelper, OpenDriveLaneHelper
 from py123d.parser.opendrive.utils.objects_helper import OpenDriveObjectHelper
 from py123d.parser.opendrive.utils.stop_zone_helper import create_stop_zones_from_signals
@@ -44,6 +46,7 @@ from py123d.parser.utils.map_utils.road_edge.road_edge_3d_utils import (
 logger = logging.getLogger(__name__)
 
 MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0  # [m]
+MIN_ROAD_EDGE_HOLE_WIDTH: Final[float] = 1.0  # [m] drops sliver holes between adjacent surfaces at junction corners
 
 
 class OpenDriveMapParser(BaseMapParser):
@@ -56,12 +59,18 @@ class OpenDriveMapParser(BaseMapParser):
         interpolation_step_size: float = 1.0,
         connection_distance_threshold: float = 0.1,
         internal_only: bool = True,
+        road_edge_fill_hole_points: Optional[List[List[float]]] = None,
+        road_edge_non_drivable_points: Optional[List[List[float]]] = None,
+        non_drivable_none_lane_min_width: Optional[float] = None,
     ) -> None:
         self._xodr_path = xodr_path
         self._location = location
         self._interpolation_step_size = interpolation_step_size
         self._connection_distance_threshold = connection_distance_threshold
         self._internal_only = internal_only
+        self._road_edge_fill_hole_points = road_edge_fill_hole_points
+        self._road_edge_non_drivable_points = road_edge_non_drivable_points
+        self._non_drivable_none_lane_min_width = non_drivable_none_lane_min_width
 
     def get_map_metadata(self) -> MapMetadata:
         """Returns metadata for this OpenDRIVE map."""
@@ -81,6 +90,9 @@ class OpenDriveMapParser(BaseMapParser):
             interpolation_step_size=self._interpolation_step_size,
             connection_distance_threshold=self._connection_distance_threshold,
             internal_only=self._internal_only,
+            road_edge_fill_hole_points=self._road_edge_fill_hole_points,
+            road_edge_non_drivable_points=self._road_edge_non_drivable_points,
+            non_drivable_none_lane_min_width=self._non_drivable_none_lane_min_width,
         )
 
 
@@ -89,6 +101,9 @@ def iter_xodr_map_objects(
     interpolation_step_size: float = 1.0,
     connection_distance_threshold: float = 0.1,
     internal_only: bool = True,
+    road_edge_fill_hole_points: Optional[List[List[float]]] = None,
+    road_edge_non_drivable_points: Optional[List[List[float]]] = None,
+    non_drivable_none_lane_min_width: Optional[float] = None,
 ) -> Iterator[BaseMapObject]:
     """Yields all map objects extracted from an OpenDRIVE (.xodr) file.
 
@@ -96,11 +111,18 @@ def iter_xodr_map_objects(
     :param interpolation_step_size: Step size for interpolating polylines, defaults to 1.0
     :param connection_distance_threshold: Distance threshold for connecting road elements, defaults to 0.1
     :param internal_only: If True, only yield internal road lines (center + between lanes), defaults to True
+    :param road_edge_fill_hole_points: Road-edge holes containing one of these (x, y) points are filled,
+        patching known bugs in the source map, defaults to None
+    :param road_edge_non_drivable_points: Shoulder/none-lane surfaces containing one of these (x, y)
+        points are carved out of the drivable envelope, marking areas that are not drivable in
+        reality, defaults to None
+    :param non_drivable_none_lane_min_width: None lanes on non-junction roads at least this
+        wide are median strips and carved out of the drivable envelope, defaults to None (disabled)
     """
     opendrive = XODR.parse_from_file(xodr_file)
 
     (
-        _,
+        road_dict,
         junction_dict,
         lane_helper_dict,
         lane_group_helper_dict,
@@ -116,11 +138,23 @@ def iter_xodr_map_objects(
     lane_groups = _extract_lane_groups(lane_group_helper_dict)
     yield from lane_groups
 
-    car_parks = _extract_carparks(lane_helper_dict)
+    car_parks, junction_parking_drivables = _extract_carparks(lane_helper_dict, road_dict)
     yield from car_parks
 
-    generic_drivables = _extract_generic_drivables(lane_helper_dict)
+    generic_drivables = _extract_generic_drivables(lane_helper_dict) + junction_parking_drivables
     yield from generic_drivables
+
+    shoulders = _extract_shoulders(lane_helper_dict)
+    yield from shoulders
+
+    none_lanes, curbed_none_lanes = _extract_none_lanes(lane_helper_dict)
+    yield from none_lanes
+    yield from curbed_none_lanes
+
+    # Curbed none lanes are carve candidates; auto-carving is disabled pending per-town validation.
+    non_drivable_polygons = _match_non_drivable_surfaces(shoulders + none_lanes, road_edge_non_drivable_points)
+    non_drivable_polygons += _collect_median_polygons(lane_helper_dict, road_dict, non_drivable_none_lane_min_width)
+    non_drivable_polygons = _subtract_lane_coverage(non_drivable_polygons, lanes)
 
     # Yield other map elements
     yield from _iter_walkways(lane_helper_dict)
@@ -130,7 +164,14 @@ def iter_xodr_map_objects(
 
     # Yield polyline elements that are inferred from other road surfaces
     yield from _iter_road_lines(lane_helper_dict, lane_groups, center_lane_marks_dict, internal_only)
-    yield from _iter_road_edges(lanes, lane_groups, car_parks, generic_drivables)
+    yield from _iter_road_edges(
+        lanes,
+        lane_groups,
+        car_parks,
+        generic_drivables + shoulders + none_lanes,
+        road_edge_fill_hole_points,
+        non_drivable_polygons,
+    )
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -188,13 +229,25 @@ def _extract_lane_groups(lane_group_helper_dict: Dict[str, OpenDriveLaneGroupHel
     return lane_groups
 
 
-def _extract_carparks(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> List[Carpark]:
-    """Extracts carparks from lane helpers."""
-    return [
-        Carpark(object_id=lh.lane_id, outline=lh.outline_polyline_3d)
-        for lh in lane_helper_dict.values()
-        if lh.type == "parking"
-    ]
+def _extract_carparks(
+    lane_helper_dict: Dict[str, OpenDriveLaneHelper], road_dict
+) -> Tuple[List[Carpark], List[GenericDrivable]]:
+    """Extracts carparks from lane helpers.
+    Parking lanes on junction roads are connector pavement dragged through the intersection by the
+    map generator, not real carparks; they are returned as generic drivables instead.
+    """
+    car_parks: List[Carpark] = []
+    junction_parking: List[GenericDrivable] = []
+    for lane_id, lane_helper in lane_helper_dict.items():
+        if lane_helper.type != "parking":
+            continue
+        road = road_dict.get(int(lane_id.split("_")[0]))
+        on_junction = road is not None and road.junction is not None and str(road.junction) not in ("-1", "None")
+        if on_junction:
+            junction_parking.append(GenericDrivable(object_id=lane_helper.lane_id, outline=lane_helper.outline_polyline_3d))
+        else:
+            car_parks.append(Carpark(object_id=lane_helper.lane_id, outline=lane_helper.outline_polyline_3d))
+    return car_parks, junction_parking
 
 
 def _extract_generic_drivables(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> List[GenericDrivable]:
@@ -204,6 +257,100 @@ def _extract_generic_drivables(lane_helper_dict: Dict[str, OpenDriveLaneHelper])
         for lh in lane_helper_dict.values()
         if lh.type in {"border", "bidirectional"}
     ]
+
+
+def _extract_shoulders(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> List[Shoulder]:
+    """Extracts shoulders from lane helpers."""
+    return [
+        Shoulder(object_id=lh.lane_id, outline=lh.outline_polyline_3d)
+        for lh in lane_helper_dict.values()
+        if lh.type == "shoulder"
+    ]
+
+
+def _extract_none_lanes(
+    lane_helper_dict: Dict[str, OpenDriveLaneHelper],
+) -> Tuple[List[NoneLane], List[NoneLane]]:
+    """Extracts none/restricted-type lane surfaces from lane helpers, split into (flat, curbed).
+    A none lane behind a curb road mark on its inner boundary is raised and not drivable;
+    curbed areas are excluded from road-edge inference so they stay outside the drivable envelope.
+    """
+    flat_areas: List[NoneLane] = []
+    curbed_areas: List[NoneLane] = []
+    for lane_id, lane_helper in lane_helper_dict.items():
+        if lane_helper.type not in {"none", "restricted"}:
+            continue
+        none_lane = NoneLane(object_id=lane_helper.lane_id, outline=lane_helper.outline_polyline_3d)
+        if _has_inner_curb(lane_id, lane_helper_dict):
+            curbed_areas.append(none_lane)
+        else:
+            flat_areas.append(none_lane)
+    return flat_areas, curbed_areas
+
+
+def _subtract_lane_coverage(
+    non_drivable_polygons: List[shapely.Polygon], lanes: List[Lane]
+) -> List[shapely.Polygon]:
+    """Removes driving-lane surface from carve polygons: lanes crossing an island stay drivable."""
+    if not non_drivable_polygons:
+        return []
+    lane_union = shapely.union_all([lane.shapely_polygon for lane in lanes]).buffer(0.05, join_style=2)
+    carved: List[shapely.Polygon] = []
+    for polygon in non_drivable_polygons:
+        remainder = polygon.difference(lane_union)
+        parts = remainder.geoms if remainder.geom_type == "MultiPolygon" else [remainder]
+        carved.extend(part for part in parts if part.geom_type == "Polygon" and part.area > 1.0)
+    return carved
+
+
+def _match_non_drivable_surfaces(surfaces, points: Optional[List[List[float]]]) -> List[shapely.Polygon]:
+    """Returns polygons of the surfaces that contain one of the given (x, y) points."""
+    if not points:
+        return []
+    shapely_points = [shapely.Point(p) for p in points]
+    matched = []
+    for surface in surfaces:
+        polygon = shapely.Polygon(surface.outline.array[:, :2])
+        if any(polygon.contains(point) for point in shapely_points):
+            matched.append(polygon)
+    return matched
+
+
+def _collect_median_polygons(
+    lane_helper_dict: Dict[str, OpenDriveLaneHelper],
+    road_dict,
+    min_width: Optional[float],
+) -> List[shapely.Polygon]:
+    """Polygons of wide none lanes on non-junction roads: median strips, not drivable."""
+    if min_width is None:
+        return []
+    median_polygons = []
+    for lane_id, lane_helper in lane_helper_dict.items():
+        if lane_helper.type not in {"none", "restricted"}:
+            continue
+        road = road_dict.get(int(lane_id.split("_")[0]))
+        if road is None or (road.junction is not None and str(road.junction) not in ("-1", "None")):
+            continue
+        polygon = shapely.Polygon(lane_helper.outline_polyline_3d.array[:, :2]).buffer(0)
+        length = lane_helper.center_polyline_se2.length
+        if length < 1e-3 or polygon.area / length < min_width:
+            continue
+        median_polygons.append(polygon)
+    return median_polygons
+
+
+def _has_inner_curb(lane_id: str, lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> bool:
+    """True if the next lane toward the road center carries a curb road mark on the shared boundary."""
+    road_idx, lane_section_idx, _, lane_idx = lane_id.split("_")
+    lane_idx = int(lane_idx)
+    inner_lane_idx = lane_idx - 1 if lane_idx > 0 else lane_idx + 1
+    if inner_lane_idx == 0:
+        return False
+    inner_lane_id = build_lane_id(int(road_idx), int(lane_section_idx), inner_lane_idx)
+    inner_helper = lane_helper_dict.get(inner_lane_id)
+    if inner_helper is None or not inner_helper.open_drive_lane.road_marks:
+        return False
+    return any(mark.type == "curb" for mark in inner_helper.open_drive_lane.road_marks)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -360,6 +507,8 @@ def _iter_road_edges(
     lane_groups: List[LaneGroup],
     car_parks: List[Carpark],
     generic_drivables: List[GenericDrivable],
+    fill_hole_points: Optional[List[List[float]]] = None,
+    non_drivable_polygons: Optional[List[shapely.Polygon]] = None,
 ) -> Iterator[RoadEdge]:
     """Yields road edge objects."""
     road_edges_ = get_road_edges_3d_from_drivable_surfaces(
@@ -367,6 +516,9 @@ def _iter_road_edges(
         lane_groups=lane_groups,
         car_parks=car_parks,
         generic_drivables=generic_drivables,
+        min_interior_width=MIN_ROAD_EDGE_HOLE_WIDTH,
+        fill_hole_points=fill_hole_points,
+        non_drivable_polygons=non_drivable_polygons,
     )
     road_edge_linestrings = split_line_geometry_by_max_length(
         [road_edges.linestring for road_edges in road_edges_], MAX_ROAD_EDGE_LENGTH

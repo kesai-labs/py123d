@@ -43,6 +43,8 @@ _MAP_DISPLAY_LAYERS: List[MapLayer] = [
     MapLayer.CROSSWALK,
     MapLayer.CARPARK,
     MapLayer.GENERIC_DRIVABLE,
+    MapLayer.SHOULDER,
+    MapLayer.NONE_LANE,
     MapLayer.STOP_ZONE,
     MapLayer.SPEED_BUMP,
 ]
@@ -293,6 +295,8 @@ def _get_map_data(
         MapLayer.CROSSWALK,
         MapLayer.CARPARK,
         MapLayer.GENERIC_DRIVABLE,
+        MapLayer.SHOULDER,
+        MapLayer.NONE_LANE,
         MapLayer.STOP_ZONE,
         MapLayer.SPEED_BUMP,
     ]

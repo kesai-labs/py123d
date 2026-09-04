@@ -42,6 +42,12 @@ class MapLayer(SerialIntEnum):
     SPEED_BUMP = 10
     """Speed bumps (surface)."""
 
+    SHOULDER = 11
+    """Shoulders (surface)."""
+
+    NONE_LANE = 12
+    """Lanes of OpenDRIVE type none or restricted: non-drivable filler surface (surface)."""
+
 
 class LaneType(SerialIntEnum):
     """Enum for different lane types.

@@ -16,6 +16,8 @@ class OpenDriveSignalHelper:
     lane_ids: List[str]  # Lane IDs controlled by this signal
     turn_relation: Optional[str]
     xodr_signal: XODRSignal
+    junction_id: Optional[int] = None  # junction whose controller cycles this signal
+    phase_idx: Optional[int] = None  # controller sequence within that junction's cycle
 
 
 def _lane_section_idx_from_s(road: XODRRoad, s: float) -> int:

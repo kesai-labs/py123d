@@ -641,10 +641,72 @@ class GenericDrivable(BaseMapSurfaceObject):
         return MapLayer.GENERIC_DRIVABLE
 
 
+class Shoulder(BaseMapSurfaceObject):
+    """Class representing a shoulder surface in a map.
+    Shoulders are adjacent to lanes and may or may not be drivable, depending on the dataset.
+    """
+
+    __slots__ = ()
+
+    def __init__(
+        self,
+        object_id: MapObjectIDType,
+        outline: Optional[Union[Polyline2D, Polyline3D]] = None,
+        shapely_polygon: Optional[geom.Polygon] = None,
+    ):
+        """Initialize a Shoulder instance.
+
+        Notes
+        -----
+        Either outline or shapely_polygon must be provided.
+
+        :param object_id: The ID of the shoulder.
+        :param outline: The outline of the shoulder, defaults to None.
+        :param shapely_polygon: The Shapely polygon representation of the shoulder, defaults to None.
+        """
+        super().__init__(object_id, outline, shapely_polygon)
+
+    @property
+    def layer(self) -> MapLayer:
+        """The :class:`~py123d.datatypes.MapLayer` of the map object."""
+        return MapLayer.SHOULDER
+
+
+class NoneLane(BaseMapSurfaceObject):
+    """Surface of an OpenDRIVE lane of type none (or restricted), e.g. hatched or spacing areas.
+    Typically adjacent to lanes or shoulders and not meant for normal driving.
+    """
+
+    __slots__ = ()
+
+    def __init__(
+        self,
+        object_id: MapObjectIDType,
+        outline: Optional[Union[Polyline2D, Polyline3D]] = None,
+        shapely_polygon: Optional[geom.Polygon] = None,
+    ):
+        """Initialize a NoneLane instance.
+
+        Notes
+        -----
+        Either outline or shapely_polygon must be provided.
+
+        :param object_id: The ID of the none lane.
+        :param outline: The outline of the none lane, defaults to None.
+        :param shapely_polygon: The Shapely polygon representation of the none lane, defaults to None.
+        """
+        super().__init__(object_id, outline, shapely_polygon)
+
+    @property
+    def layer(self) -> MapLayer:
+        """The :class:`~py123d.datatypes.MapLayer` of the map object."""
+        return MapLayer.NONE_LANE
+
+
 class StopZone(BaseMapSurfaceObject):
     """Class representing a stop zone in a map."""
 
-    __slots__ = ("_stop_zone_type", "_lane_ids")
+    __slots__ = ("_stop_zone_type", "_lane_ids", "_intersection_id", "_phase_idx")
 
     def __init__(
         self,
@@ -653,6 +715,8 @@ class StopZone(BaseMapSurfaceObject):
         outline: Optional[Union[Polyline2D, Polyline3D]] = None,
         shapely_polygon: Optional[geom.Polygon] = None,
         lane_ids: Optional[Sequence[MapObjectIDType]] = None,
+        intersection_id: Optional[MapObjectIDType] = None,
+        phase_idx: Optional[int] = None,
     ):
         """Initialize a StopZone instance.
 
@@ -671,10 +735,14 @@ class StopZone(BaseMapSurfaceObject):
         :param outline: The outline of the stop zone, defaults to None.
         :param shapely_polygon: The Shapely polygon representation of the stop zone, defaults to None.
         :param lane_ids: List of lane IDs this stop zone controls, defaults to None.
+        :param intersection_id: ID of the intersection whose signal controller cycles this stop zone, defaults to None.
+        :param phase_idx: Phase index of this stop zone within the intersection's signal cycle, defaults to None.
         """
         super().__init__(object_id, outline, shapely_polygon)
         self._stop_zone_type = stop_zone_type
         self._lane_ids = list(lane_ids) if lane_ids is not None else []
+        self._intersection_id = intersection_id
+        self._phase_idx = phase_idx
 
     @property
     def layer(self) -> MapLayer:
@@ -690,6 +758,16 @@ class StopZone(BaseMapSurfaceObject):
     def lane_ids(self) -> List[MapObjectIDType]:
         """List of lane IDs this stop zone controls."""
         return self._lane_ids
+
+    @property
+    def intersection_id(self) -> Optional[MapObjectIDType]:
+        """ID of the intersection whose signal controller cycles this stop zone, if any."""
+        return self._intersection_id
+
+    @property
+    def phase_idx(self) -> Optional[int]:
+        """Phase index within the intersection's signal cycle, if any."""
+        return self._phase_idx
 
 
 class RoadEdge(BaseMapLineObject):

@@ -86,6 +86,8 @@ def add_default_map_on_ax(
         MapLayer.LANE,
         MapLayer.LANE_GROUP,
         MapLayer.GENERIC_DRIVABLE,
+        MapLayer.SHOULDER,
+        MapLayer.NONE_LANE,
         MapLayer.CARPARK,
         MapLayer.CROSSWALK,
         MapLayer.INTERSECTION,
@@ -105,6 +107,8 @@ def add_default_map_on_ax(
             if layer in {
                 MapLayer.LANE_GROUP,
                 MapLayer.GENERIC_DRIVABLE,
+                MapLayer.SHOULDER,
+                MapLayer.NONE_LANE,
                 MapLayer.CARPARK,
                 MapLayer.CROSSWALK,
                 MapLayer.INTERSECTION,

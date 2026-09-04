@@ -45,7 +45,9 @@ from ..conftest import (
     make_lane,
     make_lane_group,
     make_road_edge,
+    make_none_lane,
     make_road_line,
+    make_shoulder,
     make_speed_bump,
     make_stop_zone,
     make_walkway,
@@ -73,6 +75,8 @@ def _build_all_object_types() -> list:
     walkway = make_walkway(object_id=3000)
     carpark = make_carpark(object_id=4000)
     generic_drivable = make_generic_drivable(object_id=5000)
+    shoulder = make_shoulder(object_id=5500)
+    none_lane = make_none_lane(object_id=5600)
     stop_zone = make_stop_zone(object_id=6000, lane_ids=[10])
     speed_bump = make_speed_bump(object_id=6500)
     road_edge = make_road_edge(object_id=7000)
@@ -85,6 +89,8 @@ def _build_all_object_types() -> list:
         walkway,
         carpark,
         generic_drivable,
+        shoulder,
+        none_lane,
         stop_zone,
         speed_bump,
         road_edge,

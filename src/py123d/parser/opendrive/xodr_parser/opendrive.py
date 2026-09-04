@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gzip
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Literal, Optional
 from xml.etree.ElementTree import Element, parse
@@ -154,6 +154,7 @@ class Junction:
     id: int
     name: str
     connections: List[Connection]
+    controllers: List[JunctionController] = field(default_factory=list)
 
     @classmethod
     def parse(cls, junction_element: Optional[Element]) -> Junction:
@@ -167,7 +168,32 @@ class Junction:
             connections.append(Connection.parse(connection_element))
         args["connections"] = connections
 
+        controllers: List[JunctionController] = []
+        for controller_element in junction_element.findall("controller"):
+            controllers.append(JunctionController.parse(controller_element))
+        args["controllers"] = controllers
+
         return Junction(**args)
+
+
+@dataclass
+class JunctionController:
+    """
+    Controller reference inside a junction; sequence is the signal phase index of the junction's cycle.
+    https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/latest/specification/12_junctions/12_02_common_junctions.html
+    """
+
+    id: int
+    type: Optional[str]
+    sequence: int
+
+    @classmethod
+    def parse(cls, controller_element: Element) -> JunctionController:
+        return JunctionController(
+            id=int(controller_element.get("id")),
+            type=controller_element.get("type"),
+            sequence=int(controller_element.get("sequence", 0)),
+        )
 
 
 @dataclass

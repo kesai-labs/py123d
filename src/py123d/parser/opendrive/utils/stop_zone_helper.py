@@ -75,7 +75,9 @@ def _create_stop_zone_outline(
     if not polys:
         return None
 
-    merged = union_all(polys)
+    # Close hairline gaps between adjacent lane rectangles; a MultiPolygon here would
+    # otherwise truncate the stop zone to its largest piece.
+    merged = union_all([p.buffer(0.25, join_style=2) for p in polys]).buffer(-0.25, join_style=2)
 
     if isinstance(merged, MultiPolygon):
         merged = max(merged.geoms, key=lambda g: g.area)
@@ -105,6 +107,75 @@ def _create_stop_zone_outline(
     return Polyline3D.from_array(corners_3d)
 
 
+MAX_ABSORB_ROUNDS = 16
+ABSORB_TOUCH_DISTANCE = 0.4
+ABSORB_MIN_DIRECTION_DOT = 0.7
+
+
+def _lane_entry_direction(helper: OpenDriveLaneHelper) -> Optional[np.ndarray]:
+    """Unit travel direction of a lane at its stop-zone end."""
+    start_s, end_s = _get_stop_zone_s_range(helper)
+    s_arr = np.array([start_s, end_s], dtype=np.float64) - helper.s_range[0]
+    t_arr = np.zeros(2, dtype=np.float64)
+    end_mask = np.array([False, False])
+    inner_pts = helper.inner_boundary.interpolate_3d_batch(s_arr, t_arr, end_mask)
+    outer_pts = helper.outer_boundary.interpolate_3d_batch(s_arr, t_arr, end_mask)
+    centers = (inner_pts[:, :2] + outer_pts[:, :2]) / 2.0
+    direction = centers[1] - centers[0]
+    if helper.id > 0:
+        direction = -direction
+    norm = float(np.linalg.norm(direction))
+    if norm < 1e-6:
+        return None
+    return direction / norm
+
+
+def _collect_lane_entries(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> Dict[str, tuple]:
+    """Maps driving lane id -> (entry rectangle, travel direction) at the stop-zone end."""
+    entries: Dict[str, tuple] = {}
+    for lane_id, helper in lane_helper_dict.items():
+        if helper.type != "driving":
+            continue
+        rectangle = _lane_rectangle_2d(helper)
+        direction = _lane_entry_direction(helper)
+        if rectangle is None or direction is None:
+            continue
+        entries[lane_id] = (rectangle, direction)
+    return entries
+
+
+def _absorb_adjacent_entry_lanes(
+    signal_lane_ids: List[str],
+    lane_entries: Dict[str, tuple],
+) -> List[str]:
+    """Extends signal validity lanes with laterally adjacent same-direction driving lanes.
+    Signal validity records often cover only part of a junction entry; touching entry rectangles
+    with matching travel direction belong to the same stop line.
+    """
+    selected = [lane_id for lane_id in signal_lane_ids if lane_id in lane_entries]
+    if not selected:
+        return signal_lane_ids
+    zone = union_all([lane_entries[lane_id][0] for lane_id in selected]).buffer(ABSORB_TOUCH_DISTANCE)
+    directions = [lane_entries[lane_id][1] for lane_id in selected]
+    selected_set = set(selected)
+
+    for _ in range(MAX_ABSORB_ROUNDS):
+        changed = False
+        for lane_id, (rectangle, direction) in lane_entries.items():
+            if lane_id in selected_set or not rectangle.intersects(zone):
+                continue
+            if max(float(np.dot(direction, ref)) for ref in directions) < ABSORB_MIN_DIRECTION_DOT:
+                continue
+            selected_set.add(lane_id)
+            selected.append(lane_id)
+            directions.append(direction)
+            zone = zone.union(rectangle.buffer(ABSORB_TOUCH_DISTANCE))
+            changed = True
+        if not changed:
+            break
+    return selected
+
+
 def create_stop_zones_from_signals(
     signal_dict: Dict[int, OpenDriveSignalHelper],
     lane_helper_dict: Dict[str, OpenDriveLaneHelper],
@@ -116,6 +187,7 @@ def create_stop_zones_from_signals(
     :return: Dictionary of StopZone objects keyed by signal_id
     """
     stop_zones: Dict[int, StopZone] = {}
+    lane_entries = _collect_lane_entries(lane_helper_dict)
 
     for signal_id, signal_helper in signal_dict.items():
         stop_zone_type = _signal_type_to_stop_zone_type(signal_helper)
@@ -125,7 +197,8 @@ def create_stop_zones_from_signals(
         if not signal_helper.lane_ids:
             continue
 
-        helpers = [lane_helper_dict[lid] for lid in signal_helper.lane_ids if lid in lane_helper_dict]
+        signal_lane_ids = _absorb_adjacent_entry_lanes(list(signal_helper.lane_ids), lane_entries)
+        helpers = [lane_helper_dict[lid] for lid in signal_lane_ids if lid in lane_helper_dict]
         # Filter out lanes with zero-area rectangles. This can happen when a lane has
         # near-zero width at the stop zone position (e.g. very short lanes or lane tapers).
         helpers = [h for h in helpers if _lane_rectangle_2d(h) is not None]
@@ -143,6 +216,8 @@ def create_stop_zones_from_signals(
             stop_zone_type=stop_zone_type,
             outline=outline,
             lane_ids=[h.lane_id for h in helpers],
+            intersection_id=signal_helper.junction_id,
+            phase_idx=signal_helper.phase_idx,
         )
 
     return stop_zones
