@@ -88,7 +88,7 @@ NUPLAN_CAMERA_MAPPING = {
     CameraID.PCAM_R2: CameraChannel.CAM_R2,
 }
 
-TARGET_DT: Final[float] = 0.1  # TODO: make configurable
+TARGET_DT: Final[float] = 0.05  # TODO: make configurable
 
 logger = logging.getLogger(__name__)
 
