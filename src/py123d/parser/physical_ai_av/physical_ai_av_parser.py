@@ -296,11 +296,7 @@ class PhysicalAIAVLogParser(BaseLogParser):
             ego_pose = quat_scalar_last_to_pose_se3(
                 qx=row["qx"], qy=row["qy"], qz=row["qz"], qw=row["qw"], x=row["x"], y=row["y"], z=row["z"]
             )
-            dynamic_state = DynamicStateSE3(
-                velocity=Vector3D(x=row["vx"], y=row["vy"], z=row["vz"]),
-                acceleration=Vector3D(x=row["ax"], y=row["ay"], z=row["az"]),
-                angular_velocity=Vector3D(x=0.0, y=0.0, z=0.0),
-            )
+            dynamic_state = _dynamic_state_in_ego_frame(row, ego_pose)
             yield EgoStateSE3.from_imu(
                 imu_se3=ego_pose,
                 metadata=metadata,
@@ -636,6 +632,26 @@ def _get_radar_metadata_and_paths(
 # ------------------------------------------------------------------------------------------------------------------
 
 
+def _dynamic_state_in_ego_frame(row: pd.Series, ego_pose: PoseSE3) -> DynamicStateSE3:
+    """Build the dynamic state of one egomotion row.
+
+    The egomotion table gives velocity and acceleration in the same frame as the pose, while
+    :class:`DynamicStateSE3` declares them in the ego frame, so both are rotated by the pose.
+
+    :param row: One row of the egomotion table.
+    :param ego_pose: The row's pose, ego frame to odometry frame.
+    :return: The dynamic state, velocity and acceleration in the ego frame.
+    """
+    rotation = ego_pose.rotation_matrix
+    velocity = rotation.T @ np.array([row["vx"], row["vy"], row["vz"]], dtype=np.float64)
+    acceleration = rotation.T @ np.array([row["ax"], row["ay"], row["az"]], dtype=np.float64)
+    return DynamicStateSE3(
+        velocity=Vector3D.from_array(velocity),
+        acceleration=Vector3D.from_array(acceleration),
+        angular_velocity=Vector3D(x=0.0, y=0.0, z=0.0),
+    )
+
+
 def _extract_ego_state(
     ego_df: pd.DataFrame,
     ego_timestamps: np.ndarray,
@@ -655,11 +671,7 @@ def _extract_ego_state(
         y=row["y"],
         z=row["z"],
     )
-    dynamic_state = DynamicStateSE3(
-        velocity=Vector3D(x=row["vx"], y=row["vy"], z=row["vz"]),
-        acceleration=Vector3D(x=row["ax"], y=row["ay"], z=row["az"]),
-        angular_velocity=Vector3D(x=0.0, y=0.0, z=0.0),
-    )
+    dynamic_state = _dynamic_state_in_ego_frame(row, ego_pose)
     return EgoStateSE3.from_imu(
         imu_se3=ego_pose,
         metadata=metadata,
