@@ -333,6 +333,9 @@ def _post_process_connections(
 
 SPEED_SIGN_NAME_PATTERN = re.compile(r"^[Ss]peed_(\d+)$")
 MIN_SECTION_SPLIT_LENGTH_M = 1.0
+# A limit follows its road straight through junctions; a turning connector only feeds lanes nothing straight reaches
+MAX_STRAIGHT_CONNECTOR_TURN_RAD = np.deg2rad(30.0)
+TURNING_CONNECTOR_PENALTY_M = 1.0e6
 
 
 def _rebase_widths(widths: List[XODRWidth], split_offset: float) -> List[XODRWidth]:
@@ -514,16 +517,41 @@ def _fix_lane_limits_for_side(
                 zone_entry_sources.append((successor_id, sign_limit))
 
 
+def _is_junction_road(road: Optional[XODRRoad]) -> bool:
+    return road is not None and road.junction is not None and str(road.junction) not in ("-1", "None")
+
+
+def _turning_connector_ids(
+    lane_helper_dict: Dict[str, OpenDriveLaneHelper], road_dict: Dict[int, XODRRoad]
+) -> Set[str]:
+    """Junction lanes whose heading changes by more than MAX_STRAIGHT_CONNECTOR_TURN_RAD from start to end."""
+    turning: Set[str] = set()
+    for lane_id, lane_helper in lane_helper_dict.items():
+        if not _is_junction_road(road_dict.get(int(lane_id.split("_")[0]))):
+            continue
+        points = lane_helper.center_polyline_3d.array[:, :2]
+        if len(points) < 2:
+            continue
+        start_heading = np.arctan2(points[1, 1] - points[0, 1], points[1, 0] - points[0, 0])
+        end_heading = np.arctan2(points[-1, 1] - points[-2, 1], points[-1, 0] - points[-2, 0])
+        if abs(np.angle(np.exp(1j * (end_heading - start_heading)))) > MAX_STRAIGHT_CONNECTOR_TURN_RAD:
+            turning.add(lane_id)
+    return turning
+
+
 def _propagate_sign_zones(
     lane_helper_dict: Dict[str, OpenDriveLaneHelper],
     fixed_limits: Dict[str, float],
     zone_entry_sources: List[Tuple[str, float]],
+    turning_connector_ids: Set[str],
 ) -> None:
     """
     Spread each sign zone downstream via multi-source Dijkstra over traffic successors.
 
     A lane fixed by its own sign is never overwritten; every other reached lane takes the
     limit of its nearest upstream sign (ties broken toward the lower limit for determinism).
+    Traversing a turning junction connector costs TURNING_CONNECTOR_PENALTY_M extra, so a
+    side street turning onto a road never out-competes the road's own upstream sign.
     """
     best_dist: Dict[str, float] = {}
     best_limit: Dict[str, float] = {}
@@ -546,6 +574,8 @@ def _propagate_sign_zones(
             continue
         s_min, s_max = lane_helper_dict[lane_id].s_range
         successor_dist = dist + max(s_max - s_min, 0.0)
+        if lane_id in turning_connector_ids:
+            successor_dist += TURNING_CONNECTOR_PENALTY_M
         for successor_id in lane_helper_dict[lane_id].successor_lane_ids:
             if successor_id in fixed_limits:
                 continue
@@ -561,6 +591,30 @@ def _propagate_sign_zones(
 
     for lane_id, limit in best_limit.items():
         lane_helper_dict[lane_id].speed_limit_mps = limit
+
+
+def _harmonize_lane_section_limits(
+    lane_helper_dict: Dict[str, OpenDriveLaneHelper], road_dict: Dict[int, XODRRoad]
+) -> None:
+    """
+    Parallel driving lanes of one lane-section side share a limit: the most common one across
+    the side, ties resolved by the innermost lane (merging ramps join on the outside).
+    """
+    lanes_by_side: Dict[str, List[OpenDriveLaneHelper]] = {}
+    for lane_id, lane_helper in lane_helper_dict.items():
+        if lane_helper.type != "driving" or lane_helper.speed_limit_mps is None:
+            continue
+        if _is_junction_road(road_dict.get(int(lane_id.split("_")[0]))):
+            continue
+        lanes_by_side.setdefault(lane_group_id_from_lane_id(lane_id), []).append(lane_helper)
+    for side_lanes in lanes_by_side.values():
+        limits = [lane_helper.speed_limit_mps for lane_helper in side_lanes]
+        if len(set(limits)) < 2:
+            continue
+        innermost = min(side_lanes, key=lambda lane_helper: abs(lane_helper.id))
+        shared_limit = max(set(limits), key=lambda limit: (limits.count(limit), limit == innermost.speed_limit_mps))
+        for lane_helper in side_lanes:
+            lane_helper.speed_limit_mps = shared_limit
 
 
 def _apply_speed_sign_limits(
@@ -611,7 +665,10 @@ def _apply_speed_sign_limits(
                     lane_helper_dict, lane_ids, side, side_signs, fixed_limits, zone_entry_sources
                 )
 
-    _propagate_sign_zones(lane_helper_dict, fixed_limits, zone_entry_sources)
+    _propagate_sign_zones(
+        lane_helper_dict, fixed_limits, zone_entry_sources, _turning_connector_ids(lane_helper_dict, road_dict)
+    )
+    _harmonize_lane_section_limits(lane_helper_dict, road_dict)
 
 
 def _propagate_speed_limits_to_junction_lanes(
