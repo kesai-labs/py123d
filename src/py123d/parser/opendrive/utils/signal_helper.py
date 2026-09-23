@@ -18,6 +18,7 @@ class OpenDriveSignalHelper:
     xodr_signal: XODRSignal
     junction_id: Optional[int] = None  # junction whose controller cycles this signal
     phase_idx: Optional[int] = None  # controller sequence within that junction's cycle
+    is_derived: bool = False  # synthesized from a road object (CARLA stop stencil), not an xodr <signal>
 
 
 def _lane_section_idx_from_s(road: XODRRoad, s: float) -> int:

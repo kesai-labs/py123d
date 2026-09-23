@@ -27,10 +27,13 @@ from py123d.parser.opendrive.utils.signal_helper import (
     OpenDriveSignalHelper,
     get_signal_reference_helper,
 )
+from py123d.parser.opendrive.utils.stop_zone_helper import _collect_lane_entries
 from py123d.parser.opendrive.xodr_parser.lane import XODRLane, XODRLaneSection, XODRRoadMark, XODRWidth
+from py123d.parser.opendrive.xodr_parser.objects import XODRObject
 from py123d.parser.opendrive.xodr_parser.opendrive import XODR, Junction
 from py123d.parser.opendrive.xodr_parser.reference import XODRReferenceLine
 from py123d.parser.opendrive.xodr_parser.road import XODRRoad
+from py123d.parser.opendrive.xodr_parser.signals import XODRSignal
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,8 @@ def collect_element_helpers(
 
     # 1.5. Split lane sections at speed signs so limit zones start exactly at the signs
     _split_lane_sections_at_speed_signs(road_dict, _collect_speed_signs_by_road(road_dict))
+    # 1.6. Split junction connectors at stop stencils painted deep inside them so a lane entry sits at the marking
+    _split_lane_sections_at(road_dict, _stop_stencil_split_positions(road_dict))
 
     # 2. Create lane helpers from the roads and collect center lane road marks
     lane_helper_dict: Dict[str, OpenDriveLaneHelper] = {}
@@ -113,6 +118,8 @@ def collect_element_helpers(
 
     # 6. Collect signals
     signal_dict = _collect_signals(opendrive)
+    # 6.5. CARLA paints most stop signs as road objects, not signals
+    _collect_stop_stencil_signals(opendrive, lane_helper_dict, signal_dict)
 
     return (
         road_dict,
@@ -332,6 +339,12 @@ def _post_process_connections(
 
 
 SPEED_SIGN_NAME_PATTERN = re.compile(r"^[Ss]peed_(\d+)$")
+STOP_STENCIL_NAME = "Stencil_STOP"
+STOP_SIGN_SIGNAL_TYPE = "206"
+STOP_STENCIL_ENTRY_MAX_DIST_M = 12.0
+STOP_STENCIL_ENTRY_MAX_BEHIND_M = 6.0
+STOP_STENCIL_ENTRY_MIN_DIRECTION_DOT = 0.7
+STOP_STENCIL_ENTRY_AHEAD_TOLERANCE_M = 1.0
 MIN_SECTION_SPLIT_LENGTH_M = 1.0
 # A limit follows its road straight through junctions; a turning connector only feeds lanes nothing straight reaches
 MAX_STRAIGHT_CONNECTOR_TURN_RAD = np.deg2rad(30.0)
@@ -408,13 +421,17 @@ def _split_lane_sections_at_speed_signs(
     Split lane sections at speed-sign positions so limit zones start exactly at the signs.
 
     Zone limits are assigned per lane, so without splitting a zone boundary lands at a lane
-    edge instead of the sign, and a short zone inside one lane disappears entirely. A sign
-    closer than MIN_SECTION_SPLIT_LENGTH_M to an existing boundary keeps that boundary.
+    edge instead of the sign, and a short zone inside one lane disappears entirely.
     """
-    for road_id in sorted(signs_by_road):
+    _split_lane_sections_at(road_dict, {road_id: [s for s, _, _ in signs] for road_id, signs in signs_by_road.items()})
+
+
+def _split_lane_sections_at(road_dict: Dict[int, XODRRoad], split_s_by_road: Dict[int, List[float]]) -> None:
+    """Split lane sections at road positions; one within MIN_SECTION_SPLIT_LENGTH_M of a boundary keeps it."""
+    for road_id in sorted(split_s_by_road):
         road = road_dict[road_id]
         sections = road.lanes.lane_sections
-        for sign_s, _, _ in signs_by_road[road_id]:
+        for sign_s in split_s_by_road[road_id]:
             section_idx = 0
             for idx in range(len(sections)):
                 if sections[idx].s <= sign_s:
@@ -1021,6 +1038,89 @@ def _collect_signals(opendrive: XODR) -> Dict[int, OpenDriveSignalHelper]:
         helper.phase_idx = phase_idx
 
     return signal_dict
+
+
+def _stop_stencil_split_positions(road_dict: Dict[int, XODRRoad]) -> Dict[int, List[float]]:
+    """Junction-road positions of stop stencils painted more than STOP_STENCIL_ENTRY_MAX_BEHIND_M into a section."""
+    split_s_by_road: Dict[int, List[float]] = {}
+    for road_id in sorted(road_dict):
+        road = road_dict[road_id]
+        if not _is_junction_road(road):
+            continue
+        sections = road.lanes.lane_sections
+        for stencil in road.objects:
+            if stencil.name != STOP_STENCIL_NAME:
+                continue
+            section_idx = max(idx for idx, section in enumerate(sections) if section.s <= stencil.s)
+            section_end = sections[section_idx + 1].s if section_idx + 1 < len(sections) else road.length
+            travels_in_s = np.cos(stencil.hdg) > 0.0  # stencil hdg is the painted travel direction relative to the road
+            from_travel_start = stencil.s - sections[section_idx].s if travels_in_s else section_end - stencil.s
+            if from_travel_start > STOP_STENCIL_ENTRY_MAX_BEHIND_M:
+                split_s_by_road.setdefault(road_id, []).append(stencil.s)
+    return split_s_by_road
+
+
+def _stop_stencil_lane_id(road: XODRRoad, stencil: XODRObject, lane_entries: Dict[str, tuple]) -> Optional[str]:
+    """Driving lane whose entry is nearest ahead of the stencil along its painted heading, else nearest just behind."""
+    # object t is relative to the plan view, not the lane-offset centerline
+    pose = road.plan_view.interpolate_se2(stencil.s, stencil.t)
+    point = pose[:2]
+    heading = pose[2] + stencil.hdg
+    direction = np.array([np.cos(heading), np.sin(heading)])
+    best_lane_id, best_key = None, (1, STOP_STENCIL_ENTRY_MAX_DIST_M)
+    for lane_id in sorted(lane_entries):
+        rectangle, entry_direction = lane_entries[lane_id]
+        offset = np.asarray(rectangle.centroid.coords[0]) - point
+        along = float(np.dot(offset, direction))
+        dist = float(np.linalg.norm(offset))
+        if dist >= STOP_STENCIL_ENTRY_MAX_DIST_M or along < -STOP_STENCIL_ENTRY_MAX_BEHIND_M:
+            continue
+        if float(np.dot(entry_direction, direction)) < STOP_STENCIL_ENTRY_MIN_DIRECTION_DOT:
+            continue
+        key = (0 if along >= -STOP_STENCIL_ENTRY_AHEAD_TOLERANCE_M else 1, dist)
+        if key < best_key:
+            best_lane_id, best_key = lane_id, key
+    return best_lane_id
+
+
+def _collect_stop_stencil_signals(
+    opendrive: XODR,
+    lane_helper_dict: Dict[str, OpenDriveLaneHelper],
+    signal_dict: Dict[int, OpenDriveSignalHelper],
+) -> None:
+    """Adds a type-206 stop signal for every CARLA `Stencil_STOP` road object."""
+    lane_entries = _collect_lane_entries(lane_helper_dict)
+    for road in opendrive.roads:
+        for stencil in road.objects:
+            if stencil.name != STOP_STENCIL_NAME:
+                continue
+            if stencil.id in signal_dict:
+                raise ValueError(f"Stop stencil object id {stencil.id} on road {road.id} collides with a signal id")
+            lane_id = _stop_stencil_lane_id(road, stencil, lane_entries)
+            if lane_id is None:
+                logger.warning(
+                    f"Stop stencil {stencil.id} on road {road.id} (s={stencil.s:.1f}): no lane entry ahead, skipped"
+                )
+                continue
+            xodr_signal = XODRSignal(
+                id=stencil.id,
+                s=stencil.s,
+                t=stencil.t,
+                z_offset=stencil.z_offset,
+                type=STOP_SIGN_SIGNAL_TYPE,
+                subtype="-1",
+                orientation=stencil.orientation,
+                dynamic="no",
+                name=stencil.name,
+            )
+            signal_dict[stencil.id] = OpenDriveSignalHelper(
+                signal_id=stencil.id,
+                signal_type=STOP_SIGN_SIGNAL_TYPE,
+                lane_ids=[lane_id],
+                turn_relation=None,
+                xodr_signal=xodr_signal,
+                is_derived=True,
+            )
 
 
 def _collect_signal_phases(opendrive: XODR) -> Dict[int, Tuple[int, int]]:
