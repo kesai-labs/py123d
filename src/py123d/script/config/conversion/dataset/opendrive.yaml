@@ -25,10 +25,11 @@ parser:
   # junction-interior none-lane surfaces stay drivable (crossing pavement). Currently disabled.
   non_drivable_none_lane_min_width: null
 
-  # Shoulder/none-lane surfaces containing these (x, y) points are carved out of the drivable
-  # envelope: areas the source .xodr types as lanes but that are not drivable in reality.
-  # (Town03 carve-out to be revisited.)
+  # Shoulder/none-lane/generic-drivable surfaces containing these (x, y) points are carved out of
+  # the drivable envelope: areas the source .xodr types as lanes but that are not drivable in reality.
   road_edge_non_drivable_points:
+    Town03:
+      - [239.3, 41.5]   # tunnel divider barrier, typed as a 3.5 m bidirectional lane on road 65
     Town06:
       - [-1.4, 28.2]    # traffic island on none-lane surface
 

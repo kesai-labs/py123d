@@ -152,7 +152,9 @@ def iter_xodr_map_objects(
     yield from curbed_none_lanes
 
     # Curbed none lanes are carve candidates; auto-carving is disabled pending per-town validation.
-    non_drivable_polygons = _match_non_drivable_surfaces(shoulders + none_lanes, road_edge_non_drivable_points)
+    non_drivable_polygons = _match_non_drivable_surfaces(
+        shoulders + none_lanes + generic_drivables, road_edge_non_drivable_points
+    )
     non_drivable_polygons += _collect_median_polygons(lane_helper_dict, road_dict, non_drivable_none_lane_min_width)
     non_drivable_polygons = _subtract_lane_coverage(non_drivable_polygons, lanes)
 
