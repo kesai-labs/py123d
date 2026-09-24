@@ -30,8 +30,17 @@ parser:
   road_edge_non_drivable_points:
     Town03:
       - [239.3, 41.5]   # tunnel divider barrier, typed as a 3.5 m bidirectional lane on road 65
+    Town04:
+      - [381.0, 67.0]   # exit gore between the connectors of junction 745: water drums + light pole
+      - [382.0, 170.5]  # exit gore between connectors: water drums + light pole
+      - [205.8, 364.4]  # exit gore: water drums + light pole
+      - [203.7, 364.6]  # same exit gore, second none lane
     Town06:
       - [-1.4, 28.2]    # traffic island on none-lane surface
+
+  # (x, y) polygons carved out of the drivable envelope, for static props standing on otherwise
+  # drivable surfaces. Unused: footprint holes on shoulders were judged worse than the props.
+  road_edge_non_drivable_polygons: {}
 
   # Road-edge holes to fill per town: (x, y) points inside areas that are drivable
   # in reality but lack surface coverage in the source .xodr (upstream CARLA map bugs).

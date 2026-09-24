@@ -25,6 +25,7 @@ class OpenDriveParser(BaseDatasetParser):
         internal_only: bool = True,
         road_edge_fill_hole_points: Optional[Dict[str, List[List[float]]]] = None,
         road_edge_non_drivable_points: Optional[Dict[str, List[List[float]]]] = None,
+        road_edge_non_drivable_polygons: Optional[Dict[str, List[List[List[float]]]]] = None,
         non_drivable_none_lane_min_width: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initializes the OpenDriveParser.
@@ -39,6 +40,8 @@ class OpenDriveParser(BaseDatasetParser):
             patching known bugs in the source maps, defaults to None
         :param road_edge_non_drivable_points: Per-location (x, y) points marking shoulder/none-lane
             surfaces that are not drivable in reality, defaults to None
+        :param road_edge_non_drivable_polygons: Per-location (x, y) polygons carved out of the drivable
+            envelope, for static obstacles standing on otherwise drivable surfaces, defaults to None
         :param non_drivable_none_lane_min_width: Per-location width threshold above which none
             lanes on non-junction roads count as median strips, defaults to None
         """
@@ -52,6 +55,7 @@ class OpenDriveParser(BaseDatasetParser):
         self._internal_only = internal_only
         self._road_edge_fill_hole_points = road_edge_fill_hole_points or {}
         self._road_edge_non_drivable_points = road_edge_non_drivable_points or {}
+        self._road_edge_non_drivable_polygons = road_edge_non_drivable_polygons or {}
         self._non_drivable_none_lane_min_width = non_drivable_none_lane_min_width or {}
 
     def get_map_parsers(self) -> List[BaseMapParser]:
@@ -67,6 +71,9 @@ class OpenDriveParser(BaseDatasetParser):
                     xodr_path.name.removesuffix("".join(xodr_path.suffixes))
                 ),
                 road_edge_non_drivable_points=self._road_edge_non_drivable_points.get(
+                    xodr_path.name.removesuffix("".join(xodr_path.suffixes))
+                ),
+                road_edge_non_drivable_polygons=self._road_edge_non_drivable_polygons.get(
                     xodr_path.name.removesuffix("".join(xodr_path.suffixes))
                 ),
                 non_drivable_none_lane_min_width=self._non_drivable_none_lane_min_width.get(

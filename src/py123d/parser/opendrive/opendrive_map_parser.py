@@ -61,6 +61,7 @@ class OpenDriveMapParser(BaseMapParser):
         internal_only: bool = True,
         road_edge_fill_hole_points: Optional[List[List[float]]] = None,
         road_edge_non_drivable_points: Optional[List[List[float]]] = None,
+        road_edge_non_drivable_polygons: Optional[List[List[List[float]]]] = None,
         non_drivable_none_lane_min_width: Optional[float] = None,
     ) -> None:
         self._xodr_path = xodr_path
@@ -70,6 +71,7 @@ class OpenDriveMapParser(BaseMapParser):
         self._internal_only = internal_only
         self._road_edge_fill_hole_points = road_edge_fill_hole_points
         self._road_edge_non_drivable_points = road_edge_non_drivable_points
+        self._road_edge_non_drivable_polygons = road_edge_non_drivable_polygons
         self._non_drivable_none_lane_min_width = non_drivable_none_lane_min_width
 
     def get_map_metadata(self) -> MapMetadata:
@@ -92,6 +94,7 @@ class OpenDriveMapParser(BaseMapParser):
             internal_only=self._internal_only,
             road_edge_fill_hole_points=self._road_edge_fill_hole_points,
             road_edge_non_drivable_points=self._road_edge_non_drivable_points,
+            road_edge_non_drivable_polygons=self._road_edge_non_drivable_polygons,
             non_drivable_none_lane_min_width=self._non_drivable_none_lane_min_width,
         )
 
@@ -103,6 +106,7 @@ def iter_xodr_map_objects(
     internal_only: bool = True,
     road_edge_fill_hole_points: Optional[List[List[float]]] = None,
     road_edge_non_drivable_points: Optional[List[List[float]]] = None,
+    road_edge_non_drivable_polygons: Optional[List[List[List[float]]]] = None,
     non_drivable_none_lane_min_width: Optional[float] = None,
 ) -> Iterator[BaseMapObject]:
     """Yields all map objects extracted from an OpenDRIVE (.xodr) file.
@@ -116,6 +120,8 @@ def iter_xodr_map_objects(
     :param road_edge_non_drivable_points: Shoulder/none-lane surfaces containing one of these (x, y)
         points are carved out of the drivable envelope, marking areas that are not drivable in
         reality, defaults to None
+    :param road_edge_non_drivable_polygons: (x, y) polygons carved out of the drivable envelope,
+        for static obstacles standing on otherwise drivable surfaces, defaults to None
     :param non_drivable_none_lane_min_width: None lanes on non-junction roads at least this
         wide are median strips and carved out of the drivable envelope, defaults to None (disabled)
     """
@@ -155,6 +161,7 @@ def iter_xodr_map_objects(
     non_drivable_polygons = _match_non_drivable_surfaces(
         shoulders + none_lanes + generic_drivables, road_edge_non_drivable_points
     )
+    non_drivable_polygons += [shapely.Polygon(polygon) for polygon in road_edge_non_drivable_polygons or []]
     non_drivable_polygons += _collect_median_polygons(lane_helper_dict, road_dict, non_drivable_none_lane_min_width)
     non_drivable_polygons = _subtract_lane_coverage(non_drivable_polygons, lanes)
 

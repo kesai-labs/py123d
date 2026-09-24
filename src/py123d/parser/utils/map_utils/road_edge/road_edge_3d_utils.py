@@ -86,6 +86,11 @@ def get_road_edges_3d_from_drivable_surfaces(
             non_conflicting_boundaries.append(lane_group.right_boundary_3d)
     for drivable_surface in generic_drivables:
         non_conflicting_boundaries.append(drivable_surface.outline)
+    # Carved holes run through surface interiors, so their outlines must be lifted first to be matched below
+    if non_drivable_polygons:
+        non_conflicting_boundaries += lift_outlines_to_3d(
+            [polygon.exterior for polygon in non_drivable_polygons], non_conflicting_boundaries
+        )
 
     # 4. Lift road edges to 3D using the boundaries of non-conflicting elements
     non_conflicting_road_edges = lift_road_edges_to_3d(road_edges_2d, non_conflicting_boundaries)
