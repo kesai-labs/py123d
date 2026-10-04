@@ -187,6 +187,7 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         "_width",
         "_height",
         "_camera_to_imu_se3",
+        "_has_arrival_time",
     )
 
     def __init__(
@@ -199,6 +200,7 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         width: int,
         height: int,
         camera_to_imu_se3: PoseSE3,
+        has_arrival_time: bool = False,
     ) -> None:
         """Initialize the fisheye MEI camera metadata.
 
@@ -210,6 +212,10 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         :param width: Width of the camera image in pixels.
         :param height: Height of the camera image in pixels.
         :param camera_to_imu_se3: Static extrinsic pose of the fisheye MEI camera.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._camera_name = camera_name
         self._camera_id = camera_id
@@ -219,6 +225,7 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         self._width = width
         self._height = height
         self._camera_to_imu_se3 = camera_to_imu_se3
+        self._has_arrival_time = has_arrival_time
 
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]) -> FisheyeMEICameraMetadata:
@@ -242,6 +249,7 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
             width=data_dict["width"],
             height=data_dict["height"],
             camera_to_imu_se3=PoseSE3.from_list(data_dict["camera_to_imu_se3"]),
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     @property
@@ -289,6 +297,11 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         """The static extrinsic pose of the fisheye MEI camera."""
         return self._camera_to_imu_se3
 
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
+
     def to_dict(self) -> Dict[str, Any]:
         """Converts the :class:`FisheyeMEICameraMetadata` instance to a Python dictionary.
 
@@ -304,6 +317,9 @@ class FisheyeMEICameraMetadata(BaseCameraMetadata):
         data_dict["width"] = self._width
         data_dict["height"] = self._height
         data_dict["camera_to_imu_se3"] = self._camera_to_imu_se3.to_list()
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
         return data_dict
 
     def project_to_image(

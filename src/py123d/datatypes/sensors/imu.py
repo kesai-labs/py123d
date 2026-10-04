@@ -22,7 +22,7 @@ class ImuMetadata(BaseModalityMetadata):
     undeclared fields are omitted from the Arrow file entirely.
     """
 
-    __slots__ = ("_imu_name", "_imu_id", "_imu_to_imu_se3", "_has_orientation", "_has_covariances")
+    __slots__ = ("_imu_name", "_imu_id", "_imu_to_imu_se3", "_has_orientation", "_has_covariances", "_has_arrival_time")
 
     def __init__(
         self,
@@ -31,6 +31,7 @@ class ImuMetadata(BaseModalityMetadata):
         imu_to_imu_se3: PoseSE3 = PoseSE3.identity(),
         has_orientation: bool = False,
         has_covariances: bool = False,
+        has_arrival_time: bool = False,
     ):
         """Initialize IMU metadata.
 
@@ -41,12 +42,17 @@ class ImuMetadata(BaseModalityMetadata):
             IMU frame. Identity for the reference IMU itself.
         :param has_orientation: Whether this sensor provides a fused orientation quaternion.
         :param has_covariances: Whether this sensor provides the three covariance matrices.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._imu_name = imu_name
         self._imu_id = imu_id
         self._imu_to_imu_se3 = imu_to_imu_se3
         self._has_orientation = has_orientation
         self._has_covariances = has_covariances
+        self._has_arrival_time = has_arrival_time
 
     @property
     def imu_name(self) -> str:
@@ -74,6 +80,11 @@ class ImuMetadata(BaseModalityMetadata):
         return self._has_covariances
 
     @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
+
+    @property
     def modality_type(self) -> ModalityType:
         return ModalityType.IMU
 
@@ -94,6 +105,7 @@ class ImuMetadata(BaseModalityMetadata):
             imu_to_imu_se3=PoseSE3.from_list(data_dict["imu_to_imu_se3"]),
             has_orientation=data_dict.get("has_orientation", False),
             has_covariances=data_dict.get("has_covariances", False),
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -101,13 +113,17 @@ class ImuMetadata(BaseModalityMetadata):
 
         :return: A dictionary representation of the IMU metadata.
         """
-        return {
+        data_dict = {
             "imu_name": self._imu_name,
             "imu_id": self._imu_id,
             "imu_to_imu_se3": self._imu_to_imu_se3.tolist(),
             "has_orientation": self._has_orientation,
             "has_covariances": self._has_covariances,
         }
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
+        return data_dict
 
 
 class Imu(BaseModality):
@@ -126,6 +142,7 @@ class Imu(BaseModality):
         "_orientation_covariance",
         "_angular_velocity_covariance",
         "_linear_acceleration_covariance",
+        "_arrival_timestamp",
     )
 
     def __init__(
@@ -138,6 +155,7 @@ class Imu(BaseModality):
         orientation_covariance: Optional[npt.NDArray[np.float64]] = None,
         angular_velocity_covariance: Optional[npt.NDArray[np.float64]] = None,
         linear_acceleration_covariance: Optional[npt.NDArray[np.float64]] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         """Initialize an IMU measurement.
 
@@ -149,6 +167,8 @@ class Imu(BaseModality):
         :param orientation_covariance: Optional row-major 3x3 covariance, flattened to (9,).
         :param angular_velocity_covariance: Optional row-major 3x3 covariance, flattened to (9,).
         :param linear_acceleration_covariance: Optional row-major 3x3 covariance, flattened to (9,).
+        :param arrival_timestamp: Optional time the recording system received the measurement
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`).
         """
         self._timestamp = timestamp
         self._metadata = metadata
@@ -158,6 +178,7 @@ class Imu(BaseModality):
         self._orientation_covariance = orientation_covariance
         self._angular_velocity_covariance = angular_velocity_covariance
         self._linear_acceleration_covariance = linear_acceleration_covariance
+        self._arrival_timestamp = arrival_timestamp
 
     @property
     def timestamp(self) -> Timestamp:
@@ -168,6 +189,11 @@ class Imu(BaseModality):
     def metadata(self) -> ImuMetadata:
         """The :class:`ImuMetadata` associated with this IMU measurement."""
         return self._metadata
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this measurement, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def angular_velocity(self) -> Vector3D:
