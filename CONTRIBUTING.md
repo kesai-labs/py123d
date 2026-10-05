@@ -86,6 +86,36 @@ pip install -e .[docs]
 sphinx-autobuild docs docs/_build/html
 ```
 
+### Commit messages
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): the subject line starts with a type, an optional scope, and a short summary.
+
+```text
+<type>(<scope>): <summary>
+```
+
+- **Type** is one of:
+  - `feat`: a new feature.
+  - `fix`: a bug fix.
+  - `docs`: documentation only.
+  - `refactor`: restructuring without changing behavior.
+  - `perf`: a performance improvement.
+  - `test`: adding or updating tests.
+  - `chore`: maintenance such as dependencies, CI, or releases.
+- **Scope** is optional and names the affected area, e.g. a subpackage (`parser`, `geometry`) or a dataset (`nuplan`).
+- **Summary** is written in the imperative mood ("add", not "added") and kept short, ideally under 72 characters.
+- **Breaking changes** are marked with a `!` before the colon and described in the body.
+
+For example:
+
+```text
+feat(parser): add radar support for nuScenes
+fix(parser): rotate physical-ai-av ego dynamics into the ego frame
+docs: describe the commit message convention
+refactor(api)!: rename the scene filter arguments
+```
+
+A body is optional. Use it to explain *why* a change was made, and to reference related issues (e.g. `Closes #123`).
+
 
 ## 4. Dependencies
 
@@ -155,7 +185,7 @@ Tests for dataset-specific code in `src/py123d/parser/<...>` require optional de
 Development happens on a versioned branch named `dev_vX.Y.Z`. The latest one is merged into `main` at each release. Please target the **current development branch**, not `main`.
 
 1. Branch off the current `dev_v*` branch (external contributors: fork first). Name the branch by type, e.g. `feat/radar-support`, `fix/msgpack-keys`, or `docs/update-docs`.
-2. Make focused commits following [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `chore:`, `docs:`, or `refactor:`.
+2. Make focused commits that follow our [commit message convention](#commit-messages).
 3. Before opening the PR, make sure the checks pass locally:
    ```sh
    pre-commit run --all-files     # ruff lint + format and file checks
