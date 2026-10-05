@@ -4,15 +4,15 @@ Any contributions to 123D are welcome! This guide both serves as internal tutori
 
 ## Table of contents
 
-1. [Ways to contribute](#ways-to-contribute)
-2. [Installation](#installation)
-3. [Conventions](#conventions)
-4. [Dependencies](#dependencies)
-5. [Testing](#testing)
-6. [Submitting a pull-request](#submitting-a-pull-request)
+1. [Ways to contribute](#1-ways-to-contribute)
+2. [Installation](#2-installation)
+3. [Conventions](#3-conventions)
+4. [Dependencies](#4-dependencies)
+5. [Testing](#5-testing)
+6. [Submitting a pull-request](#6-submitting-a-pull-request)
 
 
-## Ways to contribute
+## 1. Ways to contribute
 
 If you want to get involved and improve 123D, there are several ways to contribute, that include but are not limited to:
 
@@ -23,7 +23,7 @@ If you want to get involved and improve 123D, there are several ways to contribu
 - **Adding or extend features:** Features and tools may need to be improved in terms of performance, coverage, or scope.
 
 
-## Installation
+## 2. Installation
 
 You can get started by
 ```sh
@@ -47,10 +47,10 @@ ruff format .
 ```
 Type checking is not strictly enforced, but ideally added with [`pyright`](https://github.com/microsoft/pyright).
 
-## Conventions
+## 3. Conventions
 
 ### Code style
-We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, enforced via `pre-commit` and CI (see [Installation](#installation)). The rules live in `pyproject.toml`:
+We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, enforced via `pre-commit` and CI (see [Installation](#2-installation)). The rules live in `pyproject.toml`:
 - **Line length** is 120 characters.
 - **Imports** are sorted automatically (isort, `black` profile): standard library, third-party, then `py123d`.
 
@@ -87,7 +87,7 @@ sphinx-autobuild docs docs/_build/html
 ```
 
 
-## Dependencies
+## 4. Dependencies
 
 We try to keep dependencies minimal to ensure quick and easy installations.
 However, dataset specific code may require dependencies in order to load or preprocess the dataset.
@@ -128,7 +128,7 @@ def load_camera_from_file(file_path: str, dataset: str) -> ...:
     ...
 ```
 
-## Testing
+## 5. Testing
 
 We use [`pytest`](https://docs.pytest.org/). Tests live in `tests/`, mirroring the package layout:
 - `tests/unit/`: unit tests for `src/py123d/` (e.g. `tests/unit/geometry/test_pose.py`).
@@ -147,10 +147,10 @@ pytest tests/unit/geometry/test_pose.py::TestPoseSE2   # a single file/class/tes
 
 CI runs `pytest tests/unit` on Python 3.9–3.13 and `pytest tests/docs` (Python 3.11) for every pull request and push to `main`. Please add tests for new features and bug fixes.
 
-Tests for dataset-specific code in `src/py123d/parser/<...>` require optional dependencies and access to the dataset files, so they are **not** run in CI. Mark long-running tests with `@pytest.mark.slow`, and skip cleanly when an optional dependency is missing (see [`check_dependencies`](#dependencies)).
+Tests for dataset-specific code in `src/py123d/parser/<...>` require optional dependencies and access to the dataset files, so they are **not** run in CI. Mark long-running tests with `@pytest.mark.slow`, and skip cleanly when an optional dependency is missing (see [`check_dependencies`](#4-dependencies)).
 
 
-## Submitting a pull-request
+## 6. Submitting a pull-request
 
 Development happens on a versioned branch named `dev_vX.Y.Z`. The latest one is merged into `main` at each release. Please target the **current development branch**, not `main`.
 
