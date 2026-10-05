@@ -110,10 +110,12 @@ class ParsedLidar(BaseModality):
         relative_path: Union[str, Path],
         iteration: Optional[int] = None,
         load_kwargs: Optional[Dict[str, Any]] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         self._metadata: Union[LidarMetadata, LidarMergedMetadata] = metadata
         self._start_timestamp: Timestamp = start_timestamp
         self._end_timestamp: Timestamp = end_timestamp
+        self._arrival_timestamp: Optional[Timestamp] = arrival_timestamp
 
         self._dataset_root: Optional[Union[str, Path]] = dataset_root
         self._relative_path: Optional[Union[str, Path]] = relative_path
@@ -144,6 +146,11 @@ class ParsedLidar(BaseModality):
         return self._end_timestamp
 
     @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this lidar data, if recorded."""
+        return self._arrival_timestamp
+
+    @property
     def metadata(self) -> BaseModalityMetadata:
         """Returns the metadata associated with this lidar data."""
         return self._metadata
@@ -165,11 +172,13 @@ class ParsedRadar(BaseModality):
         relative_path: Union[str, Path],
         iteration: Optional[int] = None,
         load_kwargs: Optional[Dict[str, Any]] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         self._metadata: Union[RadarMetadata, RadarMergedMetadata] = metadata
         # A radar scan is treated as an instantaneous snapshot (no rolling shutter), so it carries a
         # single timestamp rather than a sweep window like lidar.
         self._timestamp: Timestamp = timestamp
+        self._arrival_timestamp: Optional[Timestamp] = arrival_timestamp
 
         self._dataset_root: Optional[Union[str, Path]] = dataset_root
         self._relative_path: Optional[Union[str, Path]] = relative_path
@@ -187,6 +196,11 @@ class ParsedRadar(BaseModality):
     def timestamp(self) -> Timestamp:
         """Returns the timestamp associated with this radar data."""
         return self._timestamp
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this radar data, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def metadata(self) -> BaseModalityMetadata:
@@ -215,6 +229,7 @@ class ParsedCamera(BaseModality):
         relative_path: Optional[Union[str, Path]] = None,
         byte_string: Optional[bytes] = None,
         exposure_factor: Optional[float] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         self._metadata = metadata
         self._timestamp = timestamp
@@ -224,6 +239,7 @@ class ParsedCamera(BaseModality):
         self._relative_path = relative_path
         self._byte_string = byte_string
         self._exposure_factor = exposure_factor
+        self._arrival_timestamp = arrival_timestamp
 
         assert self.has_file_path or self.has_byte_string, (
             "Either file path or byte string must be provided for ParsedCamera."
@@ -233,6 +249,11 @@ class ParsedCamera(BaseModality):
     def timestamp(self) -> Timestamp:
         """Returns the timestamp associated with this camera data."""
         return self._timestamp
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this camera data, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def metadata(self) -> BaseModalityMetadata:

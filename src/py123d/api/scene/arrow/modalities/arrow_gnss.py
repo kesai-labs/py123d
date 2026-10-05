@@ -5,6 +5,13 @@ import numpy as np
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
+from py123d.api.scene.arrow.modalities.utils import (
+    ARRIVAL_TIME_FIELD,
+    add_arrival_time_to_row,
+    get_arrival_time_field,
+    read_arrival_time_column,
+    read_arrival_timestamp,
+)
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.sensors.gnss import Gnss, GnssMetadata
@@ -61,6 +68,8 @@ class ArrowGnssWriter(ArrowBaseModalityWriter):
         if metadata.has_solution_quality:
             fields.extend((f"{self._key}.{name}", dtype) for name, dtype in _SOLUTION_QUALITY_FIELDS)
 
+        if metadata.has_arrival_time:
+            fields.append(get_arrival_time_field(self._key))
         schema = add_metadata_to_arrow_schema(pa.schema(fields), metadata)
         super().__init__(
             file_path=log_dir / f"{self._key}.arrow",
@@ -90,6 +99,7 @@ class ArrowGnssWriter(ArrowBaseModalityWriter):
                     f"Fix carries {name} but GnssMetadata.has_solution_quality is False; "
                     "the value would be silently dropped."
                 )
+        add_arrival_time_to_row(row, self._metadata, modality)
         self.write_batch(row)
 
 
@@ -139,6 +149,7 @@ class ArrowGnssReader(ArrowBaseModalityReader):
             position_dop=_optional("position_dop"),
             velocity_ned=np.asarray(velocity_ned, dtype=np.float64) if velocity_ned is not None else None,
             speed_accuracy=_optional("speed_accuracy"),
+            arrival_timestamp=read_arrival_timestamp(table, index, key),
         )
 
     @staticmethod
@@ -151,6 +162,8 @@ class ArrowGnssReader(ArrowBaseModalityReader):
         deserialize: bool = False,
         **kwargs,
     ) -> Optional[Any]:
+        if column == ARRIVAL_TIME_FIELD:
+            return read_arrival_time_column(table, index, metadata.modality_key, deserialize)
         full_column_name = f"{metadata.modality_key}.{column}"
         if full_column_name not in table.column_names:
             # Columns can be legitimately absent by schema design (has_solution_quality flag);

@@ -7,6 +7,13 @@ import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
+from py123d.api.scene.arrow.modalities.utils import (
+    ARRIVAL_TIME_FIELD,
+    add_arrival_time_to_row,
+    get_arrival_time_field,
+    read_arrival_time_column,
+    read_arrival_timestamp,
+)
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.io.lidar.draco_lidar_io import (
     encode_point_cloud_as_draco_binary,
@@ -74,6 +81,8 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
         else:
             raise ValueError(f"Unsupported lidar store option: {lidar_store_option}")
 
+        if metadata.has_arrival_time:
+            schema_list.append(get_arrival_time_field(metadata.modality_key))
         schema = add_metadata_to_arrow_schema(pa.schema(schema_list), metadata)
         super().__init__(
             file_path=file_path,
@@ -109,6 +118,7 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
             data_binary = self._prepare_lidar_data(modality)
             batch[f"{self._modality_key}.data"] = [data_binary]
 
+        add_arrival_time_to_row(batch, self._modality_metadata, modality)
         self.write_batch(batch)
 
     def _prepare_lidar_data(self, modality: Union[ParsedLidar, Lidar]) -> Optional[bytes]:
@@ -200,6 +210,8 @@ class ArrowLidarReader(ArrowBaseModalityReader):
         **kwargs,
     ) -> Optional[Any]:
         """For lidar reader, we only support reading the full point cloud data column as binary or path."""
+        if column == ARRIVAL_TIME_FIELD:
+            return read_arrival_time_column(table, index, metadata.modality_key, deserialize)
         assert isinstance(metadata, (LidarMetadata, LidarMergedMetadata))
         full_column_name = f"{metadata.modality_key}.{column}"
         column_at_iteration: Optional[Any] = None
@@ -245,6 +257,7 @@ def _deserialize_lidar(
         return None
     timestamp = Timestamp.from_us(timestamp_us)
     timestamp_end = Timestamp.from_us(end_timestamp_us)
+    arrival_timestamp = read_arrival_timestamp(arrow_table, index, modality_key)
 
     if data_col in arrow_table.schema.names:
         lidar_data = arrow_table[data_col][index].as_py()
@@ -265,6 +278,7 @@ def _deserialize_lidar(
                 metadata=lidar_metadatas[lidar_id],
                 point_cloud_3d=point_cloud_3d,
                 point_cloud_features=point_cloud_feature,
+                arrival_timestamp=arrival_timestamp,
             )
         if point_cloud_feature is not None and LidarFeature.IDS.serialize() in point_cloud_feature:
             mask = point_cloud_feature[LidarFeature.IDS.serialize()] == int(lidar_id.value)
@@ -276,6 +290,7 @@ def _deserialize_lidar(
                 metadata=lidar_metadatas[lidar_id],
                 point_cloud_3d=point_cloud_3d,
                 point_cloud_features=point_cloud_feature,
+                arrival_timestamp=arrival_timestamp,
             )
         return None
 
@@ -285,6 +300,7 @@ def _deserialize_lidar(
         metadata=LidarMergedMetadata(lidar_metadata_dict=lidar_metadatas),
         point_cloud_3d=point_cloud_3d,
         point_cloud_features=point_cloud_feature,
+        arrival_timestamp=arrival_timestamp,
     )
 
 

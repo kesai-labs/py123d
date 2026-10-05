@@ -154,6 +154,7 @@ class FThetaCameraMetadata(BaseCameraMetadata):
         "_camera_to_imu_se3",
         "_isp",
         "_vendor_info",
+        "_has_arrival_time",
     )
 
     def __init__(
@@ -166,6 +167,7 @@ class FThetaCameraMetadata(BaseCameraMetadata):
         camera_to_imu_se3: PoseSE3,
         isp: Optional[Dict[str, Any]] = None,
         vendor_info: Optional[Dict[str, Any]] = None,
+        has_arrival_time: bool = False,
     ) -> None:
         """Initialize the f-theta camera metadata.
 
@@ -181,6 +183,10 @@ class FThetaCameraMetadata(BaseCameraMetadata):
             stored images themselves are raw. None if no such transform is defined.
         :param vendor_info: Optional hardware provenance (e.g. sensor type and serializer
             serial number), as reported by the recording pipeline. None if unknown.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._camera_name = camera_name
         self._camera_id = camera_id
@@ -190,6 +196,7 @@ class FThetaCameraMetadata(BaseCameraMetadata):
         self._camera_to_imu_se3 = camera_to_imu_se3
         self._isp = isp
         self._vendor_info = vendor_info
+        self._has_arrival_time = has_arrival_time
 
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]) -> FThetaCameraMetadata:
@@ -210,6 +217,7 @@ class FThetaCameraMetadata(BaseCameraMetadata):
             camera_to_imu_se3=PoseSE3.from_list(data_dict["camera_to_imu_se3"]),
             isp=data_dict.get("isp"),
             vendor_info=data_dict.get("vendor_info"),
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     @property
@@ -261,6 +269,11 @@ class FThetaCameraMetadata(BaseCameraMetadata):
     def vendor_info(self, vendor_info: Optional[Dict[str, Any]]) -> None:
         """Settable so parsers can attach provenance read from the first decoded frame."""
         self._vendor_info = vendor_info
+
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
 
     def project_to_image(
         self,
@@ -394,4 +407,7 @@ class FThetaCameraMetadata(BaseCameraMetadata):
             data_dict["isp"] = self._isp
         if self._vendor_info is not None:
             data_dict["vendor_info"] = self._vendor_info
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
         return data_dict
