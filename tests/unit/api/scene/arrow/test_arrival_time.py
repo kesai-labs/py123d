@@ -566,7 +566,9 @@ class TestMergedSensors:
         assert metadata.has_arrival_time
         restored = ArrowLidarReader.read_at_index(0, table, metadata, dataset="test-dataset")
         assert restored is not None and restored.arrival_timestamp == Timestamp.from_us(1_070_000)
-        only_top = ArrowLidarReader.read_at_index(0, table, metadata, dataset="test-dataset", lidar_id=LidarID.LIDAR_TOP)
+        only_top = ArrowLidarReader.read_at_index(
+            0, table, metadata, dataset="test-dataset", lidar_id=LidarID.LIDAR_TOP
+        )
         assert only_top is not None and only_top.arrival_timestamp == Timestamp.from_us(1_070_000)
 
         split = get_individual_lidar(restored, LidarID.LIDAR_FRONT)
