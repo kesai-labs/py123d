@@ -35,6 +35,7 @@ dependencies = [
     "psutil",
     "pyarrow",
     "pyogrio",
+    "pyproj",
     "pyquaternion",
     "ray[default]",
     "scipy",
