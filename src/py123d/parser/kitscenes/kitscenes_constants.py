@@ -63,19 +63,23 @@ CITY_CENTERS: Final[Dict[str, Tuple[float, float]]] = {
     "sindelfingen": (48.7133, 9.0028),
 }
 
-# NOTE: The KITScenes paper and devkit do not publish the vehicle model or its dimensions. The values below are
-# estimates for a mid-size car and should be replaced once known. The ego reference frame ("base_frame" in
+# NOTE: The recording vehicle "Joy" is a BMW 7 Series with a roof sensor rack [1]. Its generation is not published.
+# The KITScenes LongTail paper gives a wheelbase of 3.21 m for the KIT research vehicle [2], which matches the
+# long-wheelbase BMW 7 Series G12. Length, width and height are the stock G12 dimensions (height without the sensor
+# rack, which adds roughly 0.3 m) and are unconfirmed by the dataset authors. The ego reference frame ("base_frame" in
 # ``calib.json``) coincides with the roof lidar ``lidar_top``, which sits ~2.0 m above the ground (measured from the
-# point cloud). We assume the lidar is mounted above the vehicle center.
+# point cloud). We assume the lidar is mounted above the vehicle center. The wheel radius is an estimate.
+# [1] https://kitscenes.com/multimodal/
+# [2] https://arxiv.org/abs/2603.23607
 _LIDAR_TOP_HEIGHT_ABOVE_GROUND = 2.0
-_VEHICLE_LENGTH = 5.0
-_VEHICLE_WIDTH = 2.0
-_VEHICLE_HEIGHT = 1.8
-_WHEEL_BASE = 3.0
+_VEHICLE_LENGTH = 5.238
+_VEHICLE_WIDTH = 1.902
+_VEHICLE_HEIGHT = 1.479
+_WHEEL_BASE = 3.21
 _WHEEL_RADIUS = 0.35
 
 KITSCENES_EGO_STATE_SE3_METADATA: Final[EgoStateSE3Metadata] = EgoStateSE3Metadata(
-    vehicle_name="kitscenes_unknown_vehicle",
+    vehicle_name="kitscenes_bmw_7_series_g12",
     width=_VEHICLE_WIDTH,
     length=_VEHICLE_LENGTH,
     height=_VEHICLE_HEIGHT,
