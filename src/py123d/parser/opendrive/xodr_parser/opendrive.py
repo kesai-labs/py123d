@@ -91,10 +91,10 @@ class Header:
             args["name"] = header_element.get("name")
             args["version"] = header_element.get("version")
             args["data"] = header_element.get("data")
-            args["north"] = float(header_element.get("north"))
-            args["south"] = float(header_element.get("south"))
-            args["east"] = float(header_element.get("east"))
-            args["west"] = float(header_element.get("west"))
+            # north/south/east/west are optional per the OpenDRIVE spec and stay None when omitted.
+            for bound in ("north", "south", "east", "west"):
+                value = header_element.get(bound)
+                args[bound] = float(value) if value is not None else None
             args["vendor"] = header_element.get("vendor")
             if header_element.find("geoReference") is not None:
                 args["geo_reference"] = header_element.find("geoReference").text
@@ -110,7 +110,7 @@ class Controller:
 
     name: str
     id: int
-    sequence: int
+    sequence: Optional[int]
     controls: List[Control]
 
     @classmethod
@@ -118,7 +118,9 @@ class Controller:
         args = {}
         args["name"] = controller_element.get("name")
         args["id"] = float(controller_element.get("id"))
-        args["sequence"] = float(controller_element.get("sequence"))
+        # Per the ASAM spec, `sequence` is optional (unlike `id`).
+        sequence = controller_element.get("sequence")
+        args["sequence"] = float(sequence) if sequence is not None else None
 
         controls: List[Control] = []
         for control_element in controller_element.findall("control"):
@@ -182,8 +184,8 @@ class Connection:
     contact_point: Literal["start", "end"]
     lane_links: List[LaneLink]
 
-    def __post_init__(self):
-        assert self.contact_point in ["start", "end"]
+    # NOTE: `contact_point` is validated where it is used (see `_update_connection_from_junctions`),
+    # not at parse time, so connections that are skipped there do not fail the whole map.
 
     @classmethod
     def parse(cls, connection_element: Optional[Element]) -> Connection:

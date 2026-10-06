@@ -1,0 +1,8 @@
+defaults:
+  - nurec-curated
+  - _self_
+
+# Converts every scene of release 26.04 found under `nurec_root` into the split
+# nurec-2604_train. All other options are those of dataset=nurec-curated.
+parser:
+  splits: [nurec-2604_train]

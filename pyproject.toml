@@ -105,6 +105,7 @@ griffin = [
 ]
 nurec = [
     "csaps>=1.2.1",
+    "py123d[hf]",
 ]
 ffmpeg = [
     "imageio[ffmpeg]",

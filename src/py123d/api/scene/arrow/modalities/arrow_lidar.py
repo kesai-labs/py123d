@@ -138,7 +138,9 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
                 "ParsedLidar must have dataset_root and relative_path for binary codec."
             )
             lidar_metadatas = (
-                dict(self._modality_metadata) if isinstance(self._modality_metadata, LidarMergedMetadata) else None
+                dict(self._modality_metadata)
+                if isinstance(self._modality_metadata, LidarMergedMetadata)
+                else {self._modality_metadata.lidar_id: self._modality_metadata}
             )
             point_cloud_3d, point_cloud_features = load_point_cloud_data_from_path(
                 modality._relative_path,

@@ -21,9 +21,9 @@ map. The reconstruction assets are left untouched.
 
 Scenes carry the HD map in two forms: the MADS ``clipgt/*.parquet`` layers and a
 USDZ-internal OpenDRIVE map (``map.xodr``). The parser reads the clipgt layers, which
-NVIDIA's own simulator also prefers. The OpenDRIVE map is not converted, so a scene
-without clipgt layers is rejected. All 1607 scenes of the ``26.04`` release carry clipgt.
-In ``26.01``, 184 of 916 scenes ship only ``map.xodr`` (see Dataset Issues).
+NVIDIA's own simulator also prefers, and falls back to the OpenDRIVE map for a scene
+without them. All 1607 scenes of the ``26.04`` release carry clipgt. In ``26.01``,
+184 of 916 scenes ship only ``map.xodr`` (see Dataset Issues).
 
 
 .. dropdown:: Overview
@@ -40,7 +40,7 @@ In ``26.01``, 184 of 916 scenes ship only ``map.xodr`` (see Dataset Issues).
     * - :octicon:`law` License
       - Please refer to the dataset's official license terms.
     * - :octicon:`database` Available splits
-      - ``nurec_train`` (NuRec ships as a single collection; the split is synthetic)
+      - ``nurec-curated_train``, ``nurec-curated_val``, ``nurec-2601_train``, ``nurec-2604_train`` (see Conversion)
 
 
 Available Modalities
@@ -78,32 +78,51 @@ Download
 
 The dataset is gated on Hugging Face. You need (1) an HF account that has accepted the
 NVIDIA AV dataset license and (2) an HF token exported as ``HF_TOKEN``. Scenes are
-plain ``.usdz`` files (~1.7 GB each), so any Hugging Face client works, for example:
+plain ``.usdz`` files (about 2 GB each), fetched with the ``py123d-download`` CLI:
 
 .. code-block:: bash
 
   export HF_TOKEN=hf_...
+  export NUREC_DATA_ROOT=/path/to/nurec
 
-  huggingface-cli download nvidia/PhysicalAI-Autonomous-Vehicles-NuRec \
-      --repo-type dataset --revision 26.04 \
-      --include "sample_set/26.04_release/*" \
-      --local-dir $NUREC_DATA_ROOT/all-usdzs
+  # The scenes of nurec-curated_train and nurec-curated_val, drawn from both releases
+  py123d-download dataset=nurec-curated
 
-The parser expects every scene in a single flat directory:
+  # Every scene of one release
+  py123d-download dataset=nurec-2601
+  py123d-download dataset=nurec-2604
+
+  # A few scenes per split, or the plan without downloading
+  py123d-download dataset=nurec-curated dataset.downloader.num_sequences=5
+  py123d-download dataset=nurec-curated dataset.downloader.dry_run=true
+
+  # Scenes of release 26.04 by name
+  py123d-download dataset=nurec-2604 \
+      'dataset.downloader.sequence_ids=[{scene_uuid},{scene_uuid}]'
+
+Downloads keep the layout of the Hugging Face repository, which is what the parser
+expects. Any other Hugging Face client that preserves it works as well:
 
 .. code-block:: none
 
   $NUREC_DATA_ROOT
-  └── all-usdzs/
-      ├── {scene_uuid}.usdz
-      └── ...
+  └── sample_set/
+      ├── 26.01_release/
+      │   └── {scene_uuid}/
+      │       └── {scene_uuid}.usdz
+      └── 26.04_release/
+          └── {scene_uuid}/
+              └── {scene_uuid}.usdz
+
+The release directory is part of a scene's identity. Some scene UUIDs exist in both
+releases, as separate reconstructions of the same drive.
 
 
 Installation
 ~~~~~~~~~~~~
 
 NuRec conversion requires the ``nurec`` extras group (``csaps`` for the cubic smoothing
-spline used by the AlpaSim-parity profile):
+spline used by the AlpaSim-parity profile, and ``huggingface_hub`` for downloads):
 
 .. code-block:: bash
 
@@ -118,19 +137,84 @@ Conversion
   export NUREC_DATA_ROOT=/path/to/nurec
   export PY123D_DATA_ROOT=/path/to/py123d_data
 
-  py123d-conversion dataset=nurec
+  py123d-conversion dataset=nurec-curated
 
-``dataset=nurec`` places frames on a uniform 10 Hz grid and interpolates ego poses and
-cuboid tracks onto it, since the recorded timestamps are only nominally uniform and
-tracks run on their own clock (see Dataset Issues).
+NuRec ships as releases without official splits. ``dataset=nurec-curated`` converts the
+train and validation scenes curated for the `AlpaSim <https://github.com/NVlabs/alpasim>`_
+E2E challenge, which draw from both releases. The other two configs convert one release each:
 
-The ``nurec-alpasim`` variant also applies the transforms NVIDIA's simulator performs
-at replay time. It smooths track positions with a cubic smoothing spline and drops
-tracks shorter than 3 s within the scene window:
+.. list-table::
+   :header-rows: 1
+   :widths: 25 50 25
+
+   * - **Split**
+     - **Scenes**
+     - **Config**
+   * - ``nurec-curated_train``
+     - 1761 named scenes (702 of ``26.01``, 1059 of ``26.04``)
+     - ``dataset=nurec-curated``
+   * - ``nurec-curated_val``
+     - 441 named scenes (177 of ``26.01``, 264 of ``26.04``)
+     - ``dataset=nurec-curated``
+   * - ``nurec-2601_train``
+     - Every scene of release ``26.01``
+     - ``dataset=nurec-2601``
+   * - ``nurec-2604_train``
+     - Every scene of release ``26.04``
+     - ``dataset=nurec-2604``
+
+The scene names of ``nurec-curated_train`` and ``nurec-curated_val`` are listed in
+``parser/nurec/nurec_curated_splits.yaml``. A listed scene that is not on
+disk is skipped with a warning, so a partial download converts partially.
+``dataset.parser.splits`` selects any combination of the four splits.
+
+Each config has a ``-stream`` variant, which downloads the scenes into a temporary
+directory instead of reading ``NUREC_DATA_ROOT`` and deletes them when the conversion
+ends. All selected scenes are downloaded before the conversion starts, so limit the
+selection unless the temporary directory can hold it:
 
 .. code-block:: bash
 
-  py123d-conversion dataset=nurec-alpasim
+  py123d-conversion dataset=nurec-curated-stream dataset.parser.num_sequences=3
+
+Each config has a scene filter of the same name for reading the converted logs, for
+example ``py123d-viser scene_filter=nurec-curated`` or ``scene_filter=nurec-2601``.
+
+Frames are placed on a uniform 10 Hz grid, with ego poses and cuboid tracks interpolated
+onto it, since the recorded timestamps are only nominally uniform and tracks run on
+their own clock (see Dataset Issues).
+
+Two options also apply the transforms NVIDIA's simulator performs at replay time.
+They smooth track positions with a cubic smoothing spline and drop tracks shorter
+than 3 s within the scene window:
+
+.. code-block:: bash
+
+  py123d-conversion dataset=nurec-curated \
+      dataset.parser.smooth_track_positions=true \
+      dataset.parser.min_traffic_duration_us=3000000
+
+The map source is selected with ``dataset.parser.map_source``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - **Value**
+     - **Map is read from**
+   * - ``clip_gt_or_xodr`` (default)
+     - The clipgt layers, or ``map.xodr`` for a scene that has none.
+   * - ``xodr_or_clip_gt``
+     - ``map.xodr``, or the clipgt layers for a scene that has none.
+   * - ``clip_gt``
+     - The clipgt layers only.
+   * - ``xodr``
+     - ``map.xodr`` only.
+
+A scene that carries none of the requested sources is converted without a map. Its log
+then has no map, and a scene filter with ``has_map`` treats it accordingly. A map written
+by an earlier conversion is not removed, so convert into a fresh ``PY123D_DATA_ROOT`` when
+changing ``map_source`` for scenes that were already converted.
 
 
 Not Converted
@@ -168,8 +252,8 @@ ignores. They are listed here in case the schema later covers them:
      - Opposite-direction and overlapping lane neighbours, branch/merge siblings, lane-to-boundary-line links, and crosswalk/marking-to-lane links.
    * - Sensor calibrations and frame poses
      - Intrinsics and rig extrinsics for 6 cameras and 1 lidar, with per-frame poses and timestamps (~600 camera frames, ~200 lidar frames per scene). A scene ships no recorded frames to point at, so no camera or lidar modality is registered.
-   * - ``map.xodr``
-     - The OpenDRIVE copy of the map, present in every scene alongside the clipgt layers. It describes the same roads in less detail and in a different coordinate frame, so the richer clipgt source is converted instead (see Dataset Issues).
+   * - ``map.xodr`` (when clipgt is present)
+     - The OpenDRIVE copy of the map describes the same roads in less detail and in a different coordinate frame, so the richer clipgt source is converted instead. It is read only as a fallback, or when ``map_source`` asks for it (see Conversion).
    * - The scene reconstruction
      - ``checkpoint.ckpt`` and ``volume.nurec``, which render camera views at arbitrary poses. 123D has no concept for a renderable scene. Camera data could still be obtained by replaying the groundtruth trajectories in AlpaSim.
 
@@ -214,17 +298,18 @@ Dataset Issues
 - **No traffic-light states.** The map layers contain traffic-light geometry, but the
   dataset records no per-timestep light states, so no traffic-light modality is emitted.
   A converted map records where traffic must stop for a signal, but not the signal state.
-- **The bundled ``map.xodr`` is not converted.** The whole ``26.04`` release carries
-  clipgt, so the OpenDRIVE copy is unused there. In ``26.01``, 184 of 916 scenes ship no
-  clipgt layers and the parser rejects them. Reading the OpenDRIVE copy would first need
-  work in :mod:`py123d.parser.opendrive`, which raises on these files. NuRec omits
-  several attributes that OpenDRIVE 1.4 makes optional but the parser reads
-  unconditionally. In a 12-scene sample, ``header``'s ``north``/``south``/``east``/``west``
-  are absent in every scene, ``controller``'s ``sequence`` in all 24 controllers, and
-  ``object``'s ``roll`` and ``pitch`` in all 538 objects. A further 76 of 416 junction
-  connections reference roads outside the clip. The ``geoReference`` is malformed as well
+- **Some scenes carry no clipgt layers.** The whole ``26.04`` release carries clipgt. In
+  ``26.01``, 184 of 916 scenes ship only ``map.xodr``, which is then converted instead through
+  :mod:`py123d.parser.opendrive` and is less detailed than a clipgt map. NuRec's
+  OpenDRIVE files omit several attributes that OpenDRIVE 1.4 makes optional. In a
+  12-scene sample, ``header``'s ``north``/``south``/``east``/``west`` are absent in every
+  scene, ``controller``'s ``sequence`` in all 24 controllers, and ``object``'s ``roll``
+  and ``pitch`` in all 538 objects. A further 76 of 416 junction connections reference
+  roads outside the clip and are skipped. The ``geoReference`` is malformed as well
   (``+=alt_0=0`` instead of ``+alt_0=0``, which PROJ rejects) and names an EGM96 geoid
-  grid that ships with neither pyproj nor PROJ.
+  grid that ships with neither pyproj nor PROJ, so only its ``+lat_0``/``+lon_0`` origin
+  is read. The map is then moved into the clip-local frame of the ego poses using the
+  world-from-base pose in ``rig_trajectories.json``.
 - **Speed limits are sparse.** Lane speed limits are present in recent releases and
   absent in older ones; lanes without a speed limit convert with ``speed_limit_mps=None``.
 - **Non-uniform source timestamps.** Rig timestamps are nominally 10 Hz but drift by

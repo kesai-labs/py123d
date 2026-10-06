@@ -3,16 +3,6 @@
 Physical AI AV
 --------------
 
-.. warning::
-
-  **Experimental Dataset Support**
-
-  The Physical AI AV dataset integration is currently **under active development** and should be considered experimental.
-  Features may be incomplete, APIs may change, and unexpected bugs are possible.
-
-  If you encounter any issues, please report them on our
-  `GitHub Issues <https://github.com/kesai-labs/py123d/issues>`_ page. Your feedback helps us improve!
-
 The Physical AI AV dataset provides autonomous driving sensor data collected using the NVIDIA Hyperion 8 platform.
 It includes 7 f-theta (fisheye) cameras at ~30 fps, a 360-degree LiDAR at ~10 Hz, auto-labeled 3D bounding box detections,
 and high-rate egomotion data (67-100 Hz). The dataset features Draco-compressed LiDAR point clouds with per-point

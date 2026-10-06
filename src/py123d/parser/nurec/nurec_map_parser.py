@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import contextlib
 import io
+import json
 import logging
+import math
+import re
 import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Generator, Iterable, Iterator, List, Optional, Set, Tuple, Union
+from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple, Union
 from zipfile import ZipFile
-
-if TYPE_CHECKING:
-    from py123d.parser.nurec.nurec_download import NuRecDownloader
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,7 @@ from typing_extensions import override
 
 from py123d.datatypes import (
     BaseMapObject,
+    Carpark,
     Crosswalk,
     GenericDrivable,
     Intersection,
@@ -30,19 +31,43 @@ from py123d.datatypes import (
     RoadEdgeType,
     RoadLine,
     RoadLineType,
+    SpeedBump,
     StopZone,
     StopZoneType,
     Walkway,
 )
-from py123d.geometry import Polyline3D
+from py123d.geometry import Polyline2D, Polyline3D
 from py123d.parser.base_dataset_parser import BaseMapParser
+from py123d.parser.opendrive.opendrive_map_parser import iter_xodr_map_objects
 
 logger = logging.getLogger(__name__)
+
+# WGS84 ellipsoid constants, used to align the xodr map source (which lives in the
+# OpenDRIVE file's own geo-projected frame) with the clip-local rig frame that ego
+# poses and clip_gt map data already share.
+_WGS84_A_M = 6378137.0
+_WGS84_F = 1.0 / 298.257223563
 
 # Wait lines mark where traffic enters an intersection or crossing, where it leaves,
 # or neither. Only the entering ones oblige traffic to stop.
 _STOPPING_WAIT_LINE_SUBTYPES = frozenset({"ENTRY", "CROSSWALK_ENTRY"})
 _PASSING_WAIT_LINE_SUBTYPES = frozenset({"EXIT", "NOT_APPLICABLE", "BUFFER_ZONE"})
+
+# Association `key.kind` values understood by `_read_associations`; anything else is
+# counted in `_ClipgtRelations.unknown_kinds` and dropped.
+_KNOWN_ASSOCIATION_KINDS = frozenset(
+    {
+        "NEXT_LANE",
+        "PREVIOUS_LANE",
+        "LEFT_LANE",
+        "RIGHT_LANE",
+        "ROAD_SEGMENT_SIBLING_LANE",
+        "WAIT_LINE_TO_LANE",
+        "INTERSECTION_AREA_TO_LANE",
+        "LIGHT_TO_LANE",
+        "SIGN_TO_LANE",
+    }
+)
 
 
 @dataclass
@@ -61,6 +86,9 @@ class _ClipgtRelations:
     intersection_lanes: Dict[str, set] = field(default_factory=dict)
     light_lanes: Dict[str, set] = field(default_factory=dict)
     sign_lanes: Dict[str, set] = field(default_factory=dict)
+    # Counts of association `key.kind` values outside the vocabulary below, so
+    # schema drift across a large batch shows up in logs instead of vanishing silently.
+    unknown_kinds: Dict[str, int] = field(default_factory=dict)
 
 
 def _clipgt_member(layer: str) -> str:
@@ -71,6 +99,31 @@ def _clipgt_member(layer: str) -> str:
 def _has_clipgt_layers(member_names: Set[str]) -> bool:
     """True when a USDZ carries the clipgt layers needed to build a map."""
     return all(_clipgt_member(layer) in member_names for layer in ("lane", "road_boundary"))
+
+
+# The order in which each `map_source` tries the two sources a scene can carry.
+_MAP_SOURCE_PREFERENCES: Dict[str, Tuple[str, ...]] = {
+    "clip_gt": ("clip_gt",),
+    "xodr": ("xodr",),
+    "clip_gt_or_xodr": ("clip_gt", "xodr"),
+    "xodr_or_clip_gt": ("xodr", "clip_gt"),
+}
+NUREC_MAP_SOURCES: Tuple[str, ...] = tuple(_MAP_SOURCE_PREFERENCES)
+
+
+def resolve_map_source(member_names: Set[str], map_source: str, xodr_member: str = "map.xodr") -> Optional[str]:
+    """Picks the source a scene's map is read from, given the members of its USDZ.
+
+    :param member_names: Member names of the USDZ archive.
+    :param map_source: Requested map source, one of :data:`NUREC_MAP_SOURCES`.
+    :param xodr_member: Name of the OpenDRIVE member.
+    :return: ``"clip_gt"`` or ``"xodr"``, or None if the scene carries none of the requested sources.
+    """
+    available = {"clip_gt": _has_clipgt_layers(member_names), "xodr": xodr_member in member_names}
+    for source in _MAP_SOURCE_PREFERENCES[map_source]:
+        if available[source]:
+            return source
+    return None
 
 
 def _mads_points_xyz(entry: Dict, key: str) -> Optional[np.ndarray]:
@@ -97,44 +150,390 @@ def _mads_points_xyz(entry: Dict, key: str) -> Optional[np.ndarray]:
     return array if len(array) >= 2 else None
 
 
+@dataclass(frozen=True)
+class NuRecMapAlignment:
+    """Rigid transform from the xodr map source's frame into the clip-local rig frame
+    ego poses and clip_gt map data already share: translate by ``-origin_m``, then
+    rotate by ``row_rotation``.
+    """
+
+    origin_m: np.ndarray
+    row_rotation: np.ndarray
+
+    def transform_points(self, points: np.ndarray) -> np.ndarray:
+        return (points - self.origin_m) @ self.row_rotation
+
+
+def _read_xodr_geo_origin(archive: ZipFile, xodr_member: str) -> Dict[str, float]:
+    """Latitude/longitude of an OpenDRIVE file's ``+lat_0``/``+lon_0`` geoReference origin."""
+    root = ET.fromstring(archive.read(xodr_member))
+    geo_reference = root.find("./header/geoReference")
+    if geo_reference is None or geo_reference.text is None:
+        raise ValueError(f"No OpenDRIVE geoReference found in {xodr_member}.")
+    text = geo_reference.text.strip()
+    lat_match = re.search(r"(?<![A-Za-z0-9_])\+lat_0=([^\s]+)", text)
+    lon_match = re.search(r"(?<![A-Za-z0-9_])\+lon_0=([^\s]+)", text)
+    if lat_match is None or lon_match is None:
+        raise ValueError(f"Could not parse +lat_0/+lon_0 from geoReference: {text!r}.")
+    return {"latitude": float(lat_match.group(1)), "longitude": float(lon_match.group(1))}
+
+
+def _ecef_enu_basis(latitude: float, longitude: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """East/north/up unit vectors (in ECEF) of the local tangent frame at (latitude, longitude)."""
+    lat_rad, lon_rad = math.radians(latitude), math.radians(longitude)
+    sin_lat, cos_lat = math.sin(lat_rad), math.cos(lat_rad)
+    sin_lon, cos_lon = math.sin(lon_rad), math.cos(lon_rad)
+    east = np.array([-sin_lon, cos_lon, 0.0], dtype=np.float64)
+    north = np.array([-sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat], dtype=np.float64)
+    up = np.array([cos_lat * cos_lon, cos_lat * sin_lon, sin_lat], dtype=np.float64)
+    return east, north, up
+
+
+def _ecef_from_geodetic(latitude: float, longitude: float, altitude: float) -> np.ndarray:
+    """WGS84 geodetic (lat, lon, alt) to ECEF (x, y, z), in meters."""
+    lat_rad, lon_rad = math.radians(latitude), math.radians(longitude)
+    e2 = _WGS84_F * (2.0 - _WGS84_F)
+    radius = _WGS84_A_M / math.sqrt(1.0 - e2 * math.sin(lat_rad) ** 2)
+    return np.array(
+        [
+            (radius + altitude) * math.cos(lat_rad) * math.cos(lon_rad),
+            (radius + altitude) * math.cos(lat_rad) * math.sin(lon_rad),
+            (radius * (1.0 - e2) + altitude) * math.sin(lat_rad),
+        ],
+        dtype=np.float64,
+    )
+
+
+def _ecef_to_geodetic(x: float, y: float, z: float) -> Tuple[float, float, float]:
+    """WGS84 ECEF (x, y, z) to geodetic (latitude, longitude, altitude), via Bowring iteration."""
+    e2 = _WGS84_F * (2.0 - _WGS84_F)
+    longitude = math.atan2(y, x)
+    xy_norm = math.hypot(x, y)
+    latitude = math.atan2(z, xy_norm * (1.0 - e2))
+    altitude = 0.0
+    for _ in range(8):
+        radius = _WGS84_A_M / math.sqrt(1.0 - e2 * math.sin(latitude) ** 2)
+        altitude = xy_norm / math.cos(latitude) - radius
+        latitude = math.atan2(z, xy_norm * (1.0 - e2 * radius / (radius + altitude)))
+    radius = _WGS84_A_M / math.sqrt(1.0 - e2 * math.sin(latitude) ** 2)
+    altitude = xy_norm / math.cos(latitude) - radius
+    return math.degrees(latitude), math.degrees(longitude), altitude
+
+
+def _local_enu_from_lat_lng(
+    latitude: float, longitude: float, origin_latitude: float, origin_longitude: float
+) -> Tuple[float, float]:
+    """East/north offset in meters of (latitude, longitude) from an ENU tangent-plane origin."""
+    east, north, _ = _ecef_enu_basis(origin_latitude, origin_longitude)
+    delta = _ecef_from_geodetic(latitude, longitude, 0.0) - _ecef_from_geodetic(origin_latitude, origin_longitude, 0.0)
+    return float(np.dot(delta, east)), float(np.dot(delta, north))
+
+
+def _rotation_matrix_from_axis_angle(axis_angle: Dict[str, float]) -> np.ndarray:
+    """Rotation matrix from a NuRec {qx, qy, qz, angle} axis (unnormalized) + angle-in-degrees encoding."""
+    axis = np.array([axis_angle["qx"], axis_angle["qy"], axis_angle["qz"]], dtype=np.float64)
+    axis_norm = float(np.linalg.norm(axis))
+    if axis_norm == 0.0:
+        raise ValueError(f"NuRec axis-angle rotation has zero-length axis: {axis_angle}.")
+    x, y, z = axis / axis_norm
+    angle_rad = math.radians(float(axis_angle["angle"]))
+    c, s = math.cos(angle_rad), math.sin(angle_rad)
+    one_minus_c = 1.0 - c
+    return np.array(
+        [
+            [c + x * x * one_minus_c, x * y * one_minus_c - z * s, x * z * one_minus_c + y * s],
+            [y * x * one_minus_c + z * s, c + y * y * one_minus_c, y * z * one_minus_c - x * s],
+            [z * x * one_minus_c - y * s, z * y * one_minus_c + x * s, c + z * z * one_minus_c],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _row_rotation_from_world_base(T_world_base: np.ndarray, geo_origin: Dict[str, float]) -> np.ndarray:
+    """Row-vector rotation (world frame -> local ENU at geo_origin) from a world<-base ECEF pose."""
+    east, north, up = _ecef_enu_basis(geo_origin["latitude"], geo_origin["longitude"])
+    enu_basis = np.stack((east, north, up), axis=0)
+    return enu_basis @ T_world_base[:3, :3]
+
+
+def _resolve_alignment_z_origin(
+    z_origin: str,
+    z_origin_m: Optional[float],
+    fallback_altitude: float,
+    pose_record: Optional[Dict] = None,
+    alignment_pose: Optional[Dict] = None,
+) -> float:
+    """Altitude (m) that maps to z=0 in the aligned frame, per the requested z_origin policy."""
+    if z_origin_m is not None:
+        return float(z_origin_m)
+    if z_origin in {"selected_alignment_altitude", "world_base_altitude"}:
+        return float(fallback_altitude)
+    if z_origin in {"first_alignment_altitude", "first_alignment_pose_altitude"} and pose_record is not None:
+        return float(pose_record["record"][0]["alignment_world_pose"]["lat_lng_alt"]["altitude"])
+    if z_origin == "current_alignment_altitude" and alignment_pose is not None:
+        return float(alignment_pose["lat_lng_alt"]["altitude"])
+    if z_origin == "alignment_origin_altitude" and pose_record is not None:
+        return float(pose_record["alignment_origin"]["altitude"])
+    if z_origin in {"zero", "none"}:
+        return 0.0
+    raise ValueError(f"Unsupported NuRec map alignment z_origin: {z_origin!r}.")
+
+
+def _alignment_origin_from_lat_lng_alt(
+    geo_origin: Dict[str, float],
+    latitude: float,
+    longitude: float,
+    altitude: float,
+    xy_origin_m: Optional[Tuple[float, float]],
+    z_origin: str,
+    z_origin_m: Optional[float],
+    pose_record: Optional[Dict] = None,
+    alignment_pose: Optional[Dict] = None,
+) -> np.ndarray:
+    if xy_origin_m is None:
+        x_origin_m, y_origin_m = _local_enu_from_lat_lng(
+            latitude=latitude,
+            longitude=longitude,
+            origin_latitude=geo_origin["latitude"],
+            origin_longitude=geo_origin["longitude"],
+        )
+    else:
+        x_origin_m, y_origin_m = float(xy_origin_m[0]), float(xy_origin_m[1])
+    z_origin_value = _resolve_alignment_z_origin(
+        z_origin=z_origin,
+        z_origin_m=z_origin_m,
+        fallback_altitude=altitude,
+        pose_record=pose_record,
+        alignment_pose=alignment_pose,
+    )
+    return np.array([x_origin_m, y_origin_m, z_origin_value], dtype=np.float64)
+
+
+def _read_json_member(archive: ZipFile, member: str, location: str) -> Dict:
+    """JSON payload of an archive member, or a clear scene-identified error if it's absent."""
+    try:
+        payload = archive.read(member)
+    except KeyError:
+        raise ValueError(f"NuRec map {location}: archive has no {member!r} member") from None
+    return json.loads(payload)
+
+
+def _load_world_base_map_alignment(
+    archive: ZipFile,
+    geo_origin: Dict[str, float],
+    rig_member: str,
+    xy_origin_m: Optional[Tuple[float, float]],
+    z_origin: str,
+    z_origin_m: Optional[float],
+    location: str,
+) -> NuRecMapAlignment:
+    """Alignment anchored on ``rig_trajectories.json``'s world<-base ECEF pose (present in every scene)."""
+    rig_json = _read_json_member(archive, rig_member, location)
+    T_world_base = np.asarray(rig_json["T_world_base"], dtype=np.float64)
+    base_latitude, base_longitude, base_altitude = _ecef_to_geodetic(*T_world_base[:3, 3])
+    origin_m = _alignment_origin_from_lat_lng_alt(
+        geo_origin=geo_origin,
+        latitude=base_latitude,
+        longitude=base_longitude,
+        altitude=base_altitude,
+        xy_origin_m=xy_origin_m,
+        z_origin=z_origin,
+        z_origin_m=z_origin_m,
+    )
+    row_rotation = _row_rotation_from_world_base(T_world_base, geo_origin)
+    return NuRecMapAlignment(origin_m=origin_m, row_rotation=row_rotation)
+
+
+def _load_pose_record_map_alignment(
+    archive: ZipFile,
+    geo_origin: Dict[str, float],
+    pose_record_member: str,
+    record_index: int,
+    invert_rotation: bool,
+    xy_origin_m: Optional[Tuple[float, float]],
+    z_origin: str,
+    z_origin_m: Optional[float],
+    location: str,
+) -> NuRecMapAlignment:
+    """Alignment anchored on one ``pose_record.json`` sample; only present in some scenes."""
+    pose_record = _read_json_member(archive, pose_record_member, location)
+    records = pose_record.get("record", [])
+    if not records or not 0 <= record_index < len(records):
+        raise ValueError(
+            f"NuRec map {location}: {pose_record_member} has no record at index {record_index} "
+            f"(found {len(records)} record(s))"
+        )
+    alignment_pose = records[record_index].get("alignment_world_pose", {})
+    axis_angle = alignment_pose.get("axis_angle")
+    if axis_angle is None:
+        raise ValueError(f"NuRec map {location}: no alignment_world_pose.axis_angle found in {pose_record_member}.")
+    rotation = _rotation_matrix_from_axis_angle(axis_angle)
+    row_rotation = rotation if invert_rotation else rotation.T
+    lat_lng_alt = alignment_pose["lat_lng_alt"]
+    origin_m = _alignment_origin_from_lat_lng_alt(
+        geo_origin=geo_origin,
+        latitude=float(lat_lng_alt["latitude"]),
+        longitude=float(lat_lng_alt["longitude"]),
+        altitude=float(lat_lng_alt["altitude"]),
+        xy_origin_m=xy_origin_m,
+        z_origin=z_origin,
+        z_origin_m=z_origin_m,
+        pose_record=pose_record,
+        alignment_pose=alignment_pose,
+    )
+    return NuRecMapAlignment(origin_m=origin_m, row_rotation=row_rotation)
+
+
+def _transform_polyline(polyline: Union[Polyline2D, Polyline3D], alignment: NuRecMapAlignment) -> Polyline3D:
+    points = np.asarray(polyline.array, dtype=np.float64)
+    if points.shape[1] == 2:
+        points = np.hstack((points, np.zeros((points.shape[0], 1), dtype=np.float64)))
+    return Polyline3D.from_array(alignment.transform_points(points))
+
+
+def _transform_map_object(map_object: BaseMapObject, alignment: NuRecMapAlignment) -> BaseMapObject:
+    """A copy of ``map_object`` with every polyline/outline moved into the aligned frame."""
+    if isinstance(map_object, Lane):
+        return Lane(
+            object_id=map_object.object_id,
+            lane_type=map_object.lane_type,
+            left_boundary=_transform_polyline(map_object.left_boundary, alignment),
+            right_boundary=_transform_polyline(map_object.right_boundary, alignment),
+            centerline=_transform_polyline(map_object.centerline, alignment),
+            lane_group_id=map_object.lane_group_id,
+            left_lane_id=map_object.left_lane_id,
+            right_lane_id=map_object.right_lane_id,
+            predecessor_ids=list(map_object.predecessor_ids),
+            successor_ids=list(map_object.successor_ids),
+            speed_limit_mps=map_object.speed_limit_mps,
+        )
+    if isinstance(map_object, LaneGroup):
+        return LaneGroup(
+            object_id=map_object.object_id,
+            lane_ids=list(map_object.lane_ids),
+            left_boundary=_transform_polyline(map_object.left_boundary, alignment),
+            right_boundary=_transform_polyline(map_object.right_boundary, alignment),
+            intersection_id=map_object.intersection_id,
+            predecessor_ids=list(map_object.predecessor_ids),
+            successor_ids=list(map_object.successor_ids),
+        )
+    if isinstance(map_object, Intersection):
+        return Intersection(
+            object_id=map_object.object_id,
+            intersection_type=map_object.intersection_type,
+            lane_group_ids=list(map_object.lane_group_ids),
+            outline=_transform_polyline(map_object.outline, alignment),
+        )
+    if isinstance(map_object, Crosswalk):
+        return Crosswalk(object_id=map_object.object_id, outline=_transform_polyline(map_object.outline, alignment))
+    if isinstance(map_object, Carpark):
+        return Carpark(object_id=map_object.object_id, outline=_transform_polyline(map_object.outline, alignment))
+    if isinstance(map_object, Walkway):
+        return Walkway(object_id=map_object.object_id, outline=_transform_polyline(map_object.outline, alignment))
+    if isinstance(map_object, GenericDrivable):
+        return GenericDrivable(
+            object_id=map_object.object_id, outline=_transform_polyline(map_object.outline, alignment)
+        )
+    if isinstance(map_object, StopZone):
+        return StopZone(
+            object_id=map_object.object_id,
+            stop_zone_type=map_object.stop_zone_type,
+            outline=_transform_polyline(map_object.outline, alignment),
+            lane_ids=list(map_object.lane_ids),
+        )
+    if isinstance(map_object, SpeedBump):
+        return SpeedBump(
+            object_id=map_object.object_id,
+            outline=_transform_polyline(map_object.outline, alignment),
+            speed_bump_type=map_object.speed_bump_type,
+        )
+    if isinstance(map_object, RoadEdge):
+        return RoadEdge(
+            object_id=map_object.object_id,
+            road_edge_type=map_object.road_edge_type,
+            polyline=_transform_polyline(map_object.polyline, alignment),
+        )
+    if isinstance(map_object, RoadLine):
+        return RoadLine(
+            object_id=map_object.object_id,
+            road_line_type=map_object.road_line_type,
+            polyline=_transform_polyline(map_object.polyline, alignment),
+        )
+    logger.warning("NuRec map alignment: leaving unsupported map object type unaligned: %s", type(map_object).__name__)
+    return map_object
+
+
 class NuRecMapParser(BaseMapParser):
-    """Map parser for one NuRec USDZ scene, built from the MADS clipgt layers.
+    """Map parser for one NuRec USDZ scene.
 
-    Coordinates are already in the clip-local rig frame, so no geo-projection is
-    needed, and polylines are emitted at source resolution.
+    A scene can carry its map in two forms, and ``map_source`` selects which is read:
 
-    The raw lane rails are not re-emitted as road lines: they are already the Lane
-    boundaries, and adjacent lanes share a rail, so every interior boundary would
-    appear twice.
+    - ``"clip_gt"``: the MADS clipgt layers. Coordinates are already in
+      the clip-local rig frame, so no geo-projection is needed, and polylines are
+      emitted at source resolution. The raw lane rails are not re-emitted as road
+      lines: they are already the Lane boundaries, and adjacent lanes share a rail,
+      so every interior boundary would appear twice.
+    - ``"xodr"``: the embedded ``map.xodr`` OpenDRIVE file, converted through
+      py123d's existing OpenDRIVE parser. Since xodr coordinates live in their own
+      geo-projected frame, they are aligned into the clip-local rig frame using
+      ``rig_trajectories.json``'s world<-base ECEF pose (or, optionally, a
+      ``pose_record.json`` sample).
+    - ``"clip_gt_or_xodr"`` (default): prefers ``"clip_gt"``, falling back to
+      ``"xodr"`` when the archive has no clipgt lane/road_boundary layers. Some
+      NuRec scenes (e.g. ~20% of nurec-2601_train) ship ``map.xodr`` only.
+    - ``"xodr_or_clip_gt"``: prefers ``"xodr"``, falling back to ``"clip_gt"``.
+
+    :func:`resolve_map_source` tells which of the two a scene will use. On a scene
+    that carries none of the requested sources, :meth:`iter_map_objects` raises;
+    :class:`~py123d.parser.nurec.nurec_parser.NuRecParser` creates no map parser
+    for such a scene and converts its log without a map.
     """
 
     def __init__(
         self,
-        usdz_path: Optional[Union[str, Path]] = None,
+        usdz_path: Union[str, Path],
         location: str = "",
-        downloader: Optional[NuRecDownloader] = None,
         split: Optional[str] = None,
         log_name: Optional[str] = None,
+        map_source: str = "clip_gt_or_xodr",
+        xodr_member: str = "map.xodr",
+        xodr_interpolation_step_size: float = 1.0,
+        xodr_connection_distance_threshold: float = 0.1,
+        xodr_internal_only: bool = True,
+        alignment_enabled: bool = True,
+        alignment_source: str = "world_base",
+        alignment_rig_member: str = "rig_trajectories.json",
+        alignment_pose_record_member: str = "pose_record.json",
+        alignment_record_index: int = 0,
+        alignment_invert_rotation: bool = True,
+        alignment_xy_origin_m: Optional[Tuple[float, float]] = None,
+        alignment_z_origin: str = "world_base_altitude",
+        alignment_z_origin_m: Optional[float] = None,
     ) -> None:
-        self._usdz_path = Path(usdz_path) if usdz_path is not None else None
+        if map_source not in NUREC_MAP_SOURCES:
+            raise ValueError(f"Unsupported NuRec map_source: {map_source!r}. Use one of {NUREC_MAP_SOURCES}.")
+        if alignment_source not in ("world_base", "pose_record"):
+            raise ValueError(
+                f"Unsupported NuRec map alignment source: {alignment_source!r}. Use 'world_base' or 'pose_record'."
+            )
+        self._usdz_path = Path(usdz_path)
         self._location = location
-        self._downloader = downloader
         self._split = split
         self._log_name = log_name
-
-    @contextlib.contextmanager
-    def _resolved_usdz(self) -> Generator[Path, None, None]:
-        """Yields the USDZ path, downloading to a temp dir in streaming mode."""
-        if self._downloader is None:
-            assert self._usdz_path is not None
-            yield self._usdz_path
-            return
-        with tempfile.TemporaryDirectory(prefix=f"nurec_{self._location}_map_") as tmp:
-            sequence_root = self._downloader.download_single_sequence(
-                sequence_id=self._location,
-                output_dir=Path(tmp),
-            )
-            yield sequence_root / f"{self._location}.usdz"
+        self._map_source = map_source
+        self._xodr_member = xodr_member
+        self._xodr_interpolation_step_size = xodr_interpolation_step_size
+        self._xodr_connection_distance_threshold = xodr_connection_distance_threshold
+        self._xodr_internal_only = xodr_internal_only
+        self._alignment_enabled = alignment_enabled
+        self._alignment_source = alignment_source
+        self._alignment_rig_member = alignment_rig_member
+        self._alignment_pose_record_member = alignment_pose_record_member
+        self._alignment_record_index = alignment_record_index
+        self._alignment_invert_rotation = alignment_invert_rotation
+        self._alignment_xy_origin_m = alignment_xy_origin_m
+        self._alignment_z_origin = alignment_z_origin
+        self._alignment_z_origin_m = alignment_z_origin_m
 
     @override
     def get_map_metadata(self) -> MapMetadata:
@@ -198,6 +597,9 @@ class NuRecMapParser(BaseMapParser):
             objects = association.get("objects")
             if subjects is None or objects is None:
                 continue
+            if kind not in _KNOWN_ASSOCIATION_KINDS:
+                relations.unknown_kinds[str(kind)] = relations.unknown_kinds.get(str(kind), 0) + 1
+                continue
             for subject in subjects:
                 for obj in objects:
                     if subject == obj:
@@ -225,30 +627,120 @@ class NuRecMapParser(BaseMapParser):
                     elif kind == "SIGN_TO_LANE":
                         relations.sign_lanes.setdefault(subject, set()).add(obj)
                         relations.sign_lanes.setdefault(obj, set()).add(subject)
+        if relations.unknown_kinds:
+            logger.warning(
+                "NuRec map %s: dropped %d association rows with an unrecognised kind %s",
+                self._location,
+                sum(relations.unknown_kinds.values()),
+                sorted(relations.unknown_kinds),
+            )
         return relations
 
     @override
     def iter_map_objects(self) -> Iterator[BaseMapObject]:
         """Inherited, see superclass."""
-        with self._resolved_usdz() as usdz_path, ZipFile(usdz_path) as archive:
-            if not _has_clipgt_layers(set(archive.namelist())):
-                raise ValueError(
-                    f"NuRec map {self._location}: no clipgt map layers, which are the only map source supported"
+        # The archive is opened once and reused for whichever source is taken.
+        with ZipFile(self._usdz_path) as archive:
+            member_names = set(archive.namelist())
+            source = resolve_map_source(member_names, self._map_source, self._xodr_member)
+            if source is None:
+                raise self._missing_map_source_error(member_names)
+            preferred_source = _MAP_SOURCE_PREFERENCES[self._map_source][0]
+            if source != preferred_source:
+                # E.g. ~20% of nurec-2601_train ships map.xodr only.
+                logger.info(
+                    "NuRec map %s: map_source=%r but archive has no %s source; falling back to %s",
+                    self._location,
+                    self._map_source,
+                    preferred_source,
+                    source,
                 )
-            lane_rows = self._read_layer_rows(archive, "lane")
-            boundaries = self._read_layer(archive, "road_boundary")
-            relations = self._read_associations(archive)
-            crosswalks = self._read_layer(archive, "crosswalk")
-            gore_areas = self._read_layer(archive, "gore_area")
-            road_islands = self._read_layer(archive, "road_island")
-            wait_line_rows = self._read_layer_rows(archive, "wait_line")
-            lane_lines = self._read_layer(archive, "lane_line")
-            intersection_rows = self._read_layer_rows(archive, "intersection_area")
-            sign_categories = {
-                map_id: sign.get("category")
-                for map_id, sign in self._read_layer_rows(archive, "traffic_sign")
-                if map_id is not None
-            }
+            if source == "clip_gt":
+                yield from self._iter_map_objects_clip_gt(archive)
+            else:
+                yield from self._iter_map_objects_xodr(archive)
+
+    def _missing_map_source_error(self, member_names: Set[str]) -> ValueError:
+        """Error for an archive that carries none of the sources ``map_source`` asks for."""
+        requested_sources = _MAP_SOURCE_PREFERENCES[self._map_source]
+        missing: List[str] = []
+        if "clip_gt" in requested_sources:
+            clipgt_members = sorted(
+                name.removeprefix("clipgt/").removesuffix(".parquet")
+                for name in member_names
+                if name.startswith("clipgt/")
+            )
+            missing.append(f"the required 'lane'/'road_boundary' clipgt layers (available: {clipgt_members})")
+        if "xodr" in requested_sources:
+            missing.append(f"a {self._xodr_member!r} member")
+        return ValueError(
+            f"NuRec map {self._location}: map_source={self._map_source!r} but the archive is missing "
+            + " and ".join(missing)
+        )
+
+    def _iter_map_objects_xodr(self, archive: ZipFile) -> Iterator[BaseMapObject]:
+        """Map objects from the embedded map.xodr, aligned into the clip-local rig frame."""
+        xodr_bytes = archive.read(self._xodr_member)
+        alignment = self._load_alignment(archive) if self._alignment_enabled else None
+
+        with tempfile.NamedTemporaryFile(suffix=".xodr", delete=False) as tmp_file:
+            tmp_file.write(xodr_bytes)
+            tmp_path = Path(tmp_file.name)
+        try:
+            for map_object in iter_xodr_map_objects(
+                xodr_file=tmp_path,
+                interpolation_step_size=self._xodr_interpolation_step_size,
+                connection_distance_threshold=self._xodr_connection_distance_threshold,
+                internal_only=self._xodr_internal_only,
+            ):
+                yield _transform_map_object(map_object, alignment) if alignment is not None else map_object
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def _load_alignment(self, archive: ZipFile) -> NuRecMapAlignment:
+        geo_origin = _read_xodr_geo_origin(archive, self._xodr_member)
+        if self._alignment_source == "world_base":
+            return _load_world_base_map_alignment(
+                archive=archive,
+                geo_origin=geo_origin,
+                rig_member=self._alignment_rig_member,
+                xy_origin_m=self._alignment_xy_origin_m,
+                z_origin=self._alignment_z_origin,
+                z_origin_m=self._alignment_z_origin_m,
+                location=self._location,
+            )
+        if self._alignment_source == "pose_record":
+            return _load_pose_record_map_alignment(
+                archive=archive,
+                geo_origin=geo_origin,
+                pose_record_member=self._alignment_pose_record_member,
+                record_index=self._alignment_record_index,
+                invert_rotation=self._alignment_invert_rotation,
+                xy_origin_m=self._alignment_xy_origin_m,
+                z_origin=self._alignment_z_origin,
+                z_origin_m=self._alignment_z_origin_m,
+                location=self._location,
+            )
+        raise ValueError(
+            f"Unsupported NuRec map alignment source: {self._alignment_source!r}. Use 'world_base' or 'pose_record'."
+        )
+
+    def _iter_map_objects_clip_gt(self, archive: ZipFile) -> Iterator[BaseMapObject]:
+        """Map objects from the clipgt MADS layers of an archive that carries them."""
+        lane_rows = self._read_layer_rows(archive, "lane")
+        boundaries = self._read_layer(archive, "road_boundary")
+        relations = self._read_associations(archive)
+        crosswalks = self._read_layer(archive, "crosswalk")
+        gore_areas = self._read_layer(archive, "gore_area")
+        road_islands = self._read_layer(archive, "road_island")
+        wait_line_rows = self._read_layer_rows(archive, "wait_line")
+        lane_lines = self._read_layer(archive, "lane_line")
+        intersection_rows = self._read_layer_rows(archive, "intersection_area")
+        sign_categories = {
+            map_id: sign.get("category")
+            for map_id, sign in self._read_layer_rows(archive, "traffic_sign")
+            if map_id is not None
+        }
 
         next_id = 0
 
@@ -426,16 +918,31 @@ class NuRecMapParser(BaseMapParser):
                 sorted(unknown_subtypes),
             )
 
+        unknown_line_styles: Dict[str, int] = {}
         for lane_line in lane_lines:
             pts = _mads_points_xyz(lane_line, "line_rail")
             if pts is None or len(pts) < 2:
                 continue
+            road_line_type = _mads_road_line_type(lane_line)
+            if road_line_type == RoadLineType.UNKNOWN:
+                styles_raw = lane_line.get("styles")
+                if styles_raw is not None and len(styles_raw) > 0:
+                    majority_style = max(set(styles_raw), key=list(styles_raw).count)
+                    unknown_line_styles[str(majority_style)] = unknown_line_styles.get(str(majority_style), 0) + 1
             yield RoadLine(
                 object_id=next_id,
-                road_line_type=_mads_road_line_type(lane_line),
+                road_line_type=road_line_type,
                 polyline=Polyline3D.from_array(pts),
             )
             next_id += 1
+
+        if unknown_line_styles:
+            logger.warning(
+                "NuRec map %s: %d lane lines had an unrecognised style %s",
+                self._location,
+                sum(unknown_line_styles.values()),
+                sorted(unknown_line_styles),
+            )
 
         for map_id, area in intersection_rows:
             pts = _mads_points_xyz(area, "location")

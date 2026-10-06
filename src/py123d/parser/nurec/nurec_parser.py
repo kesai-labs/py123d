@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import bisect
-import contextlib
+import concurrent.futures
 import io
 import json
 import logging
+import random
 import tempfile
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Generator, Iterator, List, Optional, Tuple, Union
-from zipfile import ZipFile
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from zipfile import BadZipFile, ZipFile
 
 import numpy as np
 import pandas as pd
@@ -30,7 +32,20 @@ from py123d.datatypes import (
 from py123d.geometry import BoundingBoxSE3, PoseSE3, Vector3D
 from py123d.parser.base_dataset_parser import BaseDatasetParser, BaseLogParser, BaseMapParser, ModalitiesSync
 from py123d.parser.nurec.nurec_download import NuRecDownloader
-from py123d.parser.nurec.nurec_map_parser import NuRecMapParser, _clipgt_member
+from py123d.parser.nurec.nurec_map_parser import (
+    NUREC_MAP_SOURCES,
+    NuRecMapParser,
+    _clipgt_member,
+    resolve_map_source,
+)
+from py123d.parser.nurec.nurec_splits import (
+    NUREC_DEFAULT_SPLITS,
+    NUREC_RELEASE_SPLITS,
+    release_from_path,
+    resolve_scene_lists,
+    scenes_of_split,
+    validate_splits,
+)
 from py123d.parser.registry import PhysicalAIAVBoxDetectionLabel
 
 check_dependencies(["csaps"], "nurec")
@@ -80,89 +95,267 @@ class _NuRecTrack:
     timestamps_us: List[int]
 
 
+@dataclass(frozen=True)
+class _NuRecScene:
+    """One scene selected for conversion."""
+
+    usdz_path: Path
+    split: str
+    has_map: bool
+
+    @property
+    def name(self) -> str:
+        return self.usdz_path.stem
+
+
+_NUREC_LAYOUT_HINT = (
+    "Scenes are expected at '<nurec_root>/**/<release>_release/<scene uuid>/<scene uuid>.usdz', "
+    "as written by `py123d-download dataset=nurec-<...>`."
+)
+
+
 class NuRecParser(BaseDatasetParser):
     """Dataset parser for NuRec USDZ archives.
 
-    Each scene converts into one map from the clipgt layers and one log with ego
-    states and tracked SE3 cuboids, resampled onto a uniform 10 Hz grid.
+    Each scene converts into one log with ego states and tracked SE3 cuboids, resampled
+    onto a uniform 10 Hz grid, and into one map. A scene that carries none of the map
+    sources requested by ``map_source`` converts into a log without a map.
+
+    The scenes to convert are selected by split. ``nurec-curated_train`` and
+    ``nurec-curated_val`` (the default) are lists of named scenes, see ``scene_lists``.
+    ``nurec-2601_train`` and ``nurec-2604_train`` each cover every scene of one release.
+
+    Scenes are found below ``nurec_root`` by release and uuid, in the layout of the
+    Hugging Face dataset: ``<release>_release/<scene uuid>/<scene uuid>.usdz``.
     """
 
     def __init__(
         self,
-        nurec_root: Optional[Union[str, Path]] = None,
+        nurec_root: Optional[Union[str, Path, Sequence[Union[str, Path]]]] = None,
         num_sequences: Optional[int] = None,
         sample_random: bool = False,
         seed: int = 0,
-        split: str = "nurec_train",
+        splits: Optional[List[str]] = None,
+        scene_lists: Optional[Dict[str, List[str]]] = None,
         min_traffic_duration_us: int = 0,
         smooth_track_positions: bool = False,
         downloader: Optional[NuRecDownloader] = None,
+        map_source: str = "clip_gt_or_xodr",
+        xodr_member: str = "map.xodr",
+        xodr_interpolation_step_size: float = 1.0,
+        xodr_connection_distance_threshold: float = 0.1,
+        xodr_internal_only: bool = True,
+        alignment_enabled: bool = True,
+        alignment_source: str = "world_base",
+        alignment_rig_member: str = "rig_trajectories.json",
+        alignment_pose_record_member: str = "pose_record.json",
+        alignment_record_index: int = 0,
+        alignment_invert_rotation: bool = True,
+        alignment_xy_origin_m: Optional[Tuple[float, float]] = None,
+        alignment_z_origin: str = "world_base_altitude",
+        alignment_z_origin_m: Optional[float] = None,
     ) -> None:
+        """Initializes the NuRec parser.
+
+        :param nurec_root: Directory, or list of directories, holding the downloaded releases.
+            Ignored when ``downloader`` is set.
+        :param num_sequences: Converts at most this many scenes per split.
+        :param sample_random: Picks the ``num_sequences`` scenes at random instead of the first ones.
+        :param seed: Random seed used when ``sample_random`` is set.
+        :param splits: Splits to convert, defaults to ``nurec-curated_train`` and ``nurec-curated_val``.
+        :param scene_lists: Mapping of split name to scene names, each ``"<release>/<scene uuid>"``.
+            Defaults to the bundled train/val lists.
+        :param min_traffic_duration_us: Drops tracks living shorter than this inside the scene window.
+        :param smooth_track_positions: Smooths track positions with a cubic smoothing spline.
+        :param downloader: Streams the scenes from Hugging Face instead of reading ``nurec_root``. It
+            fetches the scenes selected by ``splits``, ``num_sequences``, ``sample_random`` and ``seed``,
+            narrowed down by its own ``sequence_ids``, into a temporary directory.
+        :param map_source: Which map a scene is converted from, see :class:`NuRecMapParser`. The
+            ``xodr_*`` and ``alignment_*`` options are forwarded to it as well.
+        """
+        self._scene_lists = resolve_scene_lists(scene_lists)
+        self._splits = validate_splits(splits if splits is not None else NUREC_DEFAULT_SPLITS, self._scene_lists)
+        if map_source not in NUREC_MAP_SOURCES:
+            raise ValueError(f"Unsupported NuRec map_source: {map_source!r}. Use one of {NUREC_MAP_SOURCES}.")
         self._num_sequences = num_sequences
-        self._split = split
+        self._sample_random = sample_random
+        self._seed = seed
         self._min_traffic_duration_us = min_traffic_duration_us
         self._smooth_track_positions = smooth_track_positions
         self._downloader = downloader
+        self._map_source = map_source
+        self._xodr_member = xodr_member
+        # Forwarded verbatim to every NuRecMapParser; see its docstring for what each controls.
+        self._map_parser_kwargs: Dict[str, object] = dict(
+            map_source=map_source,
+            xodr_member=xodr_member,
+            xodr_interpolation_step_size=xodr_interpolation_step_size,
+            xodr_connection_distance_threshold=xodr_connection_distance_threshold,
+            xodr_internal_only=xodr_internal_only,
+            alignment_enabled=alignment_enabled,
+            alignment_source=alignment_source,
+            alignment_rig_member=alignment_rig_member,
+            alignment_pose_record_member=alignment_pose_record_member,
+            alignment_record_index=alignment_record_index,
+            alignment_invert_rotation=alignment_invert_rotation,
+            alignment_xy_origin_m=alignment_xy_origin_m,
+            alignment_z_origin=alignment_z_origin,
+            alignment_z_origin_m=alignment_z_origin_m,
+        )
 
         if downloader is not None:
-            self._nurec_root = None
+            # The downloader fetches the scenes this parser converts.
+            downloader.splits = self._splits
+            downloader.scene_lists = self._scene_lists
             if num_sequences is not None:
-                downloader._num_sequences = num_sequences
+                downloader.num_sequences = num_sequences
             if sample_random:
-                downloader._sample_random = sample_random
-                downloader._seed = seed
-            self._sequence_ids: Optional[List[str]] = downloader.resolve_sequence_ids()
-            self._usdz_paths: Optional[List[Path]] = None
+                downloader.sample_random = sample_random
+                downloader.seed = seed
+            if downloader.output_dir is None:
+                self._tmp_dir = tempfile.TemporaryDirectory(prefix="nurec_streaming_")
+                downloader.output_dir = Path(self._tmp_dir.name)
+            downloader.download()
+            # The downloaded files keep the release layout, so they are selected like local ones.
+            roots = [Path(downloader.output_dir)]
         else:
             assert nurec_root is not None, "`nurec_root` must be provided when `downloader` is None."
-            self._nurec_root = Path(nurec_root)
-            self._sequence_ids = None
-            self._usdz_paths = self._discover_usdz_maps()
+            roots = [Path(nurec_root)] if isinstance(nurec_root, (str, Path)) else [Path(root) for root in nurec_root]
+
+        self._scenes: List[_NuRecScene] = self._select_scenes(roots)
 
     @override
     def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
-        if self._downloader is not None:
-            return [
-                NuRecMapParser(location=seq_id, downloader=self._downloader, split=self._split, log_name=seq_id)
-                for seq_id in (self._sequence_ids or [])
-            ]
         return [
-            NuRecMapParser(usdz_path=usdz_path, location=usdz_path.stem, split=self._split, log_name=usdz_path.stem)
-            for usdz_path in (self._usdz_paths or [])
+            NuRecMapParser(
+                usdz_path=scene.usdz_path,
+                location=scene.name,
+                split=scene.split,
+                log_name=scene.name,
+                **self._map_parser_kwargs,
+            )
+            for scene in self._scenes
+            if scene.has_map
         ]
 
     @override
     def get_log_parsers(self) -> List[BaseLogParser]:
         """Inherited, see superclass."""
-        if self._downloader is not None:
-            return [
-                NuRecLogParser(
-                    sequence_id=seq_id,
-                    split=self._split,
-                    min_traffic_duration_us=self._min_traffic_duration_us,
-                    smooth_track_positions=self._smooth_track_positions,
-                    downloader=self._downloader,
-                )
-                for seq_id in (self._sequence_ids or [])
-            ]
         return [
             NuRecLogParser(
-                usdz_path=usdz_path,
-                split=self._split,
+                usdz_path=scene.usdz_path,
+                split=scene.split,
                 min_traffic_duration_us=self._min_traffic_duration_us,
                 smooth_track_positions=self._smooth_track_positions,
+                has_map=scene.has_map,
             )
-            for usdz_path in (self._usdz_paths or [])
+            for scene in self._scenes
         ]
 
-    def _discover_usdz_maps(self) -> List[Path]:
-        assert self._nurec_root is not None
-        all_usdzs_root = self._nurec_root / "all-usdzs"
-        if not all_usdzs_root.is_dir():
-            raise FileNotFoundError(f"NuRec all-usdzs directory not found: {all_usdzs_root}")
-        usdz_paths = sorted(all_usdzs_root.glob("*.usdz"))
-        return usdz_paths if self._num_sequences is None else usdz_paths[: self._num_sequences]
+    def _select_scenes(self, roots: List[Path]) -> List[_NuRecScene]:
+        """Collects the scenes of the requested splits that are present below ``roots``."""
+        usdz_by_scene = self._discover_usdz(roots)
+
+        selected: List[Tuple[str, Path]] = []
+        for split in self._splits:
+            if split in NUREC_RELEASE_SPLITS:
+                release = NUREC_RELEASE_SPLITS[split]
+                usdz_paths = [
+                    usdz_path
+                    for (scene_release, _), usdz_path in sorted(usdz_by_scene.items())
+                    if scene_release == release
+                ]
+            else:
+                scenes = scenes_of_split(split, self._scene_lists)
+                usdz_paths = [usdz_by_scene[scene] for scene in scenes if scene in usdz_by_scene]
+                # A streaming downloader may fetch only some of the listed scenes on purpose.
+                if len(usdz_paths) < len(scenes) and self._downloader is None:
+                    logger.warning(
+                        "NuRec split %s: %d of %d listed scene(s) not found under %s",
+                        split,
+                        len(scenes) - len(usdz_paths),
+                        len(scenes),
+                        [str(root) for root in roots],
+                    )
+            usdz_paths = self._limit_sequences(usdz_paths)
+            logger.info("NuRec split %s: %d scene(s) selected", split, len(usdz_paths))
+            selected.extend((split, usdz_path) for usdz_path in usdz_paths)
+
+        if not selected:
+            raise FileNotFoundError(
+                f"No NuRec scenes found for splits {self._splits} under {[str(root) for root in roots]} "
+                f"(releases found: {sorted({release for release, _ in usdz_by_scene})}). {_NUREC_LAYOUT_HINT}"
+            )
+
+        map_sources = self._resolve_map_sources([usdz_path for _, usdz_path in selected])
+        return [
+            _NuRecScene(usdz_path=usdz_path, split=split, has_map=map_sources[usdz_path] is not None)
+            for split, usdz_path in selected
+        ]
+
+    def _discover_usdz(self, roots: List[Path]) -> Dict[Tuple[str, str], Path]:
+        """Indexes the .usdz files below ``roots`` by (release, scene uuid)."""
+        usdz_by_scene: Dict[Tuple[str, str], Path] = {}
+        num_without_release = 0
+        for root in roots:
+            if not root.is_dir():
+                raise FileNotFoundError(f"NuRec root directory not found: {root}")
+            for usdz_path in sorted(root.rglob("*.usdz")):
+                release = release_from_path(usdz_path)
+                if release is None:
+                    num_without_release += 1
+                else:
+                    usdz_by_scene.setdefault((release, usdz_path.stem), usdz_path)
+
+        if num_without_release > 0:
+            logger.warning(
+                "NuRec: ignoring %d .usdz file(s) under %s that are not inside a '<release>_release' directory. %s",
+                num_without_release,
+                [str(root) for root in roots],
+                _NUREC_LAYOUT_HINT,
+            )
+        logger.info(
+            "NuRec: discovered %d .usdz file(s) under %s, by release: %s",
+            len(usdz_by_scene),
+            [str(root) for root in roots],
+            dict(sorted(Counter(release for release, _ in usdz_by_scene).items())),
+        )
+        return usdz_by_scene
+
+    def _limit_sequences(self, usdz_paths: List[Path]) -> List[Path]:
+        """Applies ``num_sequences`` to the scenes of one split."""
+        if self._num_sequences is None or self._num_sequences >= len(usdz_paths):
+            return usdz_paths
+        if self._sample_random:
+            return sorted(random.Random(self._seed).sample(usdz_paths, self._num_sequences))
+        return usdz_paths[: self._num_sequences]
+
+    def _resolve_map_sources(self, usdz_paths: List[Path]) -> Dict[Path, Optional[str]]:
+        """Reads from each archive which map source it will be converted from, if any."""
+        unique_usdz_paths = list(dict.fromkeys(usdz_paths))
+
+        def _resolve(usdz_path: Path) -> Optional[str]:
+            try:
+                with ZipFile(usdz_path) as archive:
+                    return resolve_map_source(set(archive.namelist()), self._map_source, self._xodr_member)
+            except (OSError, BadZipFile) as error:
+                logger.warning("NuRec scene %s: could not read %s (%s)", usdz_path.stem, usdz_path, error)
+                return None
+
+        # Only the archive's member list is read, which is quick but worth doing in parallel.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+            map_sources = dict(zip(unique_usdz_paths, pool.map(_resolve, unique_usdz_paths)))
+
+        counts = Counter(map_sources.values())
+        logger.info(
+            "NuRec maps (map_source=%s): %d from clip_gt, %d from xodr, %d scene(s) without a map",
+            self._map_source,
+            counts["clip_gt"],
+            counts["xodr"],
+            counts[None],
+        )
+        return map_sources
 
 
 class NuRecLogParser(BaseLogParser):
@@ -170,71 +363,53 @@ class NuRecLogParser(BaseLogParser):
 
     def __init__(
         self,
-        usdz_path: Optional[Union[str, Path]] = None,
-        sequence_id: Optional[str] = None,
-        split: str = "nurec_train",
+        usdz_path: Union[str, Path],
+        split: str = "nurec-curated_train",
         min_traffic_duration_us: int = 0,
         smooth_track_positions: bool = False,
-        downloader: Optional[NuRecDownloader] = None,
+        has_map: bool = True,
     ) -> None:
-        self._usdz_path = Path(usdz_path) if usdz_path is not None else None
-        self._sequence_id = sequence_id
-        self._downloader = downloader
+        self._usdz_path = Path(usdz_path)
         self._split = split
+        # False for a scene that carries none of the requested map sources.
+        self._has_map = has_map
         self._smooth_track_positions = smooth_track_positions
         # AlpaSim drops tracks shorter than this within the scene window; 0 keeps all.
         self._min_traffic_duration_us = min_traffic_duration_us
 
     @property
     def _uuid(self) -> str:
-        if self._usdz_path is not None:
-            return self._usdz_path.stem
-        assert self._sequence_id is not None
-        return self._sequence_id
-
-    @contextlib.contextmanager
-    def _resolved_usdz(self) -> Generator[Path, None, None]:
-        """Yields the USDZ path, downloading to a temp dir in streaming mode."""
-        if self._downloader is None:
-            assert self._usdz_path is not None
-            yield self._usdz_path
-            return
-        with tempfile.TemporaryDirectory(prefix=f"nurec_{self._sequence_id}_") as tmp:
-            tmp_root = Path(tmp)
-            logger.info("Streaming NuRec sequence %s to %s", self._sequence_id, tmp_root)
-            sequence_root = self._downloader.download_single_sequence(
-                sequence_id=self._sequence_id,  # type: ignore[arg-type]
-                output_dir=tmp_root,
-            )
-            yield sequence_root / f"{self._sequence_id}.usdz"
+        return self._usdz_path.stem
 
     @override
     def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
-        return LogMetadata(
-            dataset="nurec",
-            split=self._split,
-            log_name=self._uuid,
-            location=self._uuid,
-            map_metadata=MapMetadata(
+        map_metadata: Optional[MapMetadata] = None
+        if self._has_map:
+            map_metadata = MapMetadata(
                 dataset="nurec",
                 location=self._uuid,
                 split=self._split,
                 log_name=self._uuid,
                 map_has_z=True,
                 map_is_per_log=True,
-            ),
+            )
+        return LogMetadata(
+            dataset="nurec",
+            split=self._split,
+            log_name=self._uuid,
+            location=self._uuid,
+            map_metadata=map_metadata,
         )
 
     @override
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Inherited, see superclass."""
-        with self._resolved_usdz() as usdz_path:
-            with ZipFile(usdz_path) as archive:
-                rig_root = json.loads(archive.read("rig_trajectories.json"))
-                tracks_root = json.loads(archive.read("sequence_tracks.json"))
-                bbox_length_m = float(rig_root["rig_trajectories"][0]["rig_bbox"]["dim"][0])
-                wheel_base_m = _rig_wheel_base_m(archive, bbox_length_m)
+        with ZipFile(self._usdz_path) as archive:
+            rig_root = _read_required_json_member(archive, "rig_trajectories.json", self._uuid)
+            tracks_root = _read_required_json_member(archive, "sequence_tracks.json", self._uuid)
+            bbox_length_m = float(rig_root["rig_trajectories"][0]["rig_bbox"]["dim"][0])
+            wheel_base_m = _rig_wheel_base_m(archive, bbox_length_m, self._uuid)
 
         # One clip is one vehicle's drive, so the single rig trajectory is the ego.
         rig_trajectories = rig_root["rig_trajectories"]
@@ -289,6 +464,19 @@ class NuRecLogParser(BaseLogParser):
             )
 
 
+def _read_required_json_member(archive: ZipFile, member: str, uuid: str) -> Dict:
+    """JSON payload of a required USDZ member.
+
+    Raises a message naming the scene and member, instead of a bare zipfile
+    ``KeyError``, so a batch run's logs are triageable across many scenes.
+    """
+    try:
+        payload = archive.read(member)
+    except KeyError:
+        raise ValueError(f"NuRec scene {uuid}: archive has no required member {member!r}") from None
+    return json.loads(payload)
+
+
 def _uniform_grid_us(rig_timestamps_us: List[int]) -> List[int]:
     """Uniform 10 Hz frame timestamps spanning the rig trajectory.
 
@@ -302,18 +490,27 @@ def _uniform_grid_us(rig_timestamps_us: List[int]) -> List[int]:
     return [t0_us + step * step_us for step in range(num_steps)]
 
 
-def _rig_wheel_base_m(archive: ZipFile, bbox_length_m: float) -> float:
+def _rig_wheel_base_m(archive: ZipFile, bbox_length_m: float, uuid: str) -> float:
     """Wheel base resolved in priority order:
 
     1. calibration_estimate vehicle block (26.04 branch) — exact axle positions.
     2. calibration_estimate rig.properties.platform_name (26.04 fallback) — table lookup.
     3. Nearest-neighbour on bbox_length_m (main branch) — table lookup.
     4. Hard constant fallback.
+
+    Steps 1-2 are skipped (falling through to 3-4) when calibration_estimate.parquet
+    is absent or malformed. It is absent in scenes that ship no clipgt layers at all.
     """
-    frame = pd.read_parquet(io.BytesIO(archive.read(_clipgt_member("calibration_estimate"))))
-    cal_row = frame["calibration_estimate"].iloc[0]
-    rig_json_raw = cal_row["rig_json"] if "rig_json" in cal_row else cal_row
-    rig = (json.loads(rig_json_raw) if isinstance(rig_json_raw, str) else rig_json_raw).get("rig", {})
+    rig: Dict = {}
+    try:
+        frame = pd.read_parquet(io.BytesIO(archive.read(_clipgt_member("calibration_estimate"))))
+        cal_row = frame["calibration_estimate"].iloc[0]
+        rig_json_raw = cal_row["rig_json"] if "rig_json" in cal_row else cal_row
+        rig = (json.loads(rig_json_raw) if isinstance(rig_json_raw, str) else rig_json_raw).get("rig", {})
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        logger.warning(
+            "NuRec %s: could not read calibration_estimate (%s); falling back to platform/bbox lookup", uuid, e
+        )
 
     vehicle_entry = rig.get("vehicle")
     if vehicle_entry is not None:

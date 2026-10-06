@@ -1,0 +1,9 @@
+defaults:
+  - nurec-curated
+  - _self_
+
+# Downloads every scene of release 26.01. All other options are those of dataset=nurec-curated.
+# Sidecar camera MP4s of this release follow a different naming scheme (`_rgb.mp4` /
+# `_hdmap.mp4` suffixes) than the downloader's camera names, so they stay disabled.
+downloader:
+  splits: [nurec-2601_train]

@@ -1,0 +1,30 @@
+# Downloads the nurec-curated_train / nurec-curated_val scenes: the train and validation
+# scenes curated for the AlpaSim E2E challenge, drawn from releases 26.01 and 26.04.
+# They are named in py123d/parser/nurec/nurec_curated_splits.yaml.
+
+downloader:
+  _target_: py123d.parser.nurec.nurec_download.NuRecDownloader
+  _convert_: 'all'
+
+  # Destination. Defaults to $NUREC_DATA_ROOT (set via default_dataset_paths.yaml).
+  # Scenes land at <output_dir>/sample_set/<release>_release/<scene uuid>/<scene uuid>.usdz
+  output_dir: ${dataset_paths.nurec_data_root}
+
+  hf_repo_id: nvidia/PhysicalAI-Autonomous-Vehicles-NuRec
+  hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+  # Splits to download. Each release they draw from is fetched from its own branch.
+  splits: [nurec-curated_train, nurec-curated_val]
+
+  # Selection within the splits — mutually exclusive. When neither is set, every scene is downloaded.
+  sequence_ids: null        # explicit list of scene UUIDs
+  num_sequences: null       # first N scenes per split, or N random if sample_random=true
+  sample_random: false
+  seed: 0
+
+  cameras: null             # null = all 7 sidecar cameras
+  include_usdz: true        # download the USDZ package per sequence
+  include_sidecars: false   # sidecar camera MP4 files; not needed for conversion
+
+  max_workers: 4
+  dry_run: false

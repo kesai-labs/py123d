@@ -1,0 +1,8 @@
+defaults:
+  - nurec-curated-stream
+  - _self_
+
+# Streaming variant of dataset=nurec-2604: every scene of release 26.04, into the split
+# nurec-2604_train. All other options are those of dataset=nurec-curated-stream.
+parser:
+  splits: [nurec-2604_train]

@@ -1,0 +1,82 @@
+# Converts the nurec-curated_train / nurec-curated_val scenes: the train and validation
+# scenes curated for the AlpaSim E2E challenge, drawn from releases 26.01 and 26.04.
+# They are named in py123d/parser/nurec/nurec_curated_splits.yaml.
+
+parser:
+  _target_: py123d.parser.nurec.nurec_parser.NuRecParser
+  _convert_: 'all'
+
+  # Directory holding the downloaded releases, laid out as on Hugging Face:
+  #   <nurec_root>/sample_set/<release>_release/<scene uuid>/<scene uuid>.usdz
+  # `py123d-download dataset=nurec-curated` writes this layout. A list of directories works too.
+  nurec_root: ${dataset_paths.nurec_data_root}
+
+  # Splits to convert; logs land in logs_root/<split>/<scene uuid>/.
+  # A named scene that is not on disk is skipped with a warning.
+  splits: [nurec-curated_train, nurec-curated_val]
+
+  num_sequences: null     # convert at most this many scenes per split
+  sample_random: false    # pick them at random instead of taking the first ones
+  seed: 0
+
+  # AlpaSim replays a scene with smoothed tracks and without short-lived ones. For the
+  # world AlpaSim replays, rather than the scene as recorded, set
+  # min_traffic_duration_us=3000000 and smooth_track_positions=true.
+  min_traffic_duration_us: 0      # drop tracks living shorter than this in the scene window
+  smooth_track_positions: false   # smooth track positions with a cubic smoothing spline
+
+  # Map source. A scene can carry its map as MADS clipgt/*.parquet layers and as an
+  # embedded OpenDRIVE file (map.xodr).
+  #   clip_gt           clipgt layers. They need no geo-alignment and are the more refined
+  #                     implementation (lane-group ordering, light/sign-based stop-zone typing).
+  #   xodr              map.xodr, aligned into the clip-local rig frame (see below).
+  #   clip_gt_or_xodr   clipgt, falling back to map.xodr (~20% of release 26.01 ships no clipgt).
+  #   xodr_or_clip_gt   map.xodr, falling back to clipgt.
+  # A scene that carries none of the requested sources is converted without a map.
+  # A map written by an earlier conversion is not removed, so convert into a fresh
+  # PY123D_DATA_ROOT when changing this for scenes that were already converted.
+  map_source: clip_gt_or_xodr
+  xodr_member: map.xodr
+  xodr_interpolation_step_size: 1.0
+  xodr_connection_distance_threshold: 0.1
+  xodr_internal_only: true
+
+  # Only used when the map is read from map.xodr. 'world_base' derives the alignment
+  # from rig_trajectories.json's world<-base ECEF pose. 'pose_record' instead anchors
+  # on one pose_record.json sample.
+  alignment_enabled: true
+  alignment_source: world_base
+  alignment_rig_member: rig_trajectories.json
+  alignment_pose_record_member: pose_record.json
+  alignment_record_index: 0
+  alignment_invert_rotation: true
+  alignment_xy_origin_m: null
+  alignment_z_origin: world_base_altitude
+  alignment_z_origin_m: null
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

@@ -226,8 +226,12 @@ def _update_connection_from_junctions(
 
     for junction_idx, junction in junction_dict.items():
         for connection in junction.connections:
-            incoming_road = road_dict[connection.incoming_road]
-            connecting_road = road_dict[connection.connecting_road]
+            # Connections may reference roads that are not part of the map (e.g. clipped maps).
+            try:
+                incoming_road = road_dict[connection.incoming_road]
+                connecting_road = road_dict[connection.connecting_road]
+            except KeyError:
+                continue
 
             for lane_link in connection.lane_links:
                 incoming_lane_id: Optional[str] = None
