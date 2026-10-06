@@ -42,19 +42,13 @@ class MapLayer(SerialIntEnum):
     SPEED_BUMP = 10
     """Speed bumps (surface)."""
 
-    SHOULDER = 11
-    """Shoulders (surface)."""
-
-    NONE_LANE = 12
-    """Lanes of OpenDRIVE type none or restricted: non-drivable filler surface (surface)."""
-
 
 class LaneType(SerialIntEnum):
     """Enum for different lane types.
 
     Notes
     -----
-    The lane types follow the Waymo specification [1]_.
+    The lane types follow the Waymo specification [1]_, extended by a shoulder type.
 
     References
     ----------
@@ -76,6 +70,9 @@ class LaneType(SerialIntEnum):
 
     BUS_LANE = 4
     """Bus lane type."""
+
+    SHOULDER = 5
+    """Shoulder lane type, adjacent to regular lanes and may or may not be drivable, depending on the dataset."""
 
 
 class IntersectionType(SerialIntEnum):

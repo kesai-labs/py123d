@@ -86,8 +86,6 @@ def add_default_map_on_ax(
         MapLayer.LANE,
         MapLayer.LANE_GROUP,
         MapLayer.GENERIC_DRIVABLE,
-        MapLayer.SHOULDER,
-        MapLayer.NONE_LANE,
         MapLayer.CARPARK,
         MapLayer.CROSSWALK,
         MapLayer.INTERSECTION,
@@ -107,8 +105,6 @@ def add_default_map_on_ax(
             if layer in {
                 MapLayer.LANE_GROUP,
                 MapLayer.GENERIC_DRIVABLE,
-                MapLayer.SHOULDER,
-                MapLayer.NONE_LANE,
                 MapLayer.CARPARK,
                 MapLayer.CROSSWALK,
                 MapLayer.INTERSECTION,
@@ -145,7 +141,9 @@ def add_default_map_on_ax(
                 for map_object in map_objects:
                     map_object: Lane
                     lines.append(map_object.centerline.linestring)
-                    polygons.append(map_object.shapely_polygon)
+                    # Lane groups cover their lanes; lanes outside of a lane group (e.g. shoulders) do not
+                    if has_no_lane_groups or map_object.lane_group_id is None:
+                        polygons.append(map_object.shapely_polygon)
                 if len(lines) > 0:
                     add_shapely_linestrings_to_ax(
                         ax,
@@ -153,7 +151,7 @@ def add_default_map_on_ax(
                         CENTERLINE_CONFIG,
                         label=layer.serialize(),
                     )
-                if has_no_lane_groups:
+                if len(polygons) > 0:
                     add_shapely_polygons_to_ax(
                         ax,
                         polygons,

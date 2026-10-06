@@ -31,8 +31,6 @@ from py123d.datatypes.map_objects.map_objects import (
     Carpark,
     Crosswalk,
     GenericDrivable,
-    NoneLane,
-    Shoulder,
     Intersection,
     Lane,
     LaneGroup,
@@ -97,8 +95,6 @@ class ArrowMapAPI(MapAPI):
             MapLayer.CARPARK: self._get_carpark,
             MapLayer.WALKWAY: self._get_walkway,
             MapLayer.GENERIC_DRIVABLE: self._get_generic_drivable,
-            MapLayer.SHOULDER: self._get_shoulder,
-            MapLayer.NONE_LANE: self._get_none_lane,
             MapLayer.STOP_ZONE: self._get_stop_zone,
             MapLayer.SPEED_BUMP: self._get_speed_bump,
             MapLayer.ROAD_EDGE: self._get_road_edge,
@@ -445,40 +441,6 @@ class ArrowMapAPI(MapAPI):
                 shapely_polygon=generic_drivable_polygon,
             )
         return generic_drivable
-
-    @lru_cache(maxsize=MAP_OBJECT_CACHE_SIZE)
-    def _get_shoulder(self, object_id: MapObjectIDType) -> Optional[Shoulder]:
-        """Helper method for getting a shoulder by its ID."""
-        shoulder: Optional[Shoulder] = None
-        table_row_idx = self._object_ids_to_row_idx[MapLayer.SHOULDER].get(object_id, None)
-        if table_row_idx is not None and object_id in self._occupancy_maps[MapLayer.SHOULDER].ids:
-            shoulder_features_binary = self._features[table_row_idx]
-            shoulder_features = msgpack_decode_with_numpy(shoulder_features_binary)
-            shoulder_polygon = self._occupancy_maps[MapLayer.SHOULDER][object_id]
-            assert isinstance(shoulder_polygon, geom.Polygon)
-            shoulder = Shoulder(
-                object_id=object_id,
-                outline=Polyline3D.from_array(shoulder_features["outline"], copy=False),
-                shapely_polygon=shoulder_polygon,
-            )
-        return shoulder
-
-    @lru_cache(maxsize=MAP_OBJECT_CACHE_SIZE)
-    def _get_none_lane(self, object_id: MapObjectIDType) -> Optional[NoneLane]:
-        """Helper method for getting a none lane by its ID."""
-        none_lane: Optional[NoneLane] = None
-        table_row_idx = self._object_ids_to_row_idx[MapLayer.NONE_LANE].get(object_id, None)
-        if table_row_idx is not None and object_id in self._occupancy_maps[MapLayer.NONE_LANE].ids:
-            none_lane_features_binary = self._features[table_row_idx]
-            none_lane_features = msgpack_decode_with_numpy(none_lane_features_binary)
-            none_lane_polygon = self._occupancy_maps[MapLayer.NONE_LANE][object_id]
-            assert isinstance(none_lane_polygon, geom.Polygon)
-            none_lane = NoneLane(
-                object_id=object_id,
-                outline=Polyline3D.from_array(none_lane_features["outline"], copy=False),
-                shapely_polygon=none_lane_polygon,
-            )
-        return none_lane
 
     @lru_cache(maxsize=MAP_OBJECT_CACHE_SIZE)
     def _get_stop_zone(self, object_id: MapObjectIDType) -> Optional[StopZone]:

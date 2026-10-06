@@ -17,10 +17,8 @@ from py123d.datatypes import (
     LaneType,
     RoadEdge,
     RoadEdgeType,
-    NoneLane,
     RoadLine,
     RoadLineType,
-    Shoulder,
     Walkway,
 )
 from py123d.datatypes.metadata.map_metadata import MapMetadata
@@ -150,6 +148,7 @@ def iter_xodr_map_objects(
     generic_drivables = _extract_generic_drivables(lane_helper_dict) + junction_parking_drivables
     yield from generic_drivables
 
+    # Shoulders and none lanes are lanes as well, but kept apart from the driving lanes above
     shoulders = _extract_shoulders(lane_helper_dict)
     yield from shoulders
 
@@ -253,7 +252,9 @@ def _extract_carparks(
         road = road_dict.get(int(lane_id.split("_")[0]))
         on_junction = road is not None and road.junction is not None and str(road.junction) not in ("-1", "None")
         if on_junction:
-            junction_parking.append(GenericDrivable(object_id=lane_helper.lane_id, outline=lane_helper.outline_polyline_3d))
+            junction_parking.append(
+                GenericDrivable(object_id=lane_helper.lane_id, outline=lane_helper.outline_polyline_3d)
+            )
         else:
             car_parks.append(Carpark(object_id=lane_helper.lane_id, outline=lane_helper.outline_polyline_3d))
     return car_parks, junction_parking
@@ -268,28 +269,24 @@ def _extract_generic_drivables(lane_helper_dict: Dict[str, OpenDriveLaneHelper])
     ]
 
 
-def _extract_shoulders(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> List[Shoulder]:
-    """Extracts shoulders from lane helpers."""
-    return [
-        Shoulder(object_id=lh.lane_id, outline=lh.outline_polyline_3d)
-        for lh in lane_helper_dict.values()
-        if lh.type == "shoulder"
-    ]
+def _extract_shoulders(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> List[Lane]:
+    """Extracts shoulders from lane helpers, as lanes of type shoulder."""
+    return [_build_non_driving_lane(lh, LaneType.SHOULDER) for lh in lane_helper_dict.values() if lh.type == "shoulder"]
 
 
 def _extract_none_lanes(
     lane_helper_dict: Dict[str, OpenDriveLaneHelper],
-) -> Tuple[List[NoneLane], List[NoneLane]]:
-    """Extracts none/restricted-type lane surfaces from lane helpers, split into (flat, curbed).
+) -> Tuple[List[Lane], List[Lane]]:
+    """Extracts none/restricted-type lanes from lane helpers as lanes of undefined type, split into (flat, curbed).
     A none lane behind a curb road mark on its inner boundary is raised and not drivable;
     curbed areas are excluded from road-edge inference so they stay outside the drivable envelope.
     """
-    flat_areas: List[NoneLane] = []
-    curbed_areas: List[NoneLane] = []
+    flat_areas: List[Lane] = []
+    curbed_areas: List[Lane] = []
     for lane_id, lane_helper in lane_helper_dict.items():
         if lane_helper.type not in {"none", "restricted"}:
             continue
-        none_lane = NoneLane(object_id=lane_helper.lane_id, outline=lane_helper.outline_polyline_3d)
+        none_lane = _build_non_driving_lane(lane_helper, LaneType.UNDEFINED)
         if _has_inner_curb(lane_id, lane_helper_dict):
             curbed_areas.append(none_lane)
         else:
@@ -297,9 +294,23 @@ def _extract_none_lanes(
     return flat_areas, curbed_areas
 
 
-def _subtract_lane_coverage(
-    non_drivable_polygons: List[shapely.Polygon], lanes: List[Lane]
-) -> List[shapely.Polygon]:
+def _build_non_driving_lane(lane_helper: OpenDriveLaneHelper, lane_type: LaneType) -> Lane:
+    """Builds a lane from a non-driving lane helper.
+    Lane groups only span driving lanes, so these lanes have no lane group, neighbors, or speed limit.
+    """
+    return Lane(
+        object_id=lane_helper.lane_id,
+        lane_type=lane_type,
+        left_boundary=lane_helper.inner_polyline_3d,
+        right_boundary=lane_helper.outer_polyline_3d,
+        centerline=lane_helper.center_polyline_3d,
+        predecessor_ids=lane_helper.predecessor_lane_ids,
+        successor_ids=lane_helper.successor_lane_ids,
+        outline=lane_helper.outline_polyline_3d,
+    )
+
+
+def _subtract_lane_coverage(non_drivable_polygons: List[shapely.Polygon], lanes: List[Lane]) -> List[shapely.Polygon]:
     """Removes driving-lane surface from carve polygons: lanes crossing an island stay drivable."""
     if not non_drivable_polygons:
         return []

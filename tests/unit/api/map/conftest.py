@@ -19,9 +19,7 @@ from py123d.datatypes import (
     LaneGroup,
     MapMetadata,
     RoadEdge,
-    NoneLane,
     RoadLine,
-    Shoulder,
     SpeedBump,
     StopZone,
     Walkway,
@@ -204,16 +202,6 @@ def make_carpark(object_id: MapObjectIDType = 0, cx: float = 50.0, cy: float = 5
 def make_generic_drivable(object_id: MapObjectIDType = 0, cx: float = 60.0, cy: float = 5.0) -> GenericDrivable:
     outline = make_square_outline(cx, cy, size=10.0)
     return GenericDrivable(object_id=object_id, outline=outline)
-
-
-def make_shoulder(object_id: MapObjectIDType = 0, cx: float = 65.0, cy: float = 5.0) -> Shoulder:
-    outline = make_square_outline(cx, cy, size=10.0)
-    return Shoulder(object_id=object_id, outline=outline)
-
-
-def make_none_lane(object_id: MapObjectIDType = 0, cx: float = 67.0, cy: float = 5.0) -> NoneLane:
-    outline = make_square_outline(cx, cy, size=10.0)
-    return NoneLane(object_id=object_id, outline=outline)
 
 
 def make_stop_zone(

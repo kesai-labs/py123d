@@ -43,8 +43,6 @@ _MAP_DISPLAY_LAYERS: List[MapLayer] = [
     MapLayer.CROSSWALK,
     MapLayer.CARPARK,
     MapLayer.GENERIC_DRIVABLE,
-    MapLayer.SHOULDER,
-    MapLayer.NONE_LANE,
     MapLayer.STOP_ZONE,
     MapLayer.SPEED_BUMP,
 ]
@@ -295,8 +293,6 @@ def _get_map_data(
         MapLayer.CROSSWALK,
         MapLayer.CARPARK,
         MapLayer.GENERIC_DRIVABLE,
-        MapLayer.SHOULDER,
-        MapLayer.NONE_LANE,
         MapLayer.STOP_ZONE,
         MapLayer.SPEED_BUMP,
     ]
@@ -320,7 +316,10 @@ def _get_map_data(
     if len(map_objects_dict.get(MapLayer.LANE_GROUP, [])) == 0:
         map_objects_dict.pop(MapLayer.LANE_GROUP, None)
     else:
-        map_objects_dict.pop(MapLayer.LANE, None)
+        # Lane groups cover their lanes; lanes outside of a lane group (e.g. shoulders) keep their own surface
+        map_objects_dict[MapLayer.LANE] = [
+            lane for lane in lane_objects if isinstance(lane, Lane) and lane.lane_group_id is None
+        ]
 
     z_offset_no_z = 0.0
     if not map_api.map_metadata.map_has_z:
