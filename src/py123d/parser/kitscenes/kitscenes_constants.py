@@ -12,6 +12,10 @@ from py123d.geometry import PoseSE3
 
 DATASET_NAME: Final[str] = "kitscenes"
 
+HF_KITSCENES_REPO_ID: Final[str] = "KIT-MRT/KITScenes-Multimodal"
+HF_KITSCENES_REPO_TYPE: Final[str] = "dataset"
+HF_KITSCENES_INDEX_FILE: Final[str] = "data/sequence_archives.csv"
+
 # Scenes live in ``<data_root>/data/<split>/<scene_uuid>/``, mirroring the HuggingFace repository layout.
 DATA_SUBDIR: Final[str] = "data"
 KITSCENES_SPLITS: Final[Tuple[str, ...]] = ("train", "val", "test", "test_e2e", "overlap_train_val")
