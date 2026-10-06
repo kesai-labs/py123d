@@ -42,6 +42,12 @@ class LidarID(SerialIntEnum):
     LIDAR_DOWN = 7
     """Down-facing Lidar type."""
 
+    LIDAR_FRONT_LEFT = 8
+    """Front-left corner Lidar type."""
+
+    LIDAR_FRONT_RIGHT = 9
+    """Front-right corner Lidar type."""
+
 
 class LidarFeature(SerialIntEnum):
     """Enumeration of common Lidar point cloud features"""
