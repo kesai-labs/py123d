@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Dict, Final, Tuple
 
 from py123d.datatypes.sensors.base_camera import CameraID
+from py123d.datatypes.sensors.lidar import LidarID
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import PoseSE3
 
@@ -33,6 +34,17 @@ CAMERA_ID_MAPPING: Final[Dict[str, CameraID]] = {
     "camera_base_front_right_rect": CameraID.PCAM_STEREO_R,
     # High-resolution front camera (same field of view as the ring front camera, ~1.65x the angular resolution).
     "camera_base_front_center": CameraID.PCAM_F1,
+}
+
+# Lidars are stored per sensor as parquet files. The corner lidars are tilted Hesai XT32 at the front corners.
+LIDAR_ID_MAPPING: Final[Dict[str, LidarID]] = {
+    "lidar_top": LidarID.LIDAR_TOP,
+    "lidar_front": LidarID.LIDAR_FRONT,
+    "lidar_left": LidarID.LIDAR_SIDE_LEFT,
+    "lidar_right": LidarID.LIDAR_SIDE_RIGHT,
+    "lidar_rear": LidarID.LIDAR_BACK,
+    "lidar_corner_left": LidarID.LIDAR_FRONT_LEFT,
+    "lidar_corner_right": LidarID.LIDAR_FRONT_RIGHT,
 }
 
 # Approximate city centers (lat, lon), used to name a log's location from its map origin.

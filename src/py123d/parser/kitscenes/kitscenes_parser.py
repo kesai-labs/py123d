@@ -11,7 +11,7 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import numpy.typing as npt
 
-from py123d.datatypes import EgoStateSE3, LogMetadata, Timestamp
+from py123d.datatypes import EgoStateSE3, LidarMetadata, LogMetadata, Timestamp
 from py123d.datatypes.sensors.pinhole_camera import PinholeCameraMetadata, PinholeIntrinsics
 from py123d.geometry import PoseSE3
 from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
@@ -21,6 +21,7 @@ from py123d.parser.base_dataset_parser import (
     BaseMapParser,
     ModalitiesSync,
     ParsedCamera,
+    ParsedLidar,
 )
 from py123d.parser.kitscenes.kitscenes_constants import (
     CALIBRATION_FILE,
@@ -31,9 +32,11 @@ from py123d.parser.kitscenes.kitscenes_constants import (
     FRAME_INDEX_WIDTH,
     KITSCENES_EGO_STATE_SE3_METADATA,
     KITSCENES_SPLITS,
+    LIDAR_ID_MAPPING,
     MAP_ORIGIN_FILE,
     POSES_FILE,
 )
+from py123d.parser.kitscenes.kitscenes_sensor_io import load_kitscenes_lidar_timestamps_us
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +122,7 @@ class KITScenesLogParser(BaseLogParser):
         """Inherited, see superclass."""
         timestamps_ns, imu_to_global_poses = _load_poses(self._scene_dir / POSES_FILE)
         camera_metadatas = _load_camera_metadatas(self._scene_dir / CALIBRATION_FILE)
+        lidar_metadatas = _load_lidar_metadatas(self._scene_dir / CALIBRATION_FILE)
 
         # Every sensor stores exactly one file per reference frame, so frame ``i`` is the ``i``-th pose.
         for frame_index, (timestamp_ns, imu_to_global) in enumerate(zip(timestamps_ns, imu_to_global_poses)):
@@ -129,9 +133,16 @@ class KITScenesLogParser(BaseLogParser):
                 timestamp=timestamp,
             )
             modalities = [ego_state]
+            frame_file_stem = f"{frame_index:0{FRAME_INDEX_WIDTH}d}"
+
+            for lidar_name, lidar_metadata in lidar_metadatas.items():
+                relative_path = self._scene_relative_dir / lidar_name / f"{frame_file_stem}.parquet"
+                parsed_lidar = self._build_lidar(lidar_metadata, relative_path)
+                if parsed_lidar is not None:
+                    modalities.append(parsed_lidar)
 
             for camera_name, camera_metadata in camera_metadatas.items():
-                relative_path = self._scene_relative_dir / camera_name / f"{frame_index:0{FRAME_INDEX_WIDTH}d}.jpg"
+                relative_path = self._scene_relative_dir / camera_name / f"{frame_file_stem}.jpg"
                 if not (self._data_root / relative_path).is_file():
                     continue
                 modalities.append(
@@ -147,6 +158,21 @@ class KITScenesLogParser(BaseLogParser):
                 )
 
             yield ModalitiesSync(timestamp=timestamp, modalities=modalities)
+
+    def _build_lidar(self, lidar_metadata: LidarMetadata, relative_path: Path) -> Optional[ParsedLidar]:
+        """Build a lazy lidar sweep. The sweep window comes from the per-point timestamps, as it differs per sensor."""
+        if not (self._data_root / relative_path).is_file():
+            return None
+        point_timestamps_us = load_kitscenes_lidar_timestamps_us(self._data_root / relative_path)
+        if len(point_timestamps_us) == 0:
+            return None
+        return ParsedLidar(
+            metadata=lidar_metadata,
+            start_timestamp=Timestamp.from_us(int(point_timestamps_us.min())),
+            end_timestamp=Timestamp.from_us(int(point_timestamps_us.max())),
+            dataset_root=self._data_root,
+            relative_path=relative_path,
+        )
 
 
 def _load_poses(poses_path: Path) -> Tuple[npt.NDArray[np.int64], List[PoseSE3]]:
@@ -191,6 +217,25 @@ def _load_camera_metadatas(calibration_path: Path) -> Dict[str, PinholeCameraMet
             is_undistorted=True,
         )
     return camera_metadatas
+
+
+def _load_lidar_metadatas(calibration_path: Path) -> Dict[str, LidarMetadata]:
+    """Load the lidar extrinsics from ``calib.json``. ``lidar_top`` defines the ego reference frame."""
+    with calibration_path.open("r", encoding="utf-8") as file:
+        calibration = json.load(file)
+
+    lidar_metadatas: Dict[str, LidarMetadata] = {}
+    for lidar_name, lidar_id in LIDAR_ID_MAPPING.items():
+        entry = calibration.get(lidar_name)
+        if entry is None:
+            logger.warning("Lidar %s missing in %s.", lidar_name, calibration_path)
+            continue
+        lidar_metadatas[lidar_name] = LidarMetadata(
+            lidar_name=lidar_name,
+            lidar_id=lidar_id,
+            lidar_to_imu_se3=PoseSE3.from_transformation_matrix(np.array(entry["T_to_reference"], dtype=np.float64)),
+        )
+    return lidar_metadatas
 
 
 def _infer_location(map_origin_path: Path) -> Optional[str]:

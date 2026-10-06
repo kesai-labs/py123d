@@ -15,6 +15,7 @@ log_writer_config:
   async_conversion: ${async_conversion}
 
   camera_store_option: "path"
+  lidar_store_option: "path"
 
   infer_ego_dynamics: true
 
