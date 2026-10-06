@@ -35,10 +35,12 @@ from py123d.parser.kitscenes.kitscenes_constants import (
     KITSCENES_EGO_STATE_SE3_METADATA,
     KITSCENES_SPLITS,
     LIDAR_ID_MAPPING,
+    MAP_FILE,
     MAP_ORIGIN_FILE,
     POSES_FILE,
     RADAR_ID_MAPPING,
 )
+from py123d.parser.kitscenes.kitscenes_map_parser import KITScenesMapParser, get_kitscenes_map_metadata
 from py123d.parser.kitscenes.kitscenes_sensor_io import (
     load_kitscenes_lidar_timestamps_us,
     load_kitscenes_radar_timestamp_us,
@@ -95,8 +97,13 @@ class KITScenesDatasetParser(BaseDatasetParser):
 
     def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
-        # TODO: Convert the per-scene Lanelet2 maps (``maps/map.osm``).
-        return []
+        map_parsers: List[BaseMapParser] = []
+        for split, scene_id in self._collect_scenes():
+            scene_dir = self._data_root / DATA_SUBDIR / split / scene_id
+            if (scene_dir / MAP_FILE).is_file():
+                location = _infer_location(scene_dir / MAP_ORIGIN_FILE)
+                map_parsers.append(KITScenesMapParser(self._data_root, split, scene_id, location))
+        return map_parsers
 
 
 class KITScenesLogParser(BaseLogParser):
@@ -117,11 +124,16 @@ class KITScenesLogParser(BaseLogParser):
 
     def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
+        location = _infer_location(self._scene_dir / MAP_ORIGIN_FILE)
+        map_metadata = None
+        if (self._scene_dir / MAP_FILE).is_file():
+            map_metadata = get_kitscenes_map_metadata(self._split, self._scene_id, location)
         return LogMetadata(
             dataset=DATASET_NAME,
             split=f"{DATASET_NAME}_{self._split}",
             log_name=self._scene_id,
-            location=_infer_location(self._scene_dir / MAP_ORIGIN_FILE),
+            location=location,
+            map_metadata=map_metadata,
         )
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:

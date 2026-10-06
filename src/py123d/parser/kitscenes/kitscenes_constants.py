@@ -20,6 +20,7 @@ KITSCENES_SPLITS: Final[Tuple[str, ...]] = ("train", "val", "test", "test_e2e", 
 CALIBRATION_FILE: Final[str] = "calibration/calib.json"
 POSES_FILE: Final[str] = "poses.txt"
 REFERENCE_TIMESTAMPS_FILE: Final[str] = "timestamp.reference.txt"
+MAP_FILE: Final[str] = "maps/map.osm"
 MAP_ORIGIN_FILE: Final[str] = "maps/origin.json"
 FRAME_INDEX_WIDTH: Final[int] = 10  # sensor files are named ``{frame_index:010d}.{ext}``
 
