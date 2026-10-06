@@ -362,7 +362,9 @@ def _resolve_conflicting_lane_groups(
         )
         road_edges_3d.extend(lifted_road_edges_3d)
 
-    return [road_edge for road_edge in road_edges_3d if _get_polyline_length(road_edge.array) >= MIN_RESOLVED_EDGE_LENGTH]
+    return [
+        road_edge for road_edge in road_edges_3d if _get_polyline_length(road_edge.array) >= MIN_RESOLVED_EDGE_LENGTH
+    ]
 
 
 def _match_flanking_surfaces(
