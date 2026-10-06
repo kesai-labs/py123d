@@ -6,6 +6,7 @@ from typing import Dict, Final, Tuple
 
 from py123d.datatypes.sensors.base_camera import CameraID
 from py123d.datatypes.sensors.lidar import LidarID
+from py123d.datatypes.sensors.radar import RadarID
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import PoseSE3
 
@@ -45,6 +46,13 @@ LIDAR_ID_MAPPING: Final[Dict[str, LidarID]] = {
     "lidar_rear": LidarID.LIDAR_BACK,
     "lidar_corner_left": LidarID.LIDAR_FRONT_LEFT,
     "lidar_corner_right": LidarID.LIDAR_FRONT_RIGHT,
+}
+
+# Continental ARS548 4D imaging radars. The side radars sit at the rear roof corners, facing ~120 deg backwards.
+RADAR_ID_MAPPING: Final[Dict[str, RadarID]] = {
+    "radar_front": RadarID.RADAR_FRONT,
+    "radar_left": RadarID.RADAR_BACK_LEFT,
+    "radar_right": RadarID.RADAR_BACK_RIGHT,
 }
 
 # Approximate city centers (lat, lon), used to name a log's location from its map origin.

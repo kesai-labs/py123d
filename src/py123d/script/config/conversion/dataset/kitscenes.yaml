@@ -16,6 +16,7 @@ log_writer_config:
 
   camera_store_option: "path"
   lidar_store_option: "path"
+  radar_store_option: "path"
 
   infer_ego_dynamics: true
 

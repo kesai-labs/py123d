@@ -13,6 +13,7 @@ import numpy.typing as npt
 
 from py123d.datatypes import EgoStateSE3, LidarMetadata, LogMetadata, Timestamp
 from py123d.datatypes.sensors.pinhole_camera import PinholeCameraMetadata, PinholeIntrinsics
+from py123d.datatypes.sensors.radar import RadarMetadata
 from py123d.geometry import PoseSE3
 from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
 from py123d.parser.base_dataset_parser import (
@@ -22,6 +23,7 @@ from py123d.parser.base_dataset_parser import (
     ModalitiesSync,
     ParsedCamera,
     ParsedLidar,
+    ParsedRadar,
 )
 from py123d.parser.kitscenes.kitscenes_constants import (
     CALIBRATION_FILE,
@@ -35,8 +37,12 @@ from py123d.parser.kitscenes.kitscenes_constants import (
     LIDAR_ID_MAPPING,
     MAP_ORIGIN_FILE,
     POSES_FILE,
+    RADAR_ID_MAPPING,
 )
-from py123d.parser.kitscenes.kitscenes_sensor_io import load_kitscenes_lidar_timestamps_us
+from py123d.parser.kitscenes.kitscenes_sensor_io import (
+    load_kitscenes_lidar_timestamps_us,
+    load_kitscenes_radar_timestamp_us,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +129,7 @@ class KITScenesLogParser(BaseLogParser):
         timestamps_ns, imu_to_global_poses = _load_poses(self._scene_dir / POSES_FILE)
         camera_metadatas = _load_camera_metadatas(self._scene_dir / CALIBRATION_FILE)
         lidar_metadatas = _load_lidar_metadatas(self._scene_dir / CALIBRATION_FILE)
+        radar_metadatas = _load_radar_metadatas(self._scene_dir / CALIBRATION_FILE)
 
         # Every sensor stores exactly one file per reference frame, so frame ``i`` is the ``i``-th pose.
         for frame_index, (timestamp_ns, imu_to_global) in enumerate(zip(timestamps_ns, imu_to_global_poses)):
@@ -140,6 +147,12 @@ class KITScenesLogParser(BaseLogParser):
                 parsed_lidar = self._build_lidar(lidar_metadata, relative_path)
                 if parsed_lidar is not None:
                     modalities.append(parsed_lidar)
+
+            for radar_name, radar_metadata in radar_metadatas.items():
+                relative_path = self._scene_relative_dir / radar_name / f"{frame_file_stem}.parquet"
+                parsed_radar = self._build_radar(radar_metadata, relative_path)
+                if parsed_radar is not None:
+                    modalities.append(parsed_radar)
 
             for camera_name, camera_metadata in camera_metadatas.items():
                 relative_path = self._scene_relative_dir / camera_name / f"{frame_file_stem}.jpg"
@@ -170,6 +183,20 @@ class KITScenesLogParser(BaseLogParser):
             metadata=lidar_metadata,
             start_timestamp=Timestamp.from_us(int(point_timestamps_us.min())),
             end_timestamp=Timestamp.from_us(int(point_timestamps_us.max())),
+            dataset_root=self._data_root,
+            relative_path=relative_path,
+        )
+
+    def _build_radar(self, radar_metadata: RadarMetadata, relative_path: Path) -> Optional[ParsedRadar]:
+        """Build a lazy radar sweep, timestamped with its own measurement time (slightly before the frame)."""
+        if not (self._data_root / relative_path).is_file():
+            return None
+        timestamp_us = load_kitscenes_radar_timestamp_us(self._data_root / relative_path)
+        if timestamp_us is None:
+            return None
+        return ParsedRadar(
+            metadata=radar_metadata,
+            timestamp=Timestamp.from_us(timestamp_us),
             dataset_root=self._data_root,
             relative_path=relative_path,
         )
@@ -217,6 +244,25 @@ def _load_camera_metadatas(calibration_path: Path) -> Dict[str, PinholeCameraMet
             is_undistorted=True,
         )
     return camera_metadatas
+
+
+def _load_radar_metadatas(calibration_path: Path) -> Dict[str, RadarMetadata]:
+    """Load the radar extrinsics from ``calib.json``."""
+    with calibration_path.open("r", encoding="utf-8") as file:
+        calibration = json.load(file)
+
+    radar_metadatas: Dict[str, RadarMetadata] = {}
+    for radar_name, radar_id in RADAR_ID_MAPPING.items():
+        entry = calibration.get(radar_name)
+        if entry is None or "T_to_reference" not in entry:
+            logger.warning("Radar %s or its extrinsic missing in %s.", radar_name, calibration_path)
+            continue
+        radar_metadatas[radar_name] = RadarMetadata(
+            radar_name=radar_name,
+            radar_id=radar_id,
+            radar_to_imu_se3=PoseSE3.from_transformation_matrix(np.array(entry["T_to_reference"], dtype=np.float64)),
+        )
+    return radar_metadatas
 
 
 def _load_lidar_metadatas(calibration_path: Path) -> Dict[str, LidarMetadata]:

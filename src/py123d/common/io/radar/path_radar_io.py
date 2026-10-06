@@ -57,6 +57,11 @@ def load_radar_point_cloud_data_from_path(
             full_radar_path, index, radar_metadatas, sensor_root=Path(sensor_root), load_kwargs=load_kwargs or {}
         )
 
+    elif dataset == "kitscenes":
+        from py123d.parser.kitscenes.kitscenes_sensor_io import load_kitscenes_radar_point_cloud_data_from_path
+
+        radar_pcs_dict = load_kitscenes_radar_point_cloud_data_from_path(full_radar_path)
+
     else:
         raise NotImplementedError(f"Loading Radar data for dataset {dataset} is not implemented.")
 
