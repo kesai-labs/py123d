@@ -71,6 +71,14 @@ class BaseLogParser(abc.ABC):
         for modalities_sync in self.iter_modalities_sync():
             yield from modalities_sync.modalities
 
+    def get_route_xyz(self):
+        """Optionally returns the log's route as XYZ waypoints (N, 3) in the ego odometry
+        frame — a planned route, or full-horizon odometry a synced conversion would
+        otherwise truncate. The orchestrator forwards it to ``writer.set_route``; the
+        default None derives the route from the written ego poses instead.
+        """
+        return None
+
 
 class ModalitiesSync:
     """Helper class for passing synchronized modalities to log writers, without loading all data into memory at once."""
@@ -102,10 +110,12 @@ class ParsedLidar(BaseModality):
         relative_path: Union[str, Path],
         iteration: Optional[int] = None,
         load_kwargs: Optional[Dict[str, Any]] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         self._metadata: Union[LidarMetadata, LidarMergedMetadata] = metadata
         self._start_timestamp: Timestamp = start_timestamp
         self._end_timestamp: Timestamp = end_timestamp
+        self._arrival_timestamp: Optional[Timestamp] = arrival_timestamp
 
         self._dataset_root: Optional[Union[str, Path]] = dataset_root
         self._relative_path: Optional[Union[str, Path]] = relative_path
@@ -136,6 +146,11 @@ class ParsedLidar(BaseModality):
         return self._end_timestamp
 
     @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this lidar data, if recorded."""
+        return self._arrival_timestamp
+
+    @property
     def metadata(self) -> BaseModalityMetadata:
         """Returns the metadata associated with this lidar data."""
         return self._metadata
@@ -157,11 +172,13 @@ class ParsedRadar(BaseModality):
         relative_path: Union[str, Path],
         iteration: Optional[int] = None,
         load_kwargs: Optional[Dict[str, Any]] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         self._metadata: Union[RadarMetadata, RadarMergedMetadata] = metadata
         # A radar scan is treated as an instantaneous snapshot (no rolling shutter), so it carries a
         # single timestamp rather than a sweep window like lidar.
         self._timestamp: Timestamp = timestamp
+        self._arrival_timestamp: Optional[Timestamp] = arrival_timestamp
 
         self._dataset_root: Optional[Union[str, Path]] = dataset_root
         self._relative_path: Optional[Union[str, Path]] = relative_path
@@ -181,6 +198,11 @@ class ParsedRadar(BaseModality):
         return self._timestamp
 
     @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this radar data, if recorded."""
+        return self._arrival_timestamp
+
+    @property
     def metadata(self) -> BaseModalityMetadata:
         """Returns the metadata associated with this radar data."""
         return self._metadata
@@ -192,17 +214,22 @@ class ParsedRadar(BaseModality):
 
 
 class ParsedCamera(BaseModality):
-    """Helper modality to pass cameras to log writer without loading loading an image/video or decoding the bytestring."""
+    """Helper modality to pass cameras to log writer without loading loading an image/video or decoding the bytestring.
+
+    ``camera_to_global_se3`` may be None, in which case the writer stores a null and the reader
+    composes the pose from the log's ego trajectory and the camera's own extrinsic.
+    """
 
     def __init__(
         self,
         metadata: Union[PinholeCameraMetadata, FisheyeMEICameraMetadata, FThetaCameraMetadata],
         timestamp: Timestamp,
-        camera_to_global_se3: PoseSE3,
+        camera_to_global_se3: Optional[PoseSE3],
         dataset_root: Optional[Union[str, Path]] = None,
         relative_path: Optional[Union[str, Path]] = None,
         byte_string: Optional[bytes] = None,
         exposure_factor: Optional[float] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         self._metadata = metadata
         self._timestamp = timestamp
@@ -212,6 +239,7 @@ class ParsedCamera(BaseModality):
         self._relative_path = relative_path
         self._byte_string = byte_string
         self._exposure_factor = exposure_factor
+        self._arrival_timestamp = arrival_timestamp
 
         assert self.has_file_path or self.has_byte_string, (
             "Either file path or byte string must be provided for ParsedCamera."
@@ -223,13 +251,23 @@ class ParsedCamera(BaseModality):
         return self._timestamp
 
     @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this camera data, if recorded."""
+        return self._arrival_timestamp
+
+    @property
     def metadata(self) -> BaseModalityMetadata:
         """Returns the metadata associated with this camera data."""
         return self._metadata
 
     @property
-    def camera_to_global_se3(self) -> PoseSE3:
-        """Returns the camera-to-global pose associated with this camera data."""
+    def camera_to_global_se3(self) -> Optional[PoseSE3]:
+        """Returns the camera-to-global pose associated with this camera data.
+
+        None where the dataset stores the pose implicitly. It is then written as a null and
+        composed on read from ``ego_state_se3`` and the camera extrinsic, which is what lets a
+        re-estimated ego trajectory reach the camera poses without rewriting the image tables.
+        """
         return self._camera_to_global_se3
 
     @property

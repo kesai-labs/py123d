@@ -87,7 +87,7 @@ LIDAR_FEATURE_DTYPES: Dict[LidarFeature, Type] = {
 class LidarMetadata(BaseModalityMetadata):
     """Metadata for Lidar sensor, static for a given sensor."""
 
-    __slots__ = ("_lidar_name", "_lidar_id", "_lidar_to_imu_se3", "_segmentation_label_class")
+    __slots__ = ("_lidar_name", "_lidar_id", "_lidar_to_imu_se3", "_segmentation_label_class", "_has_arrival_time")
 
     def __init__(
         self,
@@ -95,6 +95,7 @@ class LidarMetadata(BaseModalityMetadata):
         lidar_id: LidarID,
         lidar_to_imu_se3: PoseSE3 = PoseSE3.identity(),
         segmentation_label_class: Optional[Type[LidarSegmentationLabel]] = None,
+        has_arrival_time: bool = False,
     ):
         """Initialize Lidar metadata.
 
@@ -104,11 +105,16 @@ class LidarMetadata(BaseModalityMetadata):
         :param segmentation_label_class: The dataset-specific :class:`LidarSegmentationLabel` enum
             describing the per-point :attr:`LidarFeature.SEMANTIC` class ids, if this sensor is
             segmentation-annotated. ``None`` if the sensor has no semantic labels.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._lidar_name = lidar_name
         self._lidar_id = lidar_id
         self._lidar_to_imu_se3 = lidar_to_imu_se3
         self._segmentation_label_class = segmentation_label_class
+        self._has_arrival_time = has_arrival_time
 
     @property
     def lidar_name(self) -> str:
@@ -129,6 +135,11 @@ class LidarMetadata(BaseModalityMetadata):
     def segmentation_label_class(self) -> Optional[Type[LidarSegmentationLabel]]:
         """The :class:`LidarSegmentationLabel` enum for this sensor's per-point semantic ids, if any."""
         return self._segmentation_label_class
+
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
 
     @property
     def modality_type(self) -> ModalityType:
@@ -156,6 +167,7 @@ class LidarMetadata(BaseModalityMetadata):
             lidar_id=LidarID(data_dict["lidar_id"]),
             lidar_to_imu_se3=PoseSE3.from_list(data_dict["lidar_to_imu_se3"]),
             segmentation_label_class=segmentation_label_class,
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -168,12 +180,16 @@ class LidarMetadata(BaseModalityMetadata):
             segmentation_label_class = (
                 f"{self._segmentation_label_class.__module__}.{self._segmentation_label_class.__qualname__}"
             )
-        return {
+        data_dict = {
             "lidar_name": self.lidar_name,
             "lidar_id": int(self.lidar_id),
             "lidar_to_imu_se3": self.lidar_to_imu_se3.tolist(),
             "segmentation_label_class": segmentation_label_class,
         }
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
+        return data_dict
 
 
 class LidarMergedMetadata(BaseModalityMetadata, Mapping[LidarID, LidarMetadata]):
@@ -204,6 +220,14 @@ class LidarMergedMetadata(BaseModalityMetadata, Mapping[LidarID, LidarMetadata])
         """Returns the dictionary of per-lidar metadata contained in this merged metadata."""
         return self._lidar_metadata_dict
 
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether every contained lidar stores arrival times. A merged row then carries the latest
+        of them, the time at which the whole merged sweep had been received."""
+        return len(self._lidar_metadata_dict) > 0 and all(
+            metadata.has_arrival_time for metadata in self._lidar_metadata_dict.values()
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the metadata instance to a plain Python dictionary.
 
@@ -232,6 +256,7 @@ class Lidar(BaseModality):
         "_metadata",
         "_point_cloud_3d",
         "_point_cloud_features",
+        "_arrival_timestamp",
     )
 
     def __init__(
@@ -241,6 +266,7 @@ class Lidar(BaseModality):
         metadata: Union[LidarMetadata, LidarMergedMetadata],
         point_cloud_3d: npt.NDArray[np.float32],
         point_cloud_features: Optional[Dict[str, npt.NDArray]] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         """Initialize Lidar data structure.
 
@@ -248,12 +274,15 @@ class Lidar(BaseModality):
         :param point_cloud_3d: Lidar point cloud as an Nx3 numpy array, where N is the number of points, \
             and the (x, y, z), indexed by :class:`~py123d.geometry.Point3DIndex`.
         :param point_cloud_features: Optional dictionary of point cloud features.
+        :param arrival_timestamp: Optional time the recording system received the measurement
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`).
         """
         self._timestamp = timestamp
         self._timestamp_end = timestamp_end
         self._metadata = metadata
         self._point_cloud_3d = point_cloud_3d
         self._point_cloud_features = point_cloud_features
+        self._arrival_timestamp = arrival_timestamp
 
     @property
     def lidar_metadatas(self) -> Dict[LidarID, LidarMetadata]:
@@ -278,6 +307,11 @@ class Lidar(BaseModality):
     def metadata(self) -> Union[LidarMetadata, LidarMergedMetadata]:
         """The :class:`LidarMetadata` associated with this Lidar recording."""
         return self._metadata
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this measurement, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def timestamp(self) -> Timestamp:
@@ -408,6 +442,10 @@ def get_merged_lidar(lidars: List[Lidar]) -> Optional[Lidar]:
         timestamp = min(lidars, key=lambda l: l.timestamp.time_us).timestamp
         timestamp_end = max(lidars, key=lambda l: l.timestamp_end.time_us).timestamp_end
 
+        # The merged sweep is complete when its last part has arrived; unknown if any part lacks a time.
+        known_arrivals = [lidar.arrival_timestamp.time_us for lidar in lidars if lidar.arrival_timestamp is not None]
+        arrival_timestamp = Timestamp.from_us(max(known_arrivals)) if len(known_arrivals) == len(lidars) else None
+
         point_cloud_3d = np.concatenate([lidar.point_cloud_3d for lidar in lidars], axis=0)
         point_cloud_features_list: Dict[str, List[np.ndarray]] = {}
         for lidar in lidars:
@@ -427,6 +465,7 @@ def get_merged_lidar(lidars: List[Lidar]) -> Optional[Lidar]:
             metadata=LidarMergedMetadata(lidar_metadata_dict=lidar_metadatas),
             point_cloud_3d=point_cloud_3d,
             point_cloud_features=point_cloud_features,
+            arrival_timestamp=arrival_timestamp,
         )
 
     return lidar_merged
@@ -455,6 +494,7 @@ def get_individual_lidar(lidar_merged: Optional[Lidar], lidar_id: LidarID) -> Op
                 metadata=target_metadata,
                 point_cloud_3d=target_point_cloud_3d,
                 point_cloud_features=target_point_cloud_features,
+                arrival_timestamp=lidar_merged.arrival_timestamp,
             )
 
     return target_lidar

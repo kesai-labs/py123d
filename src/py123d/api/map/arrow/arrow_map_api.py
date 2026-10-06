@@ -563,23 +563,31 @@ def get_lru_cached_map_api(arrow_file_path: Union[Path, str]) -> ArrowMapAPI:
     return map_api
 
 
-def get_map_api_for_log(log_dir: Path, log_metadata: LogMetadata) -> Optional[ArrowMapAPI]:
-    """Get the map API for a given log metadata, if map metadata is available."""
+def get_map_api_for_log(
+    log_dir: Path, log_metadata: LogMetadata, maps_root: Optional[Path] = None
+) -> Optional[ArrowMapAPI]:
+    """Get the map API for a given log metadata, if map metadata is available.
+
+    :param log_dir: The log directory, checked for a per-log ``map.arrow``.
+    :param log_metadata: Names the dataset and location of the global map file.
+    :param maps_root: Maps directory to check before the global dataset paths,
+        defaults to None
+    """
 
     def _resolve_map_file() -> Optional[Path]:
-        """Find the map file: first check per-log, then global maps directory."""
+        """Find the map file: per-log, then the given maps root, then the global one."""
         # 1. Per-log map
         map_file = log_dir / "map.arrow"
         if map_file.exists():
             return map_file
-        # 2. Global map
+        # 2. Given maps root, then global maps directory
         dataset, location = log_metadata.dataset, log_metadata.location
         if dataset is not None and location is not None:
-            maps_root = get_dataset_paths().py123d_maps_root
-            if maps_root is not None:
-                map_file = maps_root / dataset / f"{dataset}_{location}.arrow"
-                if map_file.exists():
-                    return map_file
+            for root in (maps_root, get_dataset_paths().py123d_maps_root):
+                if root is not None:
+                    map_file = root / dataset / f"{dataset}_{location}.arrow"
+                    if map_file.exists():
+                        return map_file
         return None
 
     map_api: Optional[ArrowMapAPI] = None

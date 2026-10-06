@@ -79,6 +79,9 @@ def _convert_logs(args: List[BaseLogParser], cfg: DictConfig) -> List:
             log_metadata = log_parser.get_log_metadata()
             log_needs_writing = log_writer.reset(log_metadata)
             if log_needs_writing:
+                route_xyz = log_parser.get_route_xyz()
+                if route_xyz is not None:
+                    log_writer.set_route(route_xyz)
                 for modalities_sync in log_parser.iter_modalities_sync():
                     log_writer.write_sync(modalities_sync)
             log_writer.close()
@@ -97,6 +100,9 @@ def _convert_logs_async(args: List[BaseLogParser], cfg: DictConfig) -> List:
             log_metadata = log_parser.get_log_metadata()
             log_needs_writing = log_writer.reset(log_metadata)
             if log_needs_writing:
+                route_xyz = log_parser.get_route_xyz()
+                if route_xyz is not None:
+                    log_writer.set_route(route_xyz)
                 for modality in log_parser.iter_modalities_async():
                     log_writer.write_async(modality)
             log_writer.close()

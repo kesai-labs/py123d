@@ -20,7 +20,14 @@ class GnssMetadata(BaseModalityMetadata):
     coordinates.
     """
 
-    __slots__ = ("_gnss_name", "_gnss_id", "_gnss_to_imu_se3", "_datum_lla", "_has_solution_quality")
+    __slots__ = (
+        "_gnss_name",
+        "_gnss_id",
+        "_gnss_to_imu_se3",
+        "_datum_lla",
+        "_has_solution_quality",
+        "_has_arrival_time",
+    )
 
     def __init__(
         self,
@@ -29,6 +36,7 @@ class GnssMetadata(BaseModalityMetadata):
         gnss_to_imu_se3: PoseSE3 = PoseSE3.identity(),
         datum_lla: Optional[Tuple[float, float, float]] = None,
         has_solution_quality: bool = False,
+        has_arrival_time: bool = False,
     ):
         """Initialize GNSS metadata.
 
@@ -41,12 +49,17 @@ class GnssMetadata(BaseModalityMetadata):
         :param has_solution_quality: Whether the receiver reports the solution-quality fields
             (satellite count, fix type, reported accuracies, DOP, NED velocity). Logs converted
             before these fields existed leave it False and store no such columns.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._gnss_name = gnss_name
         self._gnss_id = gnss_id
         self._gnss_to_imu_se3 = gnss_to_imu_se3
         self._datum_lla = datum_lla
         self._has_solution_quality = has_solution_quality
+        self._has_arrival_time = has_arrival_time
 
     @property
     def gnss_name(self) -> str:
@@ -74,6 +87,11 @@ class GnssMetadata(BaseModalityMetadata):
         return self._has_solution_quality
 
     @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
+
+    @property
     def modality_type(self) -> ModalityType:
         return ModalityType.GNSS
 
@@ -95,6 +113,7 @@ class GnssMetadata(BaseModalityMetadata):
             gnss_to_imu_se3=PoseSE3.from_list(data_dict["gnss_to_imu_se3"]),
             datum_lla=tuple(datum) if datum is not None else None,
             has_solution_quality=data_dict.get("has_solution_quality", False),
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -102,13 +121,17 @@ class GnssMetadata(BaseModalityMetadata):
 
         :return: A dictionary representation of the GNSS metadata.
         """
-        return {
+        data_dict = {
             "gnss_name": self._gnss_name,
             "gnss_id": self._gnss_id,
             "gnss_to_imu_se3": self._gnss_to_imu_se3.tolist(),
             "datum_lla": list(self._datum_lla) if self._datum_lla is not None else None,
             "has_solution_quality": self._has_solution_quality,
         }
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
+        return data_dict
 
 
 class Gnss(BaseModality):
@@ -143,6 +166,8 @@ class Gnss(BaseModality):
         "_vertical_accuracy",
         "_position_dop",
         "_velocity_ned",
+        "_speed_accuracy",
+        "_arrival_timestamp",
     )
 
     def __init__(
@@ -162,6 +187,8 @@ class Gnss(BaseModality):
         vertical_accuracy: Optional[float] = None,
         position_dop: Optional[float] = None,
         velocity_ned: Optional[npt.NDArray[np.float64]] = None,
+        speed_accuracy: Optional[float] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         """Initialize a GNSS fix.
 
@@ -181,6 +208,11 @@ class Gnss(BaseModality):
         :param vertical_accuracy: Optional reported 1-sigma vertical accuracy in meters.
         :param position_dop: Optional position dilution of precision.
         :param velocity_ned: Optional (north, east, down) velocity in m/s.
+        :param speed_accuracy: Optional reported 1-sigma accuracy of that velocity in m/s. The
+            velocity's counterpart to :attr:`horizontal_accuracy`, and what a consumer fusing the
+            velocity needs in order to weight it.
+        :param arrival_timestamp: Optional time the recording system received the measurement
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`).
         """
         self._timestamp = timestamp
         self._metadata = metadata
@@ -197,6 +229,8 @@ class Gnss(BaseModality):
         self._vertical_accuracy = vertical_accuracy
         self._position_dop = position_dop
         self._velocity_ned = velocity_ned
+        self._speed_accuracy = speed_accuracy
+        self._arrival_timestamp = arrival_timestamp
 
     @property
     def timestamp(self) -> Timestamp:
@@ -207,6 +241,11 @@ class Gnss(BaseModality):
     def metadata(self) -> GnssMetadata:
         """The :class:`GnssMetadata` associated with this GNSS fix."""
         return self._metadata
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this measurement, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def latitude(self) -> float:
@@ -277,6 +316,11 @@ class Gnss(BaseModality):
     def velocity_ned(self) -> Optional[npt.NDArray[np.float64]]:
         """(north, east, down) velocity in m/s as a (3,) array, or None if not reported."""
         return self._velocity_ned
+
+    @property
+    def speed_accuracy(self) -> Optional[float]:
+        """Reported 1-sigma accuracy of :attr:`velocity_ned` in m/s, if the receiver supplied it."""
+        return self._speed_accuracy
 
     @property
     def ground_speed(self) -> Optional[float]:

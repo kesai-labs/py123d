@@ -259,6 +259,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         "_height",
         "_camera_to_imu_se3",
         "_is_undistorted",
+        "_has_arrival_time",
     )
 
     def __init__(
@@ -271,6 +272,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         height: int,
         camera_to_imu_se3: PoseSE3,
         is_undistorted: bool = False,
+        has_arrival_time: bool = False,
     ) -> None:
         """Initialize a :class:`PinholeCameraMetadata` instance.
 
@@ -282,6 +284,10 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         :param height: The image height in pixels.
         :param camera_to_imu_se3: The camera-to-IMU extrinsic :class:`~py123d.geometry.PoseSE3` of the pinhole camera.
         :param is_undistorted: Whether the camera images are already undistorted, defaults to False.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._camera_name = camera_name
         self._camera_id = camera_id
@@ -291,6 +297,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         self._height = height
         self._camera_to_imu_se3 = camera_to_imu_se3
         self._is_undistorted = is_undistorted
+        self._has_arrival_time = has_arrival_time
 
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]) -> PinholeCameraMetadata:
@@ -314,6 +321,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
             height=data_dict["height"],
             camera_to_imu_se3=PoseSE3.from_list(data_dict["camera_to_imu_se3"]),
             is_undistorted=data_dict["is_undistorted"],
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -331,6 +339,9 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         data_dict["height"] = self.height
         data_dict["camera_to_imu_se3"] = self.camera_to_imu_se3.tolist()
         data_dict["is_undistorted"] = self.is_undistorted
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
         return data_dict
 
     @property
@@ -382,6 +393,11 @@ class PinholeCameraMetadata(BaseCameraMetadata):
     def is_distorted(self) -> bool:
         """Whether the camera images are distorted."""
         return not self._is_undistorted
+
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
 
     def project_to_image(
         self,

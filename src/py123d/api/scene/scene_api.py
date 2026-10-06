@@ -3,6 +3,9 @@ from __future__ import annotations
 import abc
 from typing import Dict, Iterator, List, Literal, Optional, Tuple, TypeVar, Union
 
+import numpy as np
+import numpy.typing as npt
+
 from py123d.api.map.map_api import MapAPI
 from py123d.common.utils.enums import SerialIntEnum
 from py123d.datatypes import (
@@ -35,6 +38,7 @@ from py123d.datatypes import (
     TrafficLightDetectionsMetadata,
 )
 from py123d.datatypes.metadata import SceneMetadata
+from py123d.datatypes.metadata.route_metadata import RouteMetadata
 
 T = TypeVar("T")
 
@@ -218,6 +222,28 @@ class SceneAPI(abc.ABC):
         :return: Iterator of modality entries in the range. Empty if the modality is not available
             or no entries fall within the range.
         """
+
+    # 1.4 Route (whole-log route polyline, optional derived data)
+    # ------------------------------------------------------------------------------------------------------------------
+
+    def get_route(self) -> Optional[Tuple[RouteMetadata, npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
+        """Returns the log's route as (metadata, arc-length per vertex (K,), vertices (K, 3))
+        in the ego odometry frame, or None if the log has no route."""
+        return None
+
+    def get_route_progress_at_iteration(self, iteration: int) -> Optional[float]:
+        """Returns the ego's arc-length position in meters on the route polyline at a given
+        iteration (negative for history), or None if unavailable there."""
+        return None
+
+    def get_remaining_route_m(self, iteration: int = 0) -> Optional[float]:
+        """Returns the route meters remaining in the log after a given iteration (default:
+        the scene's anchor), or None if unavailable."""
+        route = self.get_route()
+        route_progress = self.get_route_progress_at_iteration(iteration)
+        if route is None or route_progress is None:
+            return None
+        return route[0].total_arc_m - route_progress
 
     # ------------------------------------------------------------------------------------------------------------------
     # 2. Per-modality access methods.

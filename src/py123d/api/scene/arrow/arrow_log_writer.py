@@ -19,18 +19,27 @@ from py123d.api.scene.arrow.modalities.arrow_magnetometer import ArrowMagnetomet
 from py123d.api.scene.arrow.modalities.arrow_radar import ArrowRadarWriter
 from py123d.api.scene.arrow.modalities.arrow_traffic_light_detections import ArrowTrafficLightDetectionsWriter
 from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig
+from py123d.api.scene.arrow.utils.route_utils import (
+    ROUTE_POSITION_KEY,
+    ROUTE_PRODUCER,
+    compute_route_data,
+    compute_route_data_from_waypoints,
+    warn_on_position_jumps,
+    write_route_position_arrow,
+)
 from py123d.api.scene.arrow.utils.scene_builder_utils import (
     compute_stride_from_duration,
     infer_iteration_duration_from_timestamps_us,
 )
 from py123d.api.scene.base_log_writer import BaseLogWriter
-from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
+from py123d.api.utils.arrow_metadata_utils import _NON_MODALITY_FILES, add_metadata_to_arrow_schema
+from py123d.api.utils.cache_source_utils import build_cache_source_info
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
 from py123d.datatypes import LogMetadata
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
-from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
+from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
 from py123d.datatypes.sensors.barometer import BarometerMetadata
 from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraChannelType
 from py123d.datatypes.sensors.gnss import GnssMetadata
@@ -39,6 +48,7 @@ from py123d.datatypes.sensors.lidar import LidarMergedMetadata, LidarMetadata
 from py123d.datatypes.sensors.magnetometer import MagnetometerMetadata
 from py123d.datatypes.sensors.radar import RadarMergedMetadata, RadarMetadata
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
+from py123d.geometry.geometry_index import PoseSE3Index
 from py123d.parser.base_dataset_parser import ModalitiesSync
 
 logger = logging.getLogger(__name__)
@@ -112,6 +122,8 @@ class ArrowLogWriterState:
     log_metadata: LogMetadata
     modality_writers: Dict[str, ArrowBaseModalityWriter] = field(default_factory=dict)
     sync_rows: Optional[List[Dict[str, Union[bytes, int, List[int]]]]] = None
+    provided_route_xyz: Optional[np.ndarray] = None
+    route_ego_key: Optional[str] = None
 
 
 class ArrowLogWriter(BaseLogWriter):
@@ -360,6 +372,11 @@ class ArrowLogWriter(BaseLogWriter):
         if self._state is not None:
             self._close_writers()
 
+            # Must precede the sync table build: it reads the finalized ego Arrow file
+            # and hands each frame's route progress to the sync table as a column.
+            if self._log_writer_config.write_route or self._state.provided_route_xyz is not None:
+                self._compute_and_write_route()
+
             if self._state.sync_rows is not None:
                 self._build_sync_table_from_rows()
             else:
@@ -368,6 +385,84 @@ class ArrowLogWriter(BaseLogWriter):
                 self._build_deferred_sync_table()
 
         self._state = None
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Route helpers
+    # ------------------------------------------------------------------------------------------------------------------
+
+    def set_route(self, route_xyz: np.ndarray) -> None:
+        """Provide the log's route explicitly instead of deriving it from ego odometry.
+
+        Call between :meth:`reset` and :meth:`close`, e.g. with a planner's waypoints.
+        Per-frame progress then becomes the ego's monotone projection onto this route.
+
+        :param route_xyz: Route waypoints in the ego odometry frame, shape (M, 3), in driving order.
+        """
+        assert self._state is not None, "Log writer is not initialized. Call reset() first."
+        self._state.provided_route_xyz = np.asarray(route_xyz, dtype=np.float64)
+
+    def _read_ego_positions(self) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        """Read (XYZ positions, timestamps in us) from the finalized ego Arrow file, or None if absent."""
+        assert self._state is not None
+        ego_key = ModalityType.EGO_STATE_SE3.serialize()
+        ego_path = self._state.log_dir / f"{ego_key}.arrow"
+        if not ego_path.exists():
+            return None
+        with pa.memory_map(str(ego_path), "r") as source:
+            ego_table = pa.ipc.open_file(source).read_all()
+        if ego_table.num_rows == 0:
+            return None
+        pose_array = ego_table.combine_chunks().column(f"{ego_key}.imu_se3").chunk(0)
+        poses = pose_array.flatten().to_numpy(zero_copy_only=False).reshape(-1, len(PoseSE3Index))
+        return poses[:, : PoseSE3Index.Z + 1], ego_table[f"{ego_key}.timestamp_us"].to_numpy()
+
+    def _compute_and_write_route(self) -> None:
+        """Write the ``route_position`` modality: polyline in its metadata, per-frame
+        positions as rows.
+
+        The route is the provided waypoints when :meth:`set_route` was called, otherwise
+        the driven path derived from ego odometry (no-op when the log has neither). A
+        provided route without ego frames still writes the file — zero rows, polyline in
+        the metadata.
+        """
+        assert self._state is not None
+        resolution_m = self._log_writer_config.route_resolution_m
+        ego = self._read_ego_positions()
+        ego_positions = ego[0] if ego is not None else None
+        if ego is not None:
+            warn_on_position_jumps(ego[0], ego[1], context=str(self._state.log_dir.name))
+
+        ego_key = ModalityType.EGO_STATE_SE3.serialize()
+        external_sources: Optional[List[str]] = None
+        if self._state.provided_route_xyz is not None:
+            route_data = compute_route_data_from_waypoints(self._state.provided_route_xyz, ego_positions, resolution_m)
+            source = "provided"
+            external_sources = ["route waypoints provided via ArrowLogWriter.set_route"]
+        elif ego_positions is not None:
+            route_data = compute_route_data(ego_positions, resolution_m)
+            source = ego_key
+        else:
+            return
+        if route_data is None:
+            return
+
+        has_progress = route_data.progress_m is not None
+        cache_source_info = build_cache_source_info(
+            log_dir=self._state.log_dir,
+            computed_by=ROUTE_PRODUCER,
+            source_columns={ego_key: ["imu_se3"]} if ego is not None else {},
+            external_sources=external_sources,
+        )
+        write_route_position_arrow(
+            log_dir=self._state.log_dir,
+            timestamps_us=ego[1] if has_progress and ego is not None else np.empty(0, dtype=np.int64),
+            progress_m=(route_data.progress_m if has_progress and route_data.progress_m is not None else np.empty(0)),
+            route_metadata=route_data.to_route_metadata(resolution_m, source, cache_source_info),
+            ipc_compression=self._ipc_compression,
+            ipc_compression_level=self._ipc_compression_level,
+        )
+        if has_progress:
+            self._state.route_ego_key = ModalityType.EGO_STATE_SE3.serialize()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Sync table helpers
@@ -383,6 +478,16 @@ class ArrowLogWriter(BaseLogWriter):
         :param rows: Each element is a single-row dict (values are single-element lists).
         """
         assert self._state is not None
+
+        # Route positions are 1:1 with ego rows, so each frame's route_position index is
+        # its ego index. The deferred sync build discovers the modality file itself and
+        # already carries the column; only the sync-rows path needs it added here.
+        route_ego_key = self._state.route_ego_key
+        if route_ego_key in schema.names and ROUTE_POSITION_KEY not in schema.names:
+            schema = schema.append(pa.field(ROUTE_POSITION_KEY, pa.int64()))
+            for row in rows:
+                row[ROUTE_POSITION_KEY] = [row[route_ego_key][0]]
+
         schema = add_metadata_to_arrow_schema(schema, self._state.log_metadata)
         sync_path = self._state.log_dir / "sync.arrow"
 
@@ -504,7 +609,7 @@ class ArrowLogWriter(BaseLogWriter):
         modality_timestamps: Dict[str, np.ndarray] = {}  # modality_key -> int64 timestamps
 
         for arrow_path in sorted(self._state.log_dir.glob("*.arrow")):
-            if arrow_path.name in {"sync.arrow", "map.arrow"}:
+            if arrow_path.name in _NON_MODALITY_FILES:
                 continue
 
             modality_key = arrow_path.stem

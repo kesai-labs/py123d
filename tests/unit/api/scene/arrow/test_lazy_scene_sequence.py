@@ -199,6 +199,87 @@ def test_custom_filter_functions_still_apply(builders: Tuple[ArrowSceneBuilder, 
     assert [_identity(scene) for scene in lazy] == [_identity(scene) for scene in eager]
 
 
+def test_custom_anchor_filter_functions_match(builders: Tuple[ArrowSceneBuilder, LazyArrowSceneBuilder]) -> None:
+    """Anchor filter functions select the same scenes on the eager and the lazy path."""
+    eager_builder, lazy_builder = builders
+
+    def keep_even_anchors(context) -> np.ndarray:
+        return context.anchors % 2 == 0
+
+    scene_filter = SceneFilter(
+        split_names=[SPLIT_NAME],
+        shuffle=False,
+        history_num_iterations=1,
+        future_num_iterations=2,
+        custom_anchor_filter_fns=[keep_even_anchors],
+    )
+
+    eager = eager_builder.get_scenes(scene_filter, SequentialExecutor())
+    lazy = lazy_builder.get_scenes(scene_filter, SequentialExecutor())
+
+    assert len(eager) > 0
+    assert all(scene.scene_metadata.initial_idx % 2 == 0 for scene in eager)
+    assert [_identity(scene) for scene in lazy] == [_identity(scene) for scene in eager]
+    assert isinstance(lazy, LazySceneSequence)
+
+
+def test_custom_anchor_filter_context_contents(builders: Tuple[ArrowSceneBuilder, LazyArrowSceneBuilder]) -> None:
+    """A filter function sees only the anchors that survived the built-in filters, with the log's context."""
+    _, lazy_builder = builders
+    seen = []
+
+    def record(context) -> np.ndarray:
+        seen.append(context)
+        return np.ones(len(context.anchors), dtype=bool)
+
+    scene_filter = SceneFilter(
+        split_names=[SPLIT_NAME],
+        shuffle=False,
+        history_num_iterations=1,
+        future_num_iterations=2,
+        target_iteration_stride=2,
+        required_scene_modalities=["camera:all"],
+        log_names=["log_front_gaps"],
+        custom_anchor_filter_fns=[record],
+    )
+
+    lazy = lazy_builder.get_scenes(scene_filter, SequentialExecutor())
+
+    assert len(seen) == 1
+    context = seen[0]
+    assert context.log_dir.name == "log_front_gaps"
+    assert context.history_iterations == 1
+    assert context.future_iterations == 2
+    assert context.stride == 2
+    assert context.anchors.dtype == np.int64
+    assert len(context.anchors) == len(lazy)
+    assert list(context.anchors) == [scene.scene_metadata.initial_idx for scene in lazy]
+
+
+def test_anchor_filter_result_shape_is_validated(
+    builders: Tuple[ArrowSceneBuilder, LazyArrowSceneBuilder], caplog
+) -> None:
+    """A scalar result must not silently broadcast over all anchors; the log is rejected instead."""
+    import logging
+
+    eager_builder, lazy_builder = builders
+    scene_filter = SceneFilter(
+        split_names=[SPLIT_NAME],
+        shuffle=False,
+        history_num_iterations=1,
+        future_num_iterations=2,
+        custom_anchor_filter_fns=[lambda context: np.array(True)],
+    )
+
+    with caplog.at_level(logging.WARNING):
+        lazy = lazy_builder.get_scenes(scene_filter, SequentialExecutor())
+        eager = eager_builder.get_scenes(scene_filter, SequentialExecutor())
+
+    assert len(lazy) == 0
+    assert len(eager) == 0
+    assert "shape" in caplog.text
+
+
 def test_anchor_keys_match_the_materialized_scenes(builders: Tuple[ArrowSceneBuilder, LazyArrowSceneBuilder]) -> None:
     """The pairing keys come from the index, so they must equal what the scenes report."""
     eager_builder, lazy_builder = builders

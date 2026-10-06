@@ -17,9 +17,9 @@
 **One library for autonomous driving datasets.** 123D converts raw data from Argoverse 2, nuScenes, nuPlan, KITTI-360, PandaSet, and Waymo into a unified [Apache Arrow](https://arrow.apache.org/) format, and then gives you a single API to read cameras, lidar, HD maps, and labels across all of them.
 
 ## 📰 News
+- **2026-09-08**: We released [`py123d_garage`](https://github.com/kesai-labs/py123d_garage), a framework for multi-dataset training of driving policies, evaluation with NAVSIM metrics, and simulation interfaces for CARLA and AlpaSim.
 - **2026-06-03**: Added Modalities: Semantics/instances for cameras (WOD-Perc., KITTI-360) and lidar (WOD-Perc., PandaSet, nuScenes) (experimental). Also added Radar (nuScenes, PAI-AV/NCore).
 - **2026-06-03**: Added Datasets: [nuReasoning](https://arxiv.org/abs/2605.31572) (experimental).
-- **2026-05-28**: Released **[NAV123D](https://github.com/DanielDauner/nav123d)**, a reimplementation of NAVSIM on top of 123D.
 - **2026-05-08**: Our paper *123D: Unifying Multi-Modal Autonomous Driving Data at Scale* is out on [arXiv](https://arxiv.org/abs/2605.08084).
 
 ## ✨ Features
@@ -181,6 +181,19 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
 ## 📝 Changelog
 
 <details open>
+<summary><b>v0.7.0</b> (2026-09-08)</summary>
+
+- New modalities: per-pixel **depth camera**, a **route modality** with `SceneAPI` route storage/retrieval, tracking for derived modalities, optional GNSS solution-quality / speed-accuracy fields, and ego-state pose uncertainty ([#155](https://github.com/kesai-labs/py123d/pull/155), [#173](https://github.com/kesai-labs/py123d/pull/173), [#177](https://github.com/kesai-labs/py123d/pull/177), [#170](https://github.com/kesai-labs/py123d/pull/170), [#174](https://github.com/kesai-labs/py123d/pull/174)).
+- Viser viewer: reworked camera strip with real camera names, stabilized playback colors and mp4 export, camera exposure/provenance metadata, and a rigid follow-camera with an exact default viewpoint ([#163](https://github.com/kesai-labs/py123d/pull/163), [#164](https://github.com/kesai-labs/py123d/pull/164)).
+- Added optional scene indexing: custom anchor filters, lazy enumeration, and recursive log discovery ([#176](https://github.com/kesai-labs/py123d/pull/176), [#166](https://github.com/kesai-labs/py123d/pull/166), [#157](https://github.com/kesai-labs/py123d/pull/157)).
+- Added configurable point-cloud compression (Draco/LAZ) and pluggable JPEG/PNG camera decoders ([#156](https://github.com/kesai-labs/py123d/pull/156), [#167](https://github.com/kesai-labs/py123d/pull/167)).
+- Added [**TruckDrive**](https://arxiv.org/abs/2603.02413) dataset support, and **Griffin** map support via bundled CARLA town maps.
+
+No breaking changes to the public API, Arrow schema, or CLI entry points.
+
+</details>
+
+<details>
 <summary><b>v0.6.0</b> (2026-06-28)</summary>
 
 - Added **radar**: new `Radar` datatype and Arrow radar storage, with parsers for nuScenes and PAI-AV, plus Viser visualization ([#145](https://github.com/kesai-labs/py123d/pull/145)).

@@ -37,6 +37,10 @@ class LogWriterConfig:
     # Ego
     infer_ego_dynamics: bool = False
 
+    # Route (driven-route polyline + per-frame progress, derived from ego odometry at close time)
+    write_route: bool = True
+    route_resolution_m: float = 1.0
+
     # Boxes
     infer_box_dynamics: bool = False
 
@@ -75,3 +79,5 @@ class LogWriterConfig:
                 "ipc_lz4",
                 "ipc",
             }, f"Invalid Radar codec, got {self.radar_codec}."
+
+        assert self.route_resolution_m > 0.0, f"route_resolution_m must be > 0, got {self.route_resolution_m}."

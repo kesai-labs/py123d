@@ -31,6 +31,7 @@ from py123d.api.scene.scene_builder import SceneBuilder
 from py123d.api.scene.scene_filter import SceneFilter
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema
+from py123d.api.utils.cache_source_utils import check_cache_source_modalities
 from py123d.common.execution import Executor
 from py123d.common.execution.utils import executor_map_chunked_list
 from py123d.common.runtime import get_dataset_paths
@@ -116,7 +117,7 @@ class LazyArrowSceneBuilder(ArrowSceneBuilder):
         target_uuids_binary = scene_uuids_to_binary(filter.scene_uuids) if filter.scene_uuids is not None else None
         log_indices = executor_map_chunked_list(
             executor,
-            partial(_index_log_dirs, filter=filter, target_uuids_binary=target_uuids_binary),
+            partial(_index_log_dirs, filter=filter, maps_root=self._maps_root, target_uuids_binary=target_uuids_binary),
             log_paths,
             name="Scene indexing",
         )
@@ -203,16 +204,18 @@ def _discover_split_names(logs_root: Path, filter: SceneFilter) -> List[str]:
 def _index_log_dirs(
     log_dirs: List[Path],
     filter: SceneFilter,
+    maps_root: Optional[Path] = None,
     target_uuids_binary: Optional[pa.Array] = None,
 ) -> List[LogSceneIndex]:
     """Index multiple log directories (chunked batch wrapper).
 
     :param log_dirs: List of log directory paths to index.
     :param filter: The scene filter.
+    :param maps_root: Maps directory the built scenes resolve their map under, defaults to None
     :param target_uuids_binary: Pre-converted binary(16) Arrow array of target UUIDs, or None.
     :return: One index per log that contributes at least one scene.
     """
-    indices = [build_log_scene_index(log_dir, filter, target_uuids_binary) for log_dir in log_dirs]
+    indices = [build_log_scene_index(log_dir, filter, target_uuids_binary, maps_root=maps_root) for log_dir in log_dirs]
     return [index for index in indices if index is not None]
 
 
@@ -249,7 +252,10 @@ def _extract_scenes_from_log_dir(
     :param maps_root: Root directory for map files.
     :param target_uuids_binary: Pre-converted binary(16) Arrow array of target UUIDs, or None.
     :return: List of SceneAPI objects for this log.
+    :raises StaleModalityError: If a source modality changed after a derived modality was written.
     """
+    check_cache_source_modalities(log_dir)
+
     try:
         scene_metadatas = _get_scene_metadatas_from_log(log_dir, filter, target_uuids_binary)
     except Exception as e:
@@ -259,7 +265,7 @@ def _extract_scenes_from_log_dir(
 
     scenes: List[SceneAPI] = []
     for scene_metadata in scene_metadatas:
-        scenes.append(ArrowSceneAPI(log_dir=log_dir, scene_metadata=scene_metadata))
+        scenes.append(ArrowSceneAPI(log_dir=log_dir, scene_metadata=scene_metadata, maps_root=maps_root))
     return scenes
 
 
@@ -309,7 +315,7 @@ def _get_scene_metadatas_from_log(
     )
 
     # Phase 3: Category 3c — scene-level filtering
-    result = filter_scene_metadata_candidates(candidates, filter, sync_table)
+    result = filter_scene_metadata_candidates(candidates, filter, sync_table, log_dir)
     return result
 
 

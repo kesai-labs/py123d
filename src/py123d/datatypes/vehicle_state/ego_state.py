@@ -18,6 +18,7 @@ from py123d.datatypes.vehicle_state.ego_state_metadata import (
     rear_axle_se2_to_imu_se2,
     rear_axle_se3_to_imu_se3,
 )
+from py123d.datatypes.vehicle_state.ego_uncertainty import EgoQualityFlag, EgoUncertaintySE3
 from py123d.geometry import BoundingBoxSE2, BoundingBoxSE3, Point2D, Point3D, PoseSE2, PoseSE3, Vector2D, Vector3D
 
 EGO_TRACK_TOKEN: Final[str] = "ego_vehicle"
@@ -36,6 +37,9 @@ class EgoStateSE3(BaseModality):
         "_timestamp",
         "_dynamic_state_se3",
         "_tire_steering_angle",
+        "_uncertainty_se3",
+        "_quality_flags",
+        "_fix_age_s",
     )
 
     _imu_se3: PoseSE3
@@ -43,6 +47,9 @@ class EgoStateSE3(BaseModality):
     _timestamp: Timestamp
     _dynamic_state_se3: Optional[DynamicStateSE3]
     _tire_steering_angle: Optional[float]
+    _uncertainty_se3: Optional[EgoUncertaintySE3]
+    _quality_flags: Optional[EgoQualityFlag]
+    _fix_age_s: Optional[float]
 
     @classmethod
     def from_imu(
@@ -52,6 +59,9 @@ class EgoStateSE3(BaseModality):
         timestamp: Timestamp,
         dynamic_state_se3: Optional[DynamicStateSE3] = None,
         tire_steering_angle: float = 0.0,
+        uncertainty_se3: Optional[EgoUncertaintySE3] = None,
+        quality_flags: Optional[EgoQualityFlag] = None,
+        fix_age_s: Optional[float] = None,
     ) -> EgoStateSE3:
         """Create an :class:`EgoStateSE3` from the IMU pose.
 
@@ -62,6 +72,9 @@ class EgoStateSE3(BaseModality):
         :param timestamp: The timestamp of the state.
         :param dynamic_state_se3: The dynamic state of the vehicle, defaults to None.
         :param tire_steering_angle: The tire steering angle, defaults to 0.0.
+        :param uncertainty_se3: Per-component one-sigma uncertainty, if the source estimated it.
+        :param quality_flags: What was correcting the state at this instant, if known.
+        :param fix_age_s: Seconds since the last absolute position update, if known.
         :return: An :class:`EgoStateSE3` instance.
         """
         instance = object.__new__(cls)
@@ -70,6 +83,9 @@ class EgoStateSE3(BaseModality):
         instance._timestamp = timestamp
         instance._dynamic_state_se3 = dynamic_state_se3
         instance._tire_steering_angle = tire_steering_angle
+        instance._uncertainty_se3 = uncertainty_se3
+        instance._quality_flags = quality_flags
+        instance._fix_age_s = fix_age_s
         return instance
 
     @classmethod
@@ -167,6 +183,25 @@ class EgoStateSE3(BaseModality):
     def dynamic_state_se3(self) -> Optional[DynamicStateSE3]:
         """The :class:`~py123d.datatypes.vehicle_state.DynamicStateSE3` of the vehicle."""
         return self._dynamic_state_se3
+
+    @property
+    def uncertainty_se3(self) -> Optional[EgoUncertaintySE3]:
+        """Per-component one-sigma uncertainty of this state, or None if the source had none."""
+        return self._uncertainty_se3
+
+    @property
+    def quality_flags(self) -> Optional[EgoQualityFlag]:
+        """What was correcting the state at this instant, or None if the source had no such notion."""
+        return self._quality_flags
+
+    @property
+    def fix_age_s(self) -> Optional[float]:
+        """Seconds since the last absolute position update, or None if unknown.
+
+        Large values mean the pose is dead reckoning and its error is growing; ``inf`` means no
+        absolute position has been seen at all yet.
+        """
+        return self._fix_age_s
 
     @property
     def timestamp(self) -> Timestamp:
@@ -384,6 +419,25 @@ class EgoStateSE2:
     def metadata(self) -> EgoStateSE3Metadata:
         """The :class:`~py123d.datatypes.EgoStateSE3Metadata` of the vehicle."""
         return self._metadata
+
+    @property
+    def uncertainty_se3(self) -> Optional[EgoUncertaintySE3]:
+        """Per-component one-sigma uncertainty of this state, or None if the source had none."""
+        return self._uncertainty_se3
+
+    @property
+    def quality_flags(self) -> Optional[EgoQualityFlag]:
+        """What was correcting the state at this instant, or None if the source had no such notion."""
+        return self._quality_flags
+
+    @property
+    def fix_age_s(self) -> Optional[float]:
+        """Seconds since the last absolute position update, or None if unknown.
+
+        Large values mean the pose is dead reckoning and its error is growing; ``inf`` means no
+        absolute position has been seen at all yet.
+        """
+        return self._fix_age_s
 
     @property
     def timestamp(self) -> Timestamp:

@@ -13,6 +13,7 @@ from py123d.datatypes.time.timestamp import Timestamp
 from py123d.datatypes.vehicle_state.dynamic_state import DynamicStateSE3, DynamicStateSE3Index
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
+from py123d.datatypes.vehicle_state.ego_uncertainty import EgoQualityFlag, EgoUncertaintySE3, EgoUncertaintySE3Index
 from py123d.geometry.geometry_index import PoseSE3Index
 from py123d.geometry.pose import PoseSE3
 from py123d.geometry.utils.kinematics_se3 import (
@@ -22,6 +23,14 @@ from py123d.geometry.utils.kinematics_se3 import (
     rotate_to_body,
 )
 from py123d.geometry.vector import Vector3D
+
+# Written only when EgoStateSE3Metadata.has_uncertainty is set, so logs whose poses carry no
+# estimated uncertainty keep their original schema and still load.
+_UNCERTAINTY_FIELDS: tuple = (
+    ("uncertainty_se3", pa.list_(pa.float64(), len(EgoUncertaintySE3Index))),
+    ("quality_flags", pa.int32()),
+    ("fix_age_s", pa.float64()),
+)
 
 # ------------------------------------------------------------------------------------------------------------------
 # Writer
@@ -47,14 +56,14 @@ class ArrowEgoStateSE3Writer(ArrowBaseModalityWriter):
         self._deferred_count: int = 0  # frames accepted but not yet emitted
 
         file_path = log_dir / f"{metadata.modality_key}.arrow"
-        schema = pa.schema(
-            [
-                (f"{self._metadata.modality_key}.timestamp_us", pa.int64()),
-                (f"{self._metadata.modality_key}.imu_se3", pa.list_(pa.float64(), len(PoseSE3Index))),
-                (f"{self._metadata.modality_key}.dynamic_state_se3", pa.list_(pa.float64(), len(DynamicStateSE3Index))),
-            ]
-        )
-        schema = add_metadata_to_arrow_schema(schema, metadata)
+        fields = [
+            (f"{self._metadata.modality_key}.timestamp_us", pa.int64()),
+            (f"{self._metadata.modality_key}.imu_se3", pa.list_(pa.float64(), len(PoseSE3Index))),
+            (f"{self._metadata.modality_key}.dynamic_state_se3", pa.list_(pa.float64(), len(DynamicStateSE3Index))),
+        ]
+        if metadata.has_uncertainty:
+            fields.extend((f"{self._metadata.modality_key}.{name}", dtype) for name, dtype in _UNCERTAINTY_FIELDS)
+        schema = add_metadata_to_arrow_schema(pa.schema(fields), metadata)
         super().__init__(
             file_path=file_path,
             schema=schema,
@@ -105,13 +114,26 @@ class ArrowEgoStateSE3Writer(ArrowBaseModalityWriter):
         super().close()
 
     def _emit(self, modality: EgoStateSE3) -> None:
-        self.write_batch(
-            {
-                f"{self._metadata.modality_key}.timestamp_us": [modality.timestamp.time_us],
-                f"{self._metadata.modality_key}.imu_se3": [modality.imu_se3],
-                f"{self._metadata.modality_key}.dynamic_state_se3": [modality.dynamic_state_se3],
-            }
-        )
+        key = self._metadata.modality_key
+        row: Dict[str, Any] = {
+            f"{key}.timestamp_us": [modality.timestamp.time_us],
+            f"{key}.imu_se3": [modality.imu_se3],
+            f"{key}.dynamic_state_se3": [modality.dynamic_state_se3],
+        }
+        if self._metadata.has_uncertainty:
+            # inf is not representable in Arrow's float64 in a way consumers handle uniformly, and
+            # "no fix yet" is genuinely absent rather than infinitely old, so it is written null.
+            fix_age = modality.fix_age_s
+            row[f"{key}.uncertainty_se3"] = [modality.uncertainty_se3]
+            row[f"{key}.quality_flags"] = [None if modality.quality_flags is None else int(modality.quality_flags)]
+            row[f"{key}.fix_age_s"] = [None if fix_age is None or not np.isfinite(fix_age) else float(fix_age)]
+        elif modality.uncertainty_se3 is not None:
+            warn(
+                "Ego state carries uncertainty but EgoStateSE3Metadata.has_uncertainty is False; "
+                "the values would be silently dropped.",
+                category=UserWarning,
+            )
+        self.write_batch(row)
 
 
 def _zero_dynamic_state_se3() -> DynamicStateSE3:
@@ -129,6 +151,9 @@ def _with_dynamics(state: EgoStateSE3, dynamic_state: DynamicStateSE3) -> EgoSta
         timestamp=state.timestamp,
         dynamic_state_se3=dynamic_state,
         tire_steering_angle=state.tire_steering_angle if state.tire_steering_angle is not None else 0.0,
+        uncertainty_se3=state.uncertainty_se3,
+        quality_flags=state.quality_flags,
+        fix_age_s=state.fix_age_s,
     )
 
 
@@ -231,8 +256,9 @@ class ArrowEgoStateSE3Reader(ArrowBaseModalityReader):
         column_at_iteration: Optional[Any] = None
         if full_column_name in table.column_names:
             column_at_iteration = table[full_column_name][index].as_py()
-            if deserialize and column in EGO_STATE_SE3_DESERIALIZE_FUNC:
-                column_at_iteration = EGO_STATE_SE3_DESERIALIZE_FUNC[column](column_at_iteration)
+            deserializers = {**EGO_STATE_SE3_DESERIALIZE_FUNC, **EGO_STATE_SE3_OPTIONAL_DESERIALIZE_FUNC}
+            if deserialize and column in deserializers:
+                column_at_iteration = deserializers[column](column_at_iteration)
         else:
             raise ValueError(
                 f"Column '{full_column_name}' not found in Arrow table for modality '{metadata.modality_key}'"
@@ -245,6 +271,14 @@ EGO_STATE_SE3_DESERIALIZE_FUNC: Dict[str, Callable[[Any], Any]] = {
     "imu_se3": PoseSE3.from_list,
     "dynamic_state_se3": lambda v: get_optional_array_mixin(data=v, cls=DynamicStateSE3),
     "timestamp_us": Timestamp.from_us,
+}
+
+# Deserializers for the optional columns. Kept apart from the required ones above, which decide
+# whether a row can be read at all.
+EGO_STATE_SE3_OPTIONAL_DESERIALIZE_FUNC: Dict[str, Callable[[Any], Any]] = {
+    "uncertainty_se3": lambda v: get_optional_array_mixin(data=v, cls=EgoUncertaintySE3),
+    "quality_flags": lambda v: None if v is None else EgoQualityFlag(int(v)),
+    "fix_age_s": lambda v: None if v is None else float(v),
 }
 
 
@@ -267,9 +301,18 @@ def _deserialize_ego_state_se3(
     dynamic_state_se3 = EGO_STATE_SE3_DESERIALIZE_FUNC["dynamic_state_se3"](
         modality_table[f"{modality_key}.dynamic_state_se3"][index].as_py()
     )
+    optional = {
+        name: deserialize(modality_table[f"{modality_key}.{name}"][index].as_py())
+        if f"{modality_key}.{name}" in modality_table.column_names
+        else None
+        for name, deserialize in EGO_STATE_SE3_OPTIONAL_DESERIALIZE_FUNC.items()
+    }
     return EgoStateSE3.from_imu(
         imu_se3=imu_se3,
         metadata=metadata,
         dynamic_state_se3=dynamic_state_se3,  # type: ignore
         timestamp=timestamp,
+        uncertainty_se3=optional["uncertainty_se3"],  # type: ignore
+        quality_flags=optional["quality_flags"],  # type: ignore
+        fix_age_s=optional["fix_age_s"],  # type: ignore
     )

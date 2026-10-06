@@ -36,6 +36,12 @@ class BaseLogWriter(abc.ABC):
         :param data: The modality data to write.
         """
 
+    def set_route(self, route_xyz) -> None:
+        """Optionally provide the log's route as XYZ waypoints (N, 3) explicitly.
+
+        Writers without route support ignore it.
+        """
+
     @abc.abstractmethod
     def close(self) -> None:
         """Closes the log writer and finalizes the log io operations."""

@@ -9,6 +9,7 @@ import pytest
 
 from py123d.api.scene.arrow.arrow_scene_builder import (
     ArrowSceneBuilder,
+    LazyArrowSceneBuilder,
     _apply_post_filters,
     _discover_split_names,
     _extract_scenes_from_log_dir,
@@ -1300,3 +1301,90 @@ class TestArrowSceneBuilderGetScenes:
         )
         assert len(scenes) == 1
         assert scenes[0].scene_metadata.initial_idx == 3
+
+
+# --- Scene-scoped maps root ---
+
+
+class TestSceneScopedMapsRoot:
+    """Scenes resolve their map under the builder's maps_root before the global paths."""
+
+    def test_scene_carries_maps_root_through_pickle(self, tmp_path):
+        import pickle
+
+        _write_demo_log(tmp_path)
+        maps_root = tmp_path / "maps"
+        for builder_class in (ArrowSceneBuilder, LazyArrowSceneBuilder):
+            builder = builder_class(logs_root=tmp_path / "logs", maps_root=maps_root)
+            scenes = builder.get_scenes(SceneFilter(), SequentialExecutor())
+            assert len(scenes) > 0
+            scene = scenes[0]
+            assert scene._maps_root == maps_root
+            restored = pickle.loads(pickle.dumps(scene))
+            assert restored._maps_root == maps_root
+
+    def test_resolution_order(self, tmp_path, monkeypatch):
+        from py123d.api.map.arrow import arrow_map_api
+        from py123d.common.runtime import DatasetPaths
+
+        log_dir = tmp_path / "logs" / "test-dataset_train" / "log_001"
+        log_dir.mkdir(parents=True)
+        log_metadata = _make_log_metadata()
+
+        builder_maps_root = tmp_path / "builder_maps"
+        global_maps_root = tmp_path / "global_maps"
+        for root in (builder_maps_root, global_maps_root):
+            (root / "test-dataset").mkdir(parents=True)
+            (root / "test-dataset" / "test-dataset_boston.arrow").touch()
+
+        monkeypatch.setattr(arrow_map_api, "get_lru_cached_map_api", lambda path: path)
+        monkeypatch.setattr(arrow_map_api, "get_dataset_paths", lambda: DatasetPaths())
+
+        # No maps_root and no global paths: unresolved
+        assert arrow_map_api.get_map_api_for_log(log_dir, log_metadata) is None
+        # The given maps_root resolves without global paths
+        assert (
+            arrow_map_api.get_map_api_for_log(log_dir, log_metadata, maps_root=builder_maps_root)
+            == builder_maps_root / "test-dataset" / "test-dataset_boston.arrow"
+        )
+
+        # The global paths remain the fallback
+        monkeypatch.setattr(
+            arrow_map_api,
+            "get_dataset_paths",
+            lambda: DatasetPaths(py123d_maps_root=global_maps_root),
+        )
+        assert (
+            arrow_map_api.get_map_api_for_log(log_dir, log_metadata)
+            == global_maps_root / "test-dataset" / "test-dataset_boston.arrow"
+        )
+        # The given maps_root wins over the global paths
+        assert (
+            arrow_map_api.get_map_api_for_log(log_dir, log_metadata, maps_root=builder_maps_root)
+            == builder_maps_root / "test-dataset" / "test-dataset_boston.arrow"
+        )
+        # A missing file under the given maps_root falls back to the global paths
+        (builder_maps_root / "test-dataset" / "test-dataset_boston.arrow").unlink()
+        assert (
+            arrow_map_api.get_map_api_for_log(log_dir, log_metadata, maps_root=builder_maps_root)
+            == global_maps_root / "test-dataset" / "test-dataset_boston.arrow"
+        )
+
+    def test_per_log_map_wins(self, tmp_path, monkeypatch):
+        from py123d.api.map.arrow import arrow_map_api
+        from py123d.common.runtime import DatasetPaths
+
+        log_dir = tmp_path / "log_001"
+        log_dir.mkdir(parents=True)
+        (log_dir / "map.arrow").touch()
+        maps_root = tmp_path / "maps"
+        (maps_root / "test-dataset").mkdir(parents=True)
+        (maps_root / "test-dataset" / "test-dataset_boston.arrow").touch()
+
+        monkeypatch.setattr(arrow_map_api, "get_lru_cached_map_api", lambda path: path)
+        monkeypatch.setattr(arrow_map_api, "get_dataset_paths", lambda: DatasetPaths())
+
+        assert (
+            arrow_map_api.get_map_api_for_log(log_dir, _make_log_metadata(), maps_root=maps_root)
+            == log_dir / "map.arrow"
+        )

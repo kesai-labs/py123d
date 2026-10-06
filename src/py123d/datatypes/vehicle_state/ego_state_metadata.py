@@ -8,7 +8,16 @@ from py123d.geometry.transform import abs_to_rel_se2, abs_to_rel_se3, rel_to_abs
 class EgoStateSE3Metadata(BaseModalityMetadata):
     """Metadata that describes the physical dimensions of the ego vehicle."""
 
-    __slots__ = ("vehicle_name", "width", "length", "height", "wheel_base", "center_to_imu_se3", "rear_axle_to_imu_se3")
+    __slots__ = (
+        "vehicle_name",
+        "width",
+        "length",
+        "height",
+        "wheel_base",
+        "center_to_imu_se3",
+        "rear_axle_to_imu_se3",
+        "has_uncertainty",
+    )
 
     vehicle_name: str
     """Name of the vehicle model."""
@@ -39,6 +48,14 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
     datasets where the IMU is co-located with the rear axle.
     """
 
+    has_uncertainty: bool
+    """Whether the ego states of this log carry per-frame uncertainty and quality columns.
+
+    Set by parsers whose ego poses come from an estimator that reports its own covariance. Logs
+    written before those columns existed, or by a parser that only has poses, keep the original
+    schema and read the fields back as None.
+    """
+
     def __init__(
         self,
         vehicle_name: str,
@@ -48,6 +65,7 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
         wheel_base: float,
         center_to_imu_se3: PoseSE3,
         rear_axle_to_imu_se3: PoseSE3,
+        has_uncertainty: bool = False,
     ) -> None:
         self.vehicle_name = vehicle_name
         self.width = width
@@ -56,6 +74,7 @@ class EgoStateSE3Metadata(BaseModalityMetadata):
         self.wheel_base = wheel_base
         self.center_to_imu_se3 = center_to_imu_se3
         self.rear_axle_to_imu_se3 = rear_axle_to_imu_se3
+        self.has_uncertainty = has_uncertainty
 
     @classmethod
     def from_dict(cls, data_dict: dict) -> EgoStateSE3Metadata:

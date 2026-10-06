@@ -41,6 +41,10 @@ class ModalityType(SerialIntEnum):
     MAGNETOMETER = 13
     """Magnetic field stream."""
 
+    ROUTE_POSITION = 14
+    """Ego's arc-length position on the log's route polyline (``route.arrow``), derived
+    by the log writer from ego odometry or a provided route — no parser emits it."""
+
 
 class BaseModalityMetadata(BaseMetadata):
     """Base class for modality metadata."""
@@ -62,6 +66,12 @@ class BaseModalityMetadata(BaseMetadata):
         """Returns a unique key for this modality, combining type and id if applicable."""
         return get_modality_key(self.modality_type, self.modality_id)
 
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether the modality's Arrow file stores a per-row arrival time (see
+        :attr:`BaseModality.arrival_timestamp`). False unless a sensor metadata class sets it."""
+        return False
+
 
 class BaseModality(abc.ABC):
     """Abstract base class for modality data."""
@@ -77,6 +87,18 @@ class BaseModality(abc.ABC):
     @abstractmethod
     def metadata(self) -> BaseModalityMetadata:
         """Returns the metadata associated with this modality data."""
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this data, on the recorder's clock, if known.
+
+        :attr:`timestamp` is the measurement time. The arrival time is later by the sensor's
+        transport and processing latency, and a replay of a log "as live" needs it. It is
+        stored for that purpose only: synchronization, timestamp lookups and scene
+        construction always use :attr:`timestamp`. None for modalities and datasets that do
+        not record it.
+        """
+        return None
 
     @property
     def modality_type(self) -> ModalityType:

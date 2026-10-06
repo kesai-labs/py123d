@@ -1,12 +1,22 @@
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
-from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema
+from py123d.api.scene.arrow.modalities.utils import (
+    ARRIVAL_TIME_FIELD,
+    add_arrival_time_to_row,
+    all_columns_in_schema,
+    get_arrival_time_field,
+    read_arrival_time_column,
+    read_arrival_timestamp,
+)
+from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.io.camera.jpeg_camera_io import (
     decode_image_from_jpeg_binary,
@@ -26,11 +36,18 @@ from py123d.common.io.camera.png_camera_io import (
     load_png_binary_from_png_file,
 )
 from py123d.common.runtime import get_dataset_paths
-from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
+from py123d.datatypes.modalities.base_modality import (
+    BaseModality,
+    BaseModalityMetadata,
+    ModalityType,
+    get_modality_key,
+)
 from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, Camera, CameraChannelType
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.geometry_index import PoseSE3Index
 from py123d.geometry.pose import PoseSE3
+from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
+from py123d.geometry.utils.rotation_utils import slerp_quaternion_arrays
 from py123d.parser.base_dataset_parser import ParsedCamera
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -85,6 +102,8 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
                 (f"{metadata.modality_key}.exposure_factor", pa.float32()),
             ]
         )
+        if metadata.has_arrival_time:
+            schema = schema.append(pa.field(*get_arrival_time_field(metadata.modality_key)))
         schema = add_metadata_to_arrow_schema(schema, metadata)
         super().__init__(
             file_path=file_path,
@@ -117,14 +136,16 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
         else:
             raise NotImplementedError(f"Unsupported camera codec: {self._camera_codec}")
 
-        self.write_batch(
-            {
-                f"{self._metadata.modality_key}.timestamp_us": [modality.timestamp.time_us],
-                f"{self._metadata.modality_key}.data": [data],
-                f"{self._metadata.modality_key}.camera_to_global_se3": [modality.camera_to_global_se3],
-                f"{self._metadata.modality_key}.exposure_factor": [modality.exposure_factor],
-            }
-        )
+        row: Dict[str, Any] = {
+            f"{self._metadata.modality_key}.timestamp_us": [modality.timestamp.time_us],
+            f"{self._metadata.modality_key}.data": [data],
+            f"{self._metadata.modality_key}.camera_to_global_se3": [modality.camera_to_global_se3],
+            # None where a dataset stores the pose implicitly, to be composed on read from
+            # ego_state_se3 and the camera extrinsic (see _camera_to_global_from_ego).
+            f"{self._metadata.modality_key}.exposure_factor": [modality.exposure_factor],
+        }
+        add_arrival_time_to_row(row, self._metadata, modality)
+        self.write_batch(row)
 
     def close(self) -> None:
         if self._mp4_writer is not None:
@@ -273,10 +294,20 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         log_dir: Optional[Path] = None,
         **kwargs,
     ) -> Optional[Any]:
+        if column == ARRIVAL_TIME_FIELD:
+            return read_arrival_time_column(table, index, metadata.modality_key, deserialize)
         column_at_iteration: Optional[Any] = None
         full_column_name = f"{metadata.modality_key}.{column}"
         if full_column_name in table.column_names:
             column_at_iteration = table[full_column_name][index].as_py()
+        if column == "camera_to_global_se3" and column_at_iteration is None:
+            # Stored implicitly; see _camera_to_global_from_ego. Returned in the same shape the
+            # column would have had, so a caller that asked for the raw value still gets one.
+            timestamp_column = f"{metadata.modality_key}.timestamp_us"
+            timestamp_us = table[timestamp_column][index].as_py() if timestamp_column in table.column_names else None
+            assert isinstance(metadata, BaseCameraMetadata)
+            pose = _camera_to_global_from_ego(log_dir, metadata, timestamp_us)
+            return pose if (deserialize and pose is not None) else (None if pose is None else pose.tolist())
         if deserialize and column_at_iteration is not None:
             if column == "data":
                 column_at_iteration = _deserialize_data_column(
@@ -292,6 +323,90 @@ class ArrowCameraReader(ArrowBaseModalityReader):
             elif column == "timestamp_us":
                 column_at_iteration = Timestamp.from_us(column_at_iteration)
         return column_at_iteration
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Camera pose from the ego trajectory
+# ------------------------------------------------------------------------------------------------------------------
+
+# ``camera_to_global_se3`` is ego_pose composed with the camera's own extrinsic, so it is the one
+# per-frame field that a change to the ego trajectory invalidates. A dataset may therefore leave
+# it null and have it composed here instead, which turns re-estimating a trajectory from a
+# rewrite of every camera table into a rewrite of ``ego_state_se3.arrow`` alone -- on the Kesai
+# logs, 7 MB rather than 38 GB. Nothing else changes: lidar and radar points are stored in the
+# IMU frame and are unaffected by the ego pose, and a log that carries the column keeps using it,
+# so every dataset written before this reads back exactly as it did.
+
+
+def _ego_state_key() -> str:
+    """The modality key the ego trajectory is stored under, from the enum rather than a literal."""
+    return get_modality_key(ModalityType.EGO_STATE_SE3)
+
+
+@lru_cache(maxsize=8)
+def _ego_trajectory(log_dir_str: str) -> Optional[Tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]]:
+    """The log's ego poses as arrays, cached per log directory.
+
+    :param log_dir_str: The log directory, as a string so it can be a cache key.
+    :return: Tuple of (timestamps in microseconds, (N, 7) poses), or None if the log has no ego states.
+    """
+    path = Path(log_dir_str) / f"{_ego_state_key()}.arrow"
+    if not path.exists():
+        return None
+    table = get_lru_cached_arrow_table(path)
+    timestamp_column = f"{_ego_state_key()}.timestamp_us"
+    pose_column = f"{_ego_state_key()}.imu_se3"
+    if timestamp_column not in table.column_names or pose_column not in table.column_names:
+        return None
+    timestamps = table[timestamp_column].to_numpy().astype(np.int64)
+    poses = np.asarray(table[pose_column].to_pylist(), dtype=np.float64)
+    if not len(timestamps) or poses.shape[-1] != len(PoseSE3Index):
+        return None
+    return timestamps, poses
+
+
+def _ego_pose_at(timestamps_us: npt.NDArray[np.int64], poses: npt.NDArray[np.float64], timestamp_us: int) -> PoseSE3:
+    """The ego pose at an arbitrary time, interpolated and clamped to the trajectory's range.
+
+    Interpolated rather than snapped: the ego states are 100 Hz and a camera frame falls between
+    them, so taking the nearest would displace the pose by up to 5 ms of travel -- 15 cm at
+    30 m/s, which is the same order as the trajectory's own accuracy.
+    """
+    if len(timestamps_us) == 1:
+        return PoseSE3.from_list(poses[0].tolist())
+    clamped = int(np.clip(timestamp_us, timestamps_us[0], timestamps_us[-1]))
+    upper = int(np.clip(np.searchsorted(timestamps_us, clamped, side="right"), 1, len(timestamps_us) - 1))
+    lower = upper - 1
+    span = float(timestamps_us[upper] - timestamps_us[lower])
+    ratio = 0.0 if span <= 0.0 else (clamped - timestamps_us[lower]) / span
+
+    interpolated = np.empty(len(PoseSE3Index), dtype=np.float64)
+    interpolated[PoseSE3Index.XYZ] = (
+        poses[lower, PoseSE3Index.XYZ] + (poses[upper, PoseSE3Index.XYZ] - poses[lower, PoseSE3Index.XYZ]) * ratio
+    )
+    interpolated[PoseSE3Index.QUATERNION] = slerp_quaternion_arrays(
+        poses[lower, PoseSE3Index.QUATERNION], poses[upper, PoseSE3Index.QUATERNION], np.array(ratio)
+    )
+    return PoseSE3.from_list(interpolated.tolist())
+
+
+def _camera_to_global_from_ego(
+    log_dir: Optional[Path], metadata: BaseCameraMetadata, timestamp_us: Optional[int]
+) -> Optional[PoseSE3]:
+    """Compose the camera's world pose from the log's ego trajectory and the camera extrinsic.
+
+    :param log_dir: The log directory; without it the trajectory cannot be found.
+    :param metadata: The camera metadata, carrying ``camera_to_imu_se3``.
+    :param timestamp_us: The frame time to place the camera at.
+    :return: The camera-to-global pose, or None when the log carries no ego trajectory.
+    """
+    if log_dir is None or timestamp_us is None:
+        return None
+    trajectory = _ego_trajectory(str(log_dir))
+    if trajectory is None:
+        return None
+    timestamps_us, poses = trajectory
+    return rel_to_abs_se3(origin=_ego_pose_at(timestamps_us, poses, timestamp_us), pose_se3=metadata.camera_to_imu_se3)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -329,8 +444,17 @@ def _deserialize_camera(
         else None
     )
 
-    if table_data is None or camera_to_global_se3_data is None:
+    if table_data is None:
         return None
+    # A null pose means the dataset stores it implicitly: compose it from the ego trajectory and
+    # the camera's own extrinsic. A dataset that wrote the column keeps its stored value, so
+    # every log written before this reads back byte for byte as it did.
+    if camera_to_global_se3_data is None:
+        camera_to_global_se3 = _camera_to_global_from_ego(log_dir, camera_metadata, timestamp_data)
+        if camera_to_global_se3 is None:
+            return None
+    else:
+        camera_to_global_se3 = PoseSE3.from_list(camera_to_global_se3_data)
     image = _deserialize_data_column(
         data=table_data,
         dataset=dataset,
@@ -339,7 +463,6 @@ def _deserialize_camera(
         modality_key=modality_key,
         channel_type=camera_metadata.channel_type,
     )
-    camera_to_global_se3 = PoseSE3.from_list(camera_to_global_se3_data)
     assert image is not None, "Failed to load camera image from Arrow table data."
     return Camera(
         metadata=camera_metadata,
@@ -347,6 +470,7 @@ def _deserialize_camera(
         camera_to_global_se3=camera_to_global_se3,
         timestamp=Timestamp.from_us(timestamp_data),
         exposure_factor=exposure_factor,
+        arrival_timestamp=read_arrival_timestamp(arrow_table, index, modality_key),
     )
 
 

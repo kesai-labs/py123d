@@ -70,6 +70,7 @@ def _get_modality_metadata_registry() -> Dict[ModalityType, Any]:
     from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
     from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
     from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
+    from py123d.datatypes.metadata.route_metadata import RouteMetadata
     from py123d.datatypes.sensors.barometer import BarometerMetadata
     from py123d.datatypes.sensors.base_camera import camera_metadata_from_dict
     from py123d.datatypes.sensors.depth_camera import DepthCameraMetadata
@@ -100,6 +101,7 @@ def _get_modality_metadata_registry() -> Dict[ModalityType, Any]:
         ModalityType.GNSS: GnssMetadata,
         ModalityType.BAROMETER: BarometerMetadata,
         ModalityType.MAGNETOMETER: MagnetometerMetadata,
+        ModalityType.ROUTE_POSITION: RouteMetadata,
         ModalityType.CUSTOM: CustomModalityMetadata,
     }
 

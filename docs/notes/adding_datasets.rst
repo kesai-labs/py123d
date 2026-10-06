@@ -182,6 +182,37 @@ access to the original dataset files for loading.
   store option. nuScenes uses it to carry the keyframe's panoptic-label path
   alongside the lidar file.
 
+Arrival times (optional)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every sensor row stores its measurement time in the column ``<modality_key>.timestamp_us``. A
+recorded dataset can also store the time at which the recording system received each measurement,
+for example the publish time of the message that carried it. A replay of the log in the order and at
+the times in which the data arrived needs this second time.
+
+To store it, set ``has_arrival_time=True`` in the sensor's metadata and pass ``arrival_timestamp`` to
+each row. This is supported by :class:`~py123d.datatypes.Imu`, :class:`~py123d.datatypes.Gnss`,
+:class:`~py123d.datatypes.Barometer`, :class:`~py123d.datatypes.Magnetometer`,
+:class:`~py123d.datatypes.Camera`, :class:`~py123d.datatypes.Lidar` and
+:class:`~py123d.datatypes.Radar`, by the parsed helpers
+:class:`~py123d.parser.base_dataset_parser.ParsedCamera`,
+:class:`~py123d.parser.base_dataset_parser.ParsedLidar` and
+:class:`~py123d.parser.base_dataset_parser.ParsedRadar`, and by the metadata classes of these
+sensors (pinhole, fisheye MEI and f-theta cameras).
+
+* The writer adds the column ``<modality_key>.arrival_us`` (int64, microseconds) as the last
+  column of the file. A row without an arrival time stores null.
+* On read, :attr:`~py123d.datatypes.BaseModality.arrival_timestamp` returns the stored time, or
+  ``None`` if the row or the file has none.
+* With the flag unset (the default) the file has no such column, and its schema and metadata are
+  those of a file written before the column existed. A row that carries an arrival time while the
+  flag is unset is rejected by the writer, so the value cannot be lost without notice.
+* Synchronization does not use the arrival time. The sync table, timestamp lookups, scene
+  construction and scene UUIDs use ``timestamp_us`` only, and arrival times do not need to be
+  monotonic.
+* A merged lidar or radar stores arrival times when all of its sensors do. A merged row carries the
+  latest arrival time of its parts.
+
 Where to add sensor I/O
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
