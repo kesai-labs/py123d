@@ -458,6 +458,8 @@ class ArrowMapAPI(MapAPI):
                 outline=Polyline3D.from_array(stop_zone_features["outline"], copy=False),
                 shapely_polygon=stop_zone_polygon,
                 lane_ids=stop_zone_features.get("lane_ids", []),
+                intersection_id=stop_zone_features.get("intersection_id"),
+                phase_idx=stop_zone_features.get("phase_idx"),
             )
         return stop_zone
 

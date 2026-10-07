@@ -170,6 +170,18 @@ class TestRoundTripBasic:
         assert isinstance(read, StopZone)
         assert read.stop_zone_type == StopZoneType.YIELD_SIGN
         assert 1 in read.lane_ids
+        assert read.intersection_id is None
+        assert read.phase_idx is None
+
+    def test_roundtrip_stop_zone_signal_phase(self, tmp_path: Path) -> None:
+        lane = make_lane(object_id=1)
+        sz = make_stop_zone(object_id=9, lane_ids=[1], intersection_id=20, phase_idx=2)
+        api = write_and_read_map(tmp_path, _meta(), [lane, sz])
+
+        read = api.get_map_object_in_layer(9, MapLayer.STOP_ZONE)
+        assert isinstance(read, StopZone)
+        assert read.intersection_id == 20
+        assert read.phase_idx == 2
 
     def test_roundtrip_speed_bump(self, tmp_path: Path) -> None:
         sb = make_speed_bump(object_id=12, speed_bump_type=SpeedBumpType.UNKNOWN)
