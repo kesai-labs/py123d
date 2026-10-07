@@ -128,7 +128,7 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
       <td>✓&nbsp;/&nbsp;10</td><td>✗</td><td>✓</td>
     </tr>
     <tr>
-      <td rowspan="5"><b>Auto-labeled</b></td>
+      <td rowspan="6"><b>Auto-labeled</b></td>
       <td align="left"><a href="https://waymo.com/open/">WOD-Mot.</a></td>
       <td>2021</td><td>574.1</td><td>10,323.5*</td><td>103,354</td>
       <td>✗</td><td>✗</td>
@@ -157,6 +157,12 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
       <td>2026</td><td>6.3</td><td>167.6</td><td>1,147</td>
       <td>7&nbsp;/&nbsp;30</td><td>1&nbsp;/&nbsp;10</td>
       <td>✓&nbsp;/&nbsp;10</td><td>✗</td><td>✗</td>
+    </tr>
+    <tr>
+      <td align="left">&nbsp;&nbsp;– <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles-NuRec">NuRec</a></td>
+      <td>2026</td><td>8.9</td><td><i>n/a</i></td><td>1,607</td>
+      <td>✗</td><td>✗</td>
+      <td>✓&nbsp;/&nbsp;10</td><td>✗</td><td>✓</td>
     </tr>
     <tr>
       <td rowspan="2"><b>Synth.</b></td>

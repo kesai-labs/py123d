@@ -16,6 +16,7 @@ Each dataset entry includes installation instructions, available data types, kno
    kitti-360
    ncore
    nuplan
+   nurec
    nureasoning
    nuscenes
    pandaset
