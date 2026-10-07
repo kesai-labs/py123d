@@ -26,6 +26,16 @@ NODES: Dict[int, Tuple[float, float]] = {
     10: (10.0, 20.0),
     11: (0.0, 23.0),
     12: (10.0, 23.0),
+    13: (0.0, 47.0),
+    14: (10.0, 47.0),
+    15: (0.0, 43.5),
+    16: (10.0, 43.5),
+    17: (0.0, 40.5),
+    18: (10.0, 40.5),
+    19: (0.0, 37.0),
+    20: (10.0, 37.0),
+    21: (0.0, 39.5),
+    22: (10.0, 39.5),
 }
 WAYS: Dict[int, Tuple[List[int], Dict[str, str]]] = {
     20: ([5, 4], {"type": "line_thin", "subtype": "dashed"}),  # stored against the driving direction
@@ -36,6 +46,11 @@ WAYS: Dict[int, Tuple[List[int], Dict[str, str]]] = {
     25: ([11, 12], {"type": "line_thin", "subtype": "solid"}),
     26: ([9, 10], {"type": "line_thin", "subtype": "solid"}),
     27: ([2, 5], {"type": "stop_line"}),
+    30: ([13, 14], {"type": "virtual"}),
+    31: ([15, 16], {"type": "virtual"}),
+    32: ([17, 18], {"type": "virtual"}),
+    33: ([19, 20], {"type": "virtual"}),
+    34: ([21, 22], {"type": "virtual"}),
 }
 # Lanelet ID -> (left way, right way, tags, regulatory elements)
 LANELETS: Dict[int, Tuple[int, int, Dict[str, str], List[int]]] = {
@@ -43,6 +58,11 @@ LANELETS: Dict[int, Tuple[int, int, Dict[str, str], List[int]]] = {
     101: (22, 23, {"subtype": "road"}, []),
     102: (24, 20, {"subtype": "road"}, []),
     103: (25, 26, {"subtype": "road", "one_way": "0"}, []),
+    # Lane split: lanelets 111 and 113 overlap and share their left boundary with the right boundary of 110.
+    110: (30, 31, {"subtype": "road"}, []),
+    111: (31, 32, {"subtype": "road"}, []),
+    112: (32, 33, {"subtype": "road"}, []),
+    113: (31, 34, {"subtype": "road"}, []),
 }
 
 
@@ -125,6 +145,20 @@ class TestKITScenesMapParser:
         lane_groups = {group.object_id: group for group in objects if isinstance(group, LaneGroup)}
         assert lanes[100].lane_group_id == lanes[102].lane_group_id
         assert lane_groups[lanes[100].lane_group_id].lane_ids == [102, 100]
+
+    def test_lanes_sharing_a_boundary_are_in_exactly_one_lane_group(self, map_objects):
+        """Lanelets 111 and 113 both have 110 as left neighbor, which can only point back at one of them."""
+        _, objects, lanes = map_objects
+        lane_groups = {group.object_id: group for group in objects if isinstance(group, LaneGroup)}
+        assert lanes[111].left_lane_id == lanes[113].left_lane_id == 110
+        assert lanes[110].right_lane_id == 113
+
+        grouped_lane_ids = [lane_id for group in lane_groups.values() for lane_id in group.lane_ids]
+        assert sorted(grouped_lane_ids) == sorted(lanes)
+        for lane_id, lane in lanes.items():
+            assert lane_id in lane_groups[lane.lane_group_id].lane_ids
+        assert lane_groups[lanes[110].lane_group_id].lane_ids == [110, 113]
+        assert lane_groups[lanes[111].lane_group_id].lane_ids == [111, 112]
 
     def test_road_edges_road_lines_and_stop_zones(self, map_objects):
         _, objects, _ = map_objects

@@ -344,14 +344,20 @@ class _LaneGroupData:
 
 
 def _extract_lane_groups(lanes: Dict[int, _LaneData], lanelet_map: _LaneletMap) -> Dict[int, _LaneGroupData]:
-    """Group same-direction neighbors, ordered from left to right. Groups are not joined across curbs."""
+    """Group same-direction neighbors, ordered from left to right. Groups are not joined across curbs.
 
-    def _groupable_neighbor(lane_id: Optional[int], shared_way_id: int) -> Optional[int]:
-        if lane_id is None:
-            return None
-        if lanelet_map.way_tags[shared_way_id].get("type") in ROAD_EDGE_LINE_TYPES:
-            return None
-        return lane_id
+    Overlapping lanelets, e.g. where lanes merge or split, can share a boundary. The neighbor of a lane then does not
+    point back at it, so lanes are only grouped if they are each other's neighbor. Every lane is in exactly one group.
+    """
+    right_neighbor: Dict[int, int] = {}
+    for lane in lanes.values():
+        right_id = lane.right_lane_id
+        if right_id is None or lanes[right_id].left_lane_id != lane.lane_id:
+            continue
+        if lanelet_map.way_tags[lane.right_way_id].get("type") in ROAD_EDGE_LINE_TYPES:
+            continue
+        right_neighbor[lane.lane_id] = right_id
+    left_neighbor = {right_id: left_id for left_id, right_id in right_neighbor.items()}
 
     lane_groups: Dict[int, _LaneGroupData] = {}
     for lane_id in sorted(lanes):
@@ -360,7 +366,7 @@ def _extract_lane_groups(lanes: Dict[int, _LaneData], lanelet_map: _LaneletMap) 
         leftmost_id = lane_id
         visited = {lane_id}
         while True:
-            left_id = _groupable_neighbor(lanes[leftmost_id].left_lane_id, lanes[leftmost_id].left_way_id)
+            left_id = left_neighbor.get(leftmost_id)
             if left_id is None or left_id in visited:
                 break
             visited.add(left_id)
@@ -368,8 +374,7 @@ def _extract_lane_groups(lanes: Dict[int, _LaneData], lanelet_map: _LaneletMap) 
 
         group_lane_ids = [leftmost_id]
         while True:
-            current = lanes[group_lane_ids[-1]]
-            right_id = _groupable_neighbor(current.right_lane_id, current.right_way_id)
+            right_id = right_neighbor.get(group_lane_ids[-1])
             if right_id is None or right_id in group_lane_ids:
                 break
             group_lane_ids.append(right_id)
