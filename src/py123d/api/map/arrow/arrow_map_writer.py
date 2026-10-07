@@ -150,6 +150,8 @@ class ArrowMapWriter(BaseMapWriter):
         self._write_surface_layer(MapLayer.STOP_ZONE, stop_zone)
         self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"].append(int(stop_zone.stop_zone_type))
         self._map_data[MapLayer.STOP_ZONE]["lane_ids"].append(stop_zone.lane_ids)
+        self._map_data[MapLayer.STOP_ZONE]["intersection_id"].append(stop_zone.intersection_id)
+        self._map_data[MapLayer.STOP_ZONE]["phase_idx"].append(stop_zone.phase_idx)
 
     def _write_speed_bump(self, speed_bump: SpeedBump) -> None:
         self._write_surface_layer(MapLayer.SPEED_BUMP, speed_bump)
@@ -290,6 +292,8 @@ class ArrowMapWriter(BaseMapWriter):
                     "outline": self._map_data[MapLayer.STOP_ZONE]["outline"][idx],
                     "stop_zone_type": self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"][idx],
                     "lane_ids": self._map_data[MapLayer.STOP_ZONE]["lane_ids"][idx],
+                    "intersection_id": self._map_data[MapLayer.STOP_ZONE]["intersection_id"][idx],
+                    "phase_idx": self._map_data[MapLayer.STOP_ZONE]["phase_idx"][idx],
                 }
                 all_features.append(msgpack_encode_with_numpy(stop_zone_dict))  # type: ignore
 

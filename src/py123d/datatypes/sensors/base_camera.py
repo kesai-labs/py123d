@@ -59,6 +59,9 @@ class CameraID(SerialIntEnum):
     PCAM_F0 = 0
     """Front pinhole camera."""
 
+    PCAM_F1 = 23
+    """Second front pinhole camera, e.g. a high-resolution camera next to a surround-view ring."""
+
     PCAM_B0 = 1
     """Back pinhole camera."""
 
@@ -134,6 +137,7 @@ class CameraID(SerialIntEnum):
 
 ALL_PINHOLE_CAMERA_IDS = [
     CameraID.PCAM_F0,
+    CameraID.PCAM_F1,
     CameraID.PCAM_B0,
     CameraID.PCAM_L0,
     CameraID.PCAM_L1,

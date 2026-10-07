@@ -644,7 +644,7 @@ class GenericDrivable(BaseMapSurfaceObject):
 class StopZone(BaseMapSurfaceObject):
     """Class representing a stop zone in a map."""
 
-    __slots__ = ("_stop_zone_type", "_lane_ids")
+    __slots__ = ("_stop_zone_type", "_lane_ids", "_intersection_id", "_phase_idx")
 
     def __init__(
         self,
@@ -653,6 +653,8 @@ class StopZone(BaseMapSurfaceObject):
         outline: Optional[Union[Polyline2D, Polyline3D]] = None,
         shapely_polygon: Optional[geom.Polygon] = None,
         lane_ids: Optional[Sequence[MapObjectIDType]] = None,
+        intersection_id: Optional[MapObjectIDType] = None,
+        phase_idx: Optional[int] = None,
     ):
         """Initialize a StopZone instance.
 
@@ -671,10 +673,14 @@ class StopZone(BaseMapSurfaceObject):
         :param outline: The outline of the stop zone, defaults to None.
         :param shapely_polygon: The Shapely polygon representation of the stop zone, defaults to None.
         :param lane_ids: List of lane IDs this stop zone controls, defaults to None.
+        :param intersection_id: ID of the intersection whose signal controller cycles this stop zone, defaults to None.
+        :param phase_idx: Phase index of this stop zone within the intersection's signal cycle, defaults to None.
         """
         super().__init__(object_id, outline, shapely_polygon)
         self._stop_zone_type = stop_zone_type
         self._lane_ids = list(lane_ids) if lane_ids is not None else []
+        self._intersection_id = intersection_id
+        self._phase_idx = phase_idx
 
     @property
     def layer(self) -> MapLayer:
@@ -690,6 +696,16 @@ class StopZone(BaseMapSurfaceObject):
     def lane_ids(self) -> List[MapObjectIDType]:
         """List of lane IDs this stop zone controls."""
         return self._lane_ids
+
+    @property
+    def intersection_id(self) -> Optional[MapObjectIDType]:
+        """ID of the intersection whose signal controller cycles this stop zone, if any."""
+        return self._intersection_id
+
+    @property
+    def phase_idx(self) -> Optional[int]:
+        """Phase index within the intersection's signal cycle, if any."""
+        return self._phase_idx
 
 
 class RoadEdge(BaseMapLineObject):

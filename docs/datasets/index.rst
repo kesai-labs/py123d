@@ -12,6 +12,7 @@ Each dataset entry includes installation instructions, available data types, kno
    av2
    carla
    griffin
+   kitscenes
    kitti-360
    ncore
    nuplan

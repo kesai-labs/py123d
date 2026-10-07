@@ -210,6 +210,8 @@ def make_stop_zone(
     stop_zone_type: StopZoneType = StopZoneType.TRAFFIC_LIGHT,
     cx: float = 70.0,
     cy: float = 5.0,
+    intersection_id: Optional[MapObjectIDType] = None,
+    phase_idx: Optional[int] = None,
 ) -> StopZone:
     outline = make_square_outline(cx, cy, size=5.0)
     return StopZone(
@@ -217,6 +219,8 @@ def make_stop_zone(
         stop_zone_type=stop_zone_type,
         outline=outline,
         lane_ids=lane_ids,
+        intersection_id=intersection_id,
+        phase_idx=phase_idx,
     )
 
 

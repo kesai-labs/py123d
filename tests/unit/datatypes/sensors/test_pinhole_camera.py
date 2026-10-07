@@ -32,6 +32,7 @@ class TestCameraID:
         assert CameraID.PCAM_STEREO_R.value == 9
         assert CameraID.FMCAM_L.value == 10
         assert CameraID.FMCAM_R.value == 11
+        assert CameraID.PCAM_F1.value == 23
 
     def test_camera_id_from_int(self):
         """Test creating camera type from integer."""
