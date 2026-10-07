@@ -61,7 +61,7 @@ Available Modalities
      - Lanes with connectivity, neighbours, lane groups and speed limits, road edges, crosswalks, stop zones (typed by the light or sign controlling their lane, and linked to it), painted road lines, intersection areas typed by their control, generic drivable areas (gore areas), and walkways (traffic islands). See :class:`~py123d.datatypes.Lane`.
    * - Bounding Boxes
      - ✓
-     - Auto-labeled 3D cuboid tracks, interpolated onto the same 10 Hz grid as the ego poses. NuRec shares the Physical AI AV taxonomy (:class:`~py123d.parser.registry.PhysicalAIAVBoxDetectionLabel`). See :class:`~py123d.datatypes.BoxDetectionsSE3`.
+     - Auto-labeled 3D cuboid tracks, interpolated onto the same 10 Hz grid as the ego poses. By default, positions are smoothed and tracks shorter than 3 s are dropped, as in NVIDIA's simulator (see Conversion). NuRec shares the Physical AI AV taxonomy (:class:`~py123d.parser.registry.PhysicalAIAVBoxDetectionLabel`). See :class:`~py123d.datatypes.BoxDetectionsSE3`.
    * - Traffic Lights
      - X
      - No per-timestep light states are recorded. Light-controlled stopping points are converted as :class:`~py123d.datatypes.StopZone` instead.
@@ -122,7 +122,7 @@ Installation
 ~~~~~~~~~~~~
 
 NuRec conversion requires the ``nurec`` extras group (``csaps`` for the cubic smoothing
-spline used by the AlpaSim-parity profile, and ``huggingface_hub`` for downloads):
+spline applied to track positions, and ``huggingface_hub`` for downloads):
 
 .. code-block:: bash
 
@@ -184,15 +184,16 @@ Frames are placed on a uniform 10 Hz grid, with ego poses and cuboid tracks inte
 onto it, since the recorded timestamps are only nominally uniform and tracks run on
 their own clock (see Dataset Issues).
 
-Two options also apply the transforms NVIDIA's simulator performs at replay time.
-They smooth track positions with a cubic smoothing spline and drop tracks shorter
-than 3 s within the scene window:
+By default, the conversion also applies the two transforms NVIDIA's simulator performs
+at replay time: it smooths track positions with a cubic smoothing spline and drops
+tracks shorter than 3 s within the scene window. To convert the tracks as recorded,
+turn both off:
 
 .. code-block:: bash
 
   py123d-conversion dataset=nurec-curated \
-      dataset.parser.smooth_track_positions=true \
-      dataset.parser.min_traffic_duration_us=3000000
+      dataset.parser.smooth_track_positions=false \
+      dataset.parser.min_traffic_duration_us=0
 
 The map source is selected with ``dataset.parser.map_source``:
 

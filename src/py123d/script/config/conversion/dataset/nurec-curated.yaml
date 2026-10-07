@@ -19,11 +19,11 @@ parser:
   sample_random: false    # pick them at random instead of taking the first ones
   seed: 0
 
-  # AlpaSim replays a scene with smoothed tracks and without short-lived ones. For the
-  # world AlpaSim replays, rather than the scene as recorded, set
-  # min_traffic_duration_us=3000000 and smooth_track_positions=true.
-  min_traffic_duration_us: 0      # drop tracks living shorter than this in the scene window
-  smooth_track_positions: false   # smooth track positions with a cubic smoothing spline
+  # AlpaSim replays a scene with smoothed tracks and without short-lived ones. These
+  # defaults convert the world AlpaSim replays. For the scene as recorded, set
+  # min_traffic_duration_us=0 and smooth_track_positions=false.
+  min_traffic_duration_us: 3000000   # drop tracks living shorter than this in the scene window
+  smooth_track_positions: true       # smooth track positions with a cubic smoothing spline
 
   # Map source. A scene can carry its map as MADS clipgt/*.parquet layers and as an
   # embedded OpenDRIVE file (map.xodr).

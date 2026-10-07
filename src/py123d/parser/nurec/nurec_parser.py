@@ -137,8 +137,8 @@ class NuRecParser(BaseDatasetParser):
         seed: int = 0,
         splits: Optional[List[str]] = None,
         scene_lists: Optional[Dict[str, List[str]]] = None,
-        min_traffic_duration_us: int = 0,
-        smooth_track_positions: bool = False,
+        min_traffic_duration_us: int = 3_000_000,
+        smooth_track_positions: bool = True,
         downloader: Optional[NuRecDownloader] = None,
         map_source: str = "clip_gt_or_xodr",
         xodr_member: str = "map.xodr",
@@ -166,7 +166,9 @@ class NuRecParser(BaseDatasetParser):
         :param scene_lists: Mapping of split name to scene names, each ``"<release>/<scene uuid>"``.
             Defaults to the bundled train/val lists.
         :param min_traffic_duration_us: Drops tracks living shorter than this inside the scene window.
-        :param smooth_track_positions: Smooths track positions with a cubic smoothing spline.
+            Defaults to AlpaSim's 3 s; 0 keeps all tracks.
+        :param smooth_track_positions: Smooths track positions with a cubic smoothing spline, as
+            AlpaSim does.
         :param downloader: Streams the scenes from Hugging Face instead of reading ``nurec_root``. It
             fetches the scenes selected by ``splits``, ``num_sequences``, ``sample_random`` and ``seed``,
             narrowed down by its own ``sequence_ids``, into a temporary directory.
@@ -365,8 +367,8 @@ class NuRecLogParser(BaseLogParser):
         self,
         usdz_path: Union[str, Path],
         split: str = "nurec-curated_train",
-        min_traffic_duration_us: int = 0,
-        smooth_track_positions: bool = False,
+        min_traffic_duration_us: int = 3_000_000,
+        smooth_track_positions: bool = True,
         has_map: bool = True,
     ) -> None:
         self._usdz_path = Path(usdz_path)
