@@ -26,7 +26,7 @@ parser:
   zero_roll_pitch: true
   keep_polar_features: false
   add_map_pose_offset: true
-  add_dummy_lane_groups: false
+  add_dummy_lane_groups: true
 
   downloader:
     _target_: py123d.parser.wod.wod_download.WODPerceptionDownloader
