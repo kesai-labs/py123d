@@ -162,7 +162,11 @@ def _update_connection_from_links(
 
             # Last lane section -> Next road in first lane section
             # Try to get next road
-            elif road.link.successor is not None and road.link.successor.element_type != "junction":
+            elif (
+                road.link.successor is not None
+                and road.link.successor.element_type != "junction"
+                and road.link.successor.element_id in road_dict
+            ):
                 successor_road = road_dict[road.link.successor.element_id]
                 successor_lane_section_idx = (
                     0 if road.link.successor.contact_point == "start" else successor_road.lanes.last_lane_section_idx
@@ -200,7 +204,11 @@ def _update_connection_from_links(
 
             # First lane section -> Previous road
             # Try to get previous road
-            elif road.link.predecessor is not None and road.link.predecessor.element_type != "junction":
+            elif (
+                road.link.predecessor is not None
+                and road.link.predecessor.element_type != "junction"
+                and road.link.predecessor.element_id in road_dict
+            ):
                 predecessor_road = road_dict[road.link.predecessor.element_id]
                 predecessor_lane_section_idx = (
                     0
@@ -240,14 +248,15 @@ def _update_connection_from_junctions(
     :raises ValueError: If a connection is invalid.
     """
 
+    num_skipped_connections = 0
     for junction_idx, junction in junction_dict.items():
         for connection in junction.connections:
             # Connections may reference roads that are not part of the map (e.g. clipped maps).
-            try:
-                incoming_road = road_dict[connection.incoming_road]
-                connecting_road = road_dict[connection.connecting_road]
-            except KeyError:
+            if connection.incoming_road not in road_dict or connection.connecting_road not in road_dict:
+                num_skipped_connections += 1
                 continue
+            incoming_road = road_dict[connection.incoming_road]
+            connecting_road = road_dict[connection.connecting_road]
 
             for lane_link in connection.lane_links:
                 incoming_lane_id: Optional[str] = None
@@ -277,6 +286,9 @@ def _update_connection_from_junctions(
                     continue
                 lane_helper_dict[incoming_lane_id].successor_lane_ids.append(connecting_lane_id)
                 lane_helper_dict[connecting_lane_id].predecessor_lane_ids.append(incoming_lane_id)
+
+    if num_skipped_connections > 0:
+        logger.info(f"OpenDRIVE: skipped {num_skipped_connections} junction connection(s) to roads not in the map")
 
 
 def _deduplicate_connections(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> None:
@@ -976,6 +988,14 @@ def _collect_lane_groups(
             lane_group_helper_dict[lane_group_id] = OpenDriveLaneGroupHelper(lane_group_id, lane_helpers)
             road_id = int(road_id_from_lane_group_id(lane_group_id))
             road_to_group_ids.setdefault(road_id, []).append(lane_group_id)
+
+    for lane_group_helper in lane_group_helper_dict.values():
+        lane_group_helper.predecessor_lane_group_ids = [
+            group_id for group_id in lane_group_helper.predecessor_lane_group_ids if group_id in lane_group_helper_dict
+        ]
+        lane_group_helper.successor_lane_group_ids = [
+            group_id for group_id in lane_group_helper.successor_lane_group_ids if group_id in lane_group_helper_dict
+        ]
 
     for junction in junction_dict.values():
         for connection in junction.connections:

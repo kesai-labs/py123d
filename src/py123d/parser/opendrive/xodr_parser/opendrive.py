@@ -4,7 +4,7 @@ import gzip
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Optional
 from xml.etree.ElementTree import Element, parse
 
 from py123d.parser.opendrive.xodr_parser.road import XODRRoad
@@ -207,7 +207,7 @@ class Connection:
     id: int
     incoming_road: int
     connecting_road: int
-    contact_point: Literal["start", "end"]
+    contact_point: Optional[str]
     lane_links: List[LaneLink]
 
     # NOTE: `contact_point` is validated where it is used (see `_update_connection_from_junctions`),
