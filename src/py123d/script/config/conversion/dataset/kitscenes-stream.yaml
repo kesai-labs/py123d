@@ -1,0 +1,69 @@
+# Streaming variant of dataset=kitscenes. Downloads the selected scenes from the gated Hugging Face release into a
+# managed temp directory, converts them with self-contained sensor storage, and cleans up afterwards.
+#
+# Usage:
+#   py123d-conversion dataset=kitscenes-stream 'dataset.parser.scene_ids=[c34c778f-ad8c-0aa9-7e1a-c86a73f887c7]'
+
+parser:
+  _target_: py123d.parser.kitscenes.kitscenes_parser.KITScenesDatasetParser
+  _convert_: 'all'
+
+  kitscenes_data_root: null
+  splits: null
+  scene_ids:
+    - c34c778f-ad8c-0aa9-7e1a-c86a73f887c7
+
+  downloader:
+    _target_: py123d.parser.kitscenes.kitscenes_download.KITScenesDownloader
+    _convert_: 'all'
+
+    # null → parser assigns a tempfile.TemporaryDirectory for the duration of the run.
+    output_dir: null
+    dry_run: false
+    splits: ${dataset.parser.splits}
+    scene_ids: ${dataset.parser.scene_ids}
+    max_num_scenes: null
+    revision: main
+    hf_token: null            # falls back to $HF_TOKEN or the token stored by `hf auth login`
+    max_workers: 2
+    extract: true
+    delete_archives: true
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  # The downloaded source files are deleted after conversion, so sensor data is stored in the logs.
+  camera_store_option: "jpeg_binary"
+  lidar_store_option: "binary"
+  lidar_codec: "ipc_lz4"
+  radar_store_option: "binary"
+  radar_codec: "ipc_lz4"
+
+  infer_ego_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: ego_state_se3.timestamp_us
+    direction: "forward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

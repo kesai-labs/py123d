@@ -181,6 +181,13 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
 ## 📝 Changelog
 
 <details open>
+<summary><b>v0.8.0</b> (unreleased)</summary>
+
+- Added [**KITScenes Multimodal**](https://arxiv.org/abs/2606.02956) dataset support (experimental): ego poses, 9 cameras, 7 lidars, 3 radars and per-scene Lanelet2 HD maps, plus a Hugging Face downloader and streaming conversion. Added the `PCAM_F1`, `LIDAR_FRONT_LEFT` and `LIDAR_FRONT_RIGHT` sensor IDs. Note: the ego vehicle dimensions assume a long-wheelbase BMW 7 Series G12; only the wheelbase is confirmed by the authors' publications.
+
+</details>
+
+<details open>
 <summary><b>v0.7.0</b> (2026-09-08)</summary>
 
 - New modalities: per-pixel **depth camera**, a **route modality** with `SceneAPI` route storage/retrieval, tracking for derived modalities, optional GNSS solution-quality / speed-accuracy fields, and ego-state pose uncertainty ([#155](https://github.com/kesai-labs/py123d/pull/155), [#173](https://github.com/kesai-labs/py123d/pull/173), [#177](https://github.com/kesai-labs/py123d/pull/177), [#170](https://github.com/kesai-labs/py123d/pull/170), [#174](https://github.com/kesai-labs/py123d/pull/174)).

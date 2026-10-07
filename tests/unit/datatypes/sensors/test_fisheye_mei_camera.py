@@ -30,7 +30,7 @@ class TestFisheyeMEICameraType:
     def test_camera_id_members(self):
         """Test that fisheye members exist in the unified CameraID enum."""
         members = list(CameraID)
-        assert len(members) == 23
+        assert len(members) == 24
         assert CameraID.FMCAM_L in members
         assert CameraID.FMCAM_R in members
 

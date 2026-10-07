@@ -1,0 +1,21 @@
+# Downloads KITScenes Multimodal scenes from the gated Hugging Face release into $KITSCENES_DATA_ROOT.
+# Accept the dataset terms at https://huggingface.co/datasets/KIT-MRT/KITScenes-Multimodal and log in with
+# `hf auth login` (or set $HF_TOKEN) first. Each scene is a 2-5 GB archive.
+#
+# Usage:
+#   py123d-download dataset=kitscenes 'dataset.downloader.splits=[val]' dataset.downloader.max_num_scenes=1
+
+downloader:
+  _target_: py123d.parser.kitscenes.kitscenes_download.KITScenesDownloader
+  _convert_: 'all'
+
+  output_dir: ${dataset_paths.kitscenes_data_root}
+  dry_run: false
+  splits: null              # e.g. [train, val]; null downloads all splits
+  scene_ids: null           # explicit scene UUIDs; null downloads all scenes of the selected splits
+  max_num_scenes: null
+  revision: main
+  hf_token: null            # falls back to $HF_TOKEN or the token stored by `hf auth login`
+  max_workers: 2
+  extract: true
+  delete_archives: false    # delete each .tar after extraction to save disk space
