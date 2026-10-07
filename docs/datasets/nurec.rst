@@ -58,7 +58,7 @@ Available Modalities
      - Rig-to-world poses, resampled to a uniform 10 Hz. NuRec stores poses only; ``infer_ego_dynamics: true`` derives velocity/acceleration during conversion. Vehicle dimensions and the rig-to-box-centre offset come from the rig bounding box, and the wheel base from the rig calibration's axle positions. The release spans several vehicle platforms, with wheel bases from 2.73 m to 3.22 m. See :class:`~py123d.datatypes.EgoStateSE3`.
    * - Map
      - ✓
-     - Lanes with connectivity, neighbours, lane groups and speed limits, road edges, crosswalks, stop zones (typed by the light or sign controlling their lane, and linked to it), painted road lines, intersection areas typed by their control, generic drivable areas (gore areas), and walkways (traffic islands). See :class:`~py123d.datatypes.Lane`.
+     - Lanes with connectivity, neighbours, lane groups and speed limits, road edges, crosswalks, stop zones (typed by the light or sign controlling their lane, and linked to it), painted road lines, intersection areas typed by their control, generic drivable areas (gore areas), and walkways (traffic islands). Maps converted from ``map.xodr`` instead (see Dataset Issues) are sparser: the curated xodr-only scenes have no crosswalks or walkways, most have no stop zones, and intersections are untyped. See :class:`~py123d.datatypes.Lane`.
    * - Bounding Boxes
      - ✓
      - Auto-labeled 3D cuboid tracks, interpolated onto the same 10 Hz grid as the ego poses. By default, positions are smoothed and tracks shorter than 3 s are dropped, as in NVIDIA's simulator (see Conversion). NuRec shares the Physical AI AV taxonomy (:class:`~py123d.parser.registry.PhysicalAIAVBoxDetectionLabel`). See :class:`~py123d.datatypes.BoxDetectionsSE3`.
@@ -177,8 +177,9 @@ selection unless the temporary directory can hold it:
 
   py123d-conversion dataset=nurec-curated-stream dataset.parser.num_sequences=3
 
-Each config has a scene filter of the same name for reading the converted logs, for
-example ``py123d-viser scene_filter=nurec-curated`` or ``scene_filter=nurec-2601``.
+Each config has a scene filter of the same name for reading the converted logs (a
+``-stream`` config uses the filter of its base config), for example
+``py123d-viser scene_filter=nurec-curated`` or ``scene_filter=nurec-2601``.
 
 Frames are placed on a uniform 10 Hz grid, with ego poses and cuboid tracks interpolated
 onto it, since the recorded timestamps are only nominally uniform and tracks run on
@@ -311,6 +312,11 @@ Dataset Issues
   grid that ships with neither pyproj nor PROJ, so only its ``+lat_0``/``+lon_0`` origin
   is read. The map is then moved into the clip-local frame of the ego poses using the
   world-from-base pose in ``rig_trajectories.json``.
+- **Speed limits in** ``map.xodr`` **are labelled mph everywhere.** Every ``<speed>`` record
+  says ``unit="mph"``, but in the European scenes the values are km/h, so lanes converted
+  from ``map.xodr`` carry limits 1.609 times too high there (193 km/h for a 120 km/h road).
+  Comparing with clipgt in the scenes that carry both confirms this. Speed limits from
+  clipgt are not affected.
 - **Speed limits are sparse.** Lane speed limits are present in recent releases and
   absent in older ones; lanes without a speed limit convert with ``speed_limit_mps=None``.
 - **Non-uniform source timestamps.** Rig timestamps are nominally 10 Hz but drift by
