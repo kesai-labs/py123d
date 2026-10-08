@@ -52,7 +52,7 @@ from py123d.parser.physical_ai_av.utils.physical_ai_av_helper import (
 from py123d.parser.registry import PhysicalAIAVBoxDetectionLabel
 
 # Per the PAIAV wiki (https://github.com/NVlabs/physical_ai_av/wiki/3.-Sensor-Details):
-# `reference_timestamp` marks the start of the 360° sweep and a complete rotation takes 100ms.
+# the LiDAR spin start timestamp marks the beginning of the 360° sweep and a complete rotation takes 100ms.
 _LIDAR_SPIN_DURATION_US = 100_000
 
 
@@ -163,6 +163,34 @@ class PhysicalAIAVLogParser(BaseLogParser):
         """Path to the regular (raw) egomotion file — higher rate, includes velocity/acceleration."""
         return self._data_root / "labels" / "egomotion" / f"{self._clip_id}.egomotion.parquet"
 
+    def _read_lidar_timestamps(self, lidar_path: Path) -> np.ndarray:
+        """Read lidar timestamps with schema fallback across dataset revisions.
+
+        Older snapshots expose `reference_timestamp`, while newer snapshots expose
+        `spin_start_timestamp`. Some variants may expose `timestamp`.
+        """
+        candidate_columns = ("reference_timestamp", "spin_start_timestamp", "timestamp")
+
+        for col in candidate_columns:
+            try:
+                lidar_df = pd.read_parquet(lidar_path, columns=[col])
+                if col in lidar_df.columns:
+                    return lidar_df[col].to_numpy(dtype=np.int64)
+            except Exception:
+                continue
+
+        # Fallback to full read to provide a clear error message with available columns.
+        lidar_df = pd.read_parquet(lidar_path)
+        for col in candidate_columns:
+            if col in lidar_df.columns:
+                return lidar_df[col].to_numpy(dtype=np.int64)
+
+        available = ", ".join(str(c) for c in lidar_df.columns.tolist())
+        raise ValueError(
+            f"No lidar timestamp column found in {lidar_path}. "
+            f"Expected one of {candidate_columns}. Available columns: [{available}]"
+        )
+
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Inherited, see superclass."""
         ego_metadata = _get_ego_state_metadata(self._data_root, self._clip_id, self._chunk)
@@ -182,8 +210,7 @@ class PhysicalAIAVLogParser(BaseLogParser):
 
         # 2. Load LiDAR timestamps
         lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
-        lidar_df = pd.read_parquet(lidar_path, columns=["reference_timestamp"])
-        lidar_timestamps = lidar_df["reference_timestamp"].to_numpy(dtype=np.int64)
+        lidar_timestamps = self._read_lidar_timestamps(lidar_path)
 
         # 3. Load camera timestamps
         cam_timestamps: Dict[str, np.ndarray] = {}
@@ -321,8 +348,7 @@ class PhysicalAIAVLogParser(BaseLogParser):
         ego_timestamps = ego_df["timestamp"].to_numpy(dtype=np.int64)
 
         lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
-        lidar_df = pd.read_parquet(lidar_path, columns=["reference_timestamp"])
-        lidar_timestamps = lidar_df["reference_timestamp"].to_numpy(dtype=np.int64)
+        lidar_timestamps = self._read_lidar_timestamps(lidar_path)
         obs_timestamps = obstacle_df["timestamp_us"].to_numpy()
 
         for lidar_ts in lidar_timestamps:
@@ -342,10 +368,10 @@ class PhysicalAIAVLogParser(BaseLogParser):
     def _iter_lidar(self, metadata: LidarMergedMetadata) -> Iterator[ParsedLidar]:
         """Yields all LiDAR spins at native rate (~10Hz)."""
         lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
-        lidar_df = pd.read_parquet(lidar_path, columns=["reference_timestamp"])
+        lidar_timestamps = self._read_lidar_timestamps(lidar_path)
 
-        for spin_idx, row in lidar_df.iterrows():
-            ts = int(row["reference_timestamp"])
+        for spin_idx, ts in enumerate(lidar_timestamps):
+            ts = int(ts)
             yield ParsedLidar(
                 metadata=metadata,
                 start_timestamp=Timestamp.from_us(ts),
@@ -364,10 +390,10 @@ class PhysicalAIAVLogParser(BaseLogParser):
             return
 
         lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
-        lidar_df = pd.read_parquet(lidar_path, columns=["reference_timestamp"])
+        lidar_timestamps = self._read_lidar_timestamps(lidar_path)
 
-        for _, row in lidar_df.iterrows():
-            ts = int(row["reference_timestamp"])
+        for ts in lidar_timestamps:
+            ts = int(ts)
             yield ParsedRadar(
                 metadata=radar_metadata,
                 timestamp=Timestamp.from_us(ts),
