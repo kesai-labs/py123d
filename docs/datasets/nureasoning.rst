@@ -13,8 +13,9 @@ and counterfactual reasoning — and support both a Reasoning VQA benchmark and 
 benchmark.
 
 .. note::
-  py123d currently exposes only the **mini** subset of nuReasoning
-  (parts 1–3 of the HuggingFace ``train`` split).
+  The authors release the dataset in stages. The current release holds 11,890 clips (27 TB):
+  9,890 train, 1,000 validation and 1,000 test clips. The remaining clips are announced for
+  after the nuReasoning Challenge 2026.
 
 
 .. dropdown:: Overview
@@ -32,13 +33,15 @@ benchmark.
 
         `Project page <https://nureasoning.github.io/>`_
     * - :octicon:`download` Download
-      - `qixuewei/nuReasoning on HuggingFace <https://huggingface.co/datasets/qixuewei/nuReasoning>`_
+      - `Hugging Face <https://huggingface.co/datasets/nureasoning/nuReasoning>`_ (gated)
     * - :octicon:`mark-github` Code
-      - A public devkit is announced as *Coming Soon* on the `project page <https://nureasoning.github.io/>`_.
+      - `nureasoning-devkit <https://github.com/nureasoning/nureasoning-devkit>`_
     * - :octicon:`law` License
-      - Apache License 2.0
+      - `nuScenes Terms of Use <https://www.nuscenes.org/terms-of-use>`_ for non-commercial use.
+        Commercial use requires a separate license, see the dataset page.
     * - :octicon:`database` Available splits
-      - ``nureasoning-mini_train``
+      - ``nureasoning_train``, ``nureasoning_val``, ``nureasoning_test``, ``nureasoning-mini_train``
+        (parts 1-3 of train, which include the former mini release)
 
 
 Available Modalities
@@ -56,13 +59,14 @@ Available Modalities
      - State of the ego vehicle, including poses, dynamic state, and vehicle parameters, see :class:`~py123d.datatypes.EgoStateSE3`.
    * - Map
      - (✓)
-     - The HD-Maps are in 2D vector format and stored per-log (one map per clip). For more information, see :class:`~py123d.api.MapAPI`.
+     - The HD-Maps are in 2D vector format and stored per-log (one map per clip). Not available in the test split. For more information, see :class:`~py123d.api.MapAPI`.
    * - Bounding Boxes
-     - ✓
-     - The bounding boxes are available with the :class:`~py123d.parser.registry.NureasoningBoxDetectionLabel`. For more information, see :class:`~py123d.datatypes.BoxDetectionsSE3`.
+     - (✓)
+     - The bounding boxes are available with the :class:`~py123d.parser.registry.NureasoningBoxDetectionLabel`. Not available in the test split. For more information, see :class:`~py123d.datatypes.BoxDetectionsSE3`.
    * - Traffic Lights
-     - ✓
-     - Traffic-signal states are provided per frame.
+     - (✓)
+     - Traffic-signal states are provided per frame. Not available in the test split.
+       The lane they refer to can lie outside the clip's map.
    * - Cameras
      - ✓
      -
@@ -78,18 +82,28 @@ Available Modalities
       - :class:`~py123d.datatypes.CameraID.PCAM_R2`: back_right
 
    * - Lidars
-     - ✓
+     - (✓)
      -
       A single merged :class:`~py123d.datatypes.Lidar` point cloud fusing five sensors
-      (top, front, side-left, side-right, back).
-      The source sensor of each point is encoded in a ``lidar_info`` channel, and the
-      cloud additionally carries ``ring``, ``intensity``, ``azimuth``, ``range`` and
-      return information. Point clouds are stored as LZF-compressed PCD files.
+      (top, front, side-left, side-right, back). Only some clips include lidar, and none
+      of the test split.
+      Point clouds are LZF-compressed PCD files. Their ``intensity``, ``ring`` and
+      ``lidar_info`` (source sensor) channels are converted. The ``azimuth``, ``range``,
+      ``is_second_return`` and ``lidar_confidence`` channels are not.
    * - Reasoning
+     - (✓)
+     - Human-verified spatial, decision, and counterfactual reasoning annotations, stored
+       as the custom modality ``reasoning``. They are passed through as the raw nuReasoning
+       reasoning JSON (no dedicated py123d datatype yet). About one frame per second
+       carries them, and not all of those hold all three categories. Not available in the
+       test split.
+   * - Scenario
      - ✓
-     - Human-verified spatial, decision, and counterfactual reasoning annotations are
-       available per frame. They are currently passed through as the raw nuReasoning
-       reasoning JSON (no dedicated py123d datatype yet).
+     - The custom modality ``scenario`` holds the route command and route path of each
+       frame, the clip's scenario type, and the frame's upstream ``frame_index`` and
+       token. Its ``is_key_frame`` flag marks the frame that the clip is named after
+       (the ``key_frame_index`` of a test clip). The custom modality ``ego_trajectory``
+       holds the ego history and future that the dataset provides per frame.
 
 .. dropdown:: Dataset Specific
 
@@ -99,59 +113,88 @@ Available Modalities
     :no-inherited-members:
 
   .. note::
-    nuReasoning does not have a published object taxonomy yet — the label set above is
-    provisional and may be incomplete or change in a future release.
+    nuReasoning does not publish an object taxonomy. The label set above holds the categories
+    seen in the released annotations and the ones the devkit lists. A category outside of it is
+    converted to ``OTHER_OTHER`` with a warning.
+
+  **Test split.** Test clips come without ground truth. They cover the 10 s up to the key
+  frame with cameras, ego states and the per-frame route, and have no map, boxes, traffic
+  lights, lidar or reasoning annotations. The challenge questions of a clip
+  (``reasoning_questions.json``) are stored as the custom modality ``reasoning_questions``
+  on its key frame.
+
+  **Frame indices.** Most clips list their key frame twice. The conversion stores it once,
+  so a frame's position in the converted log can be one lower than its upstream
+  ``frame_index``. The reasoning annotations and the challenge use the upstream index,
+  which the ``scenario`` modality provides for every frame.
 
 Download
 ~~~~~~~~
 
-nuReasoning is hosted as a public, Apache-2.0 licensed dataset on HuggingFace at
-`qixuewei/nuReasoning <https://huggingface.co/datasets/qixuewei/nuReasoning>`_.
-py123d ships an automated downloader that fetches and extracts the per-clip archives for
-you.
+nuReasoning is a gated dataset on Hugging Face at
+`nureasoning/nuReasoning <https://huggingface.co/datasets/nureasoning/nuReasoning>`_.
+Request access on the dataset page, then provide a token of that account with
+``export HF_TOKEN=hf_...`` or ``hf auth login``. py123d ships an automated downloader that
+fetches and extracts the per-clip archives for you.
 
 .. code-block:: bash
 
-  # Download the configured selection into $NUREASONING_DATA_ROOT
-  py123d-download dataset=nureasoning
+  export HF_TOKEN=hf_...
+
+  # Preview the selection and its size
+  py123d-download dataset=nureasoning dataset.downloader.dry_run=true
+
+  # Download the validation split into $NUREASONING_DATA_ROOT
+  py123d-download dataset=nureasoning 'dataset.downloader.splits=[nureasoning_val]'
+
+A clip takes about 2.3 GB (1 GB in the test split), and the whole release 27 TB.
 
 The downloader exposes several selection knobs (see
 ``py123d/script/config/download/dataset/nureasoning.yaml``):
 
-* ``splits`` — e.g. ``[train]``, ``[train, validation]`` (``null`` discovers all live from the repo)
-* ``parts`` — e.g. ``[part_1, part_2]``
+* ``splits`` — e.g. ``[nureasoning_train]``, ``[nureasoning_val, nureasoning_test]`` (``null`` selects train, val and test)
+* ``parts`` — e.g. ``[part_1, part_2]`` (drops the test split, which has no parts)
 * ``log_names`` — explicit clip names ``<log>_<token>`` (mutually exclusive with ``num_logs``)
 * ``num_logs`` — the first N clips of the selection (or N random with ``sample_random=true`` and ``seed``)
 * ``max_workers`` — parallel clip download/extract workers (default ``8``)
-* ``keep_zip`` — keep each ``.zip`` next to its extracted directory (default: extract then discard)
+* ``keep_archive`` — keep each ``.tar`` next to its extracted directory (default: extract then discard)
 
-Each selected clip is downloaded as a single ``.zip`` and extracted to
-``<output_dir>/<split>/<part>/<clip>/``. The 123D conversion expects the following
-directory structure:
+Each selected clip is downloaded as a single ``.tar`` and extracted to
+``<output_dir>/<split>/[<part>/]<clip>/``. This is the layout of the devkit's
+``dataset/data`` folder, so data downloaded with the devkit can be converted as well.
+The 123D conversion expects the following directory structure:
 
 .. code-block:: none
 
   $NUREASONING_DATA_ROOT
-    └── train/
-        ├── part_1/
-        │   ├── <log_name>_<keyframe_token>/
-        │   │   ├── metadata.json
-        │   │   ├── map.pkl
-        │   │   ├── ego_state/
-        │   │   │   └── <timestamp_us>.pkl
-        │   │   ├── annotations/
-        │   │   │   └── <timestamp_us>.pkl
-        │   │   ├── reasoning/
-        │   │   │   └── <timestamp_us>.json
-        │   │   ├── cameras/
-        │   │   │   ├── front.jpg
-        │   │   │   ├── back.jpg
-        │   │   │   └── ...
-        │   │   └── lidar/
-        │   │       └── <timestamp_us>.pcd
-        │   └── ...
-        ├── part_2/
-        └── part_3/
+    ├── train/
+    │   ├── part_1/
+    │   │   ├── <log_name>_<keyframe_token>/
+    │   │   │   ├── metadata.json
+    │   │   │   ├── map.pkl
+    │   │   │   ├── ego_state/
+    │   │   │   │   └── <timestamp_us>.pkl
+    │   │   │   ├── annotations/
+    │   │   │   │   └── <timestamp_us>.pkl
+    │   │   │   ├── reasoning/
+    │   │   │   │   └── <timestamp_us>.json
+    │   │   │   ├── cameras/
+    │   │   │   │   ├── CAM_M_F/
+    │   │   │   │   │   └── CAM_M_F_<timestamp_us>.jpg
+    │   │   │   │   └── ...
+    │   │   │   └── lidar/                     (only in some clips)
+    │   │   │       └── <timestamp_us>.pcd
+    │   │   └── ...
+    │   ├── ...
+    │   └── part_10/
+    ├── validation/
+    │   └── part_1/
+    └── test/
+        └── <log_name>_<keyframe_token>/
+            ├── metadata.json
+            ├── reasoning_questions.json
+            ├── ego_state/
+            └── cameras/
 
 Lastly, you need to add the following environment variable to your ``~/.bashrc`` according
 to your installation path:
@@ -190,26 +233,38 @@ section above):
 
 .. code-block:: bash
 
+  # The train, val and test splits; a split without a folder is skipped
+  py123d-conversion dataset=nureasoning
+
+  # Parts 1-3 of the train split
   py123d-conversion dataset=nureasoning-mini
 
 .. note::
   The local conversion of nuReasoning by default does not store sensor data in the logs,
   but only relative file paths (``camera_store_option: "path"`` and
   ``lidar_store_option: "path"``), which are resolved against the nuReasoning sensor root
-  at read time. To change this behavior, adapt the ``nureasoning-mini.yaml`` converter
+  at read time. To change this behavior, adapt the ``nureasoning.yaml`` converter
   configuration.
 
-**Streaming mode** — materialize the selected clips from the HuggingFace repo into a
-session-scoped temp directory at parser construction time, convert from it, and delete the
-temp directory afterwards. The mini subset corresponds to parts 1–3 of the HuggingFace
-``train`` split.
+**Streaming mode** — download the selected clips from Hugging Face into a temp directory
+at parser construction time, convert from it, and delete the temp directory afterwards.
 
 .. code-block:: bash
 
-  py123d-conversion dataset=nureasoning-mini-stream
+  export HF_TOKEN=hf_...
 
-The repo is public, so no token is required; if needed, ``hf_token`` falls back to
-``$HF_TOKEN`` / ``$HUGGINGFACE_HUB_TOKEN``.
+  # The first five clips of the validation split
+  py123d-conversion dataset=nureasoning-stream 'dataset.parser.splits=[nureasoning_val]' \
+    dataset.parser.downloader.num_logs=5
+
+  # Named clips, from any of the three splits
+  py123d-conversion dataset=nureasoning-stream \
+    'dataset.parser.downloader.log_names=[<log>_<token>,<log>_<token>]'
+
+All selected clips are downloaded before the conversion starts, so the temp directory
+(``$TMPDIR``) has to hold them. Narrow the selection down with ``num_logs``, ``log_names``
+or ``parts``: the full release does not fit. ``dataset=nureasoning-mini-stream`` is the
+same for the mini split.
 
 .. note::
   Streaming mode forces ``camera_store_option: "jpeg_binary"`` and

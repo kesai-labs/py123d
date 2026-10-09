@@ -189,6 +189,7 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
 <details open>
 <summary><b>v0.8.0</b> (unreleased)</summary>
 
+- Updated **nuReasoning** to the full release on Hugging Face ([`nureasoning/nuReasoning`](https://huggingface.co/datasets/nureasoning/nuReasoning), gated): new `nureasoning_train`, `nureasoning_val` and `nureasoning_test` splits with `dataset=nureasoning` and `dataset=nureasoning-stream`, `.tar` clip archives, and the test split with its challenge questions as a custom modality. Breaking: the downloader selects py123d split names instead of repository folders, its `keep_zip` option is now `keep_archive`, and a clip's repeated key frame is stored once.
 - Added [**KITScenes Multimodal**](https://arxiv.org/abs/2606.02956) dataset support (experimental): ego poses, 9 cameras, 7 lidars, 3 radars and per-scene Lanelet2 HD maps, plus a Hugging Face downloader and streaming conversion. Added the `PCAM_F1`, `LIDAR_FRONT_LEFT` and `LIDAR_FRONT_RIGHT` sensor IDs. Note: the ego vehicle dimensions assume a long-wheelbase BMW 7 Series G12; only the wheelbase is confirmed by the authors' publications.
 
 </details>

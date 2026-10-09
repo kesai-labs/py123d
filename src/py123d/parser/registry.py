@@ -175,8 +175,9 @@ class NuPlanBoxDetectionLabel(BoxDetectionLabel):
 class NureasoningBoxDetectionLabel(BoxDetectionLabel):
     """Semantic labels for nuReasoning bounding box detections.
 
-    TODO@DanielDauner: The nuReasoning dataset does not have a published taxonomy yet.
-    The list is likely incomplete or incorrect. Needs to be updated.
+    nuReasoning does not publish an object taxonomy. The labels are the category strings observed in
+    the released annotations, plus the ones the devkit lists. Categories outside this list fall back
+    to :attr:`OTHER_OTHER` during conversion.
     """
 
     VEHICLE_CAR = 0
@@ -218,6 +219,21 @@ class NureasoningBoxDetectionLabel(BoxDetectionLabel):
     CONSTRUCTION_TRAFFIC_CONE = 12
     """Construction-zone traffic cones."""
 
+    CONSTRUCTION_ZONE_AREA = 13
+    """Extent of a construction zone. An area box (often 100 m or longer), not a physical object."""
+
+    VEHICLE_CONSTRUCTION = 14
+    """Construction vehicles."""
+
+    VEHICLE_EMERGENCY = 15
+    """Emergency vehicles."""
+
+    VEHICLE_TRAILER = 16
+    """Trailers."""
+
+    ANIMAL = 17
+    """Animals."""
+
     def to_default(self) -> DefaultBoxDetectionLabel:
         """Inherited, see superclass."""
         mapping = {
@@ -234,6 +250,11 @@ class NureasoningBoxDetectionLabel(BoxDetectionLabel):
             NureasoningBoxDetectionLabel.VEHICLE_BICYCLE: DefaultBoxDetectionLabel.TWO_WHEELER,
             NureasoningBoxDetectionLabel.HUMAN_PEDESTRIAN: DefaultBoxDetectionLabel.PERSON,
             NureasoningBoxDetectionLabel.CONSTRUCTION_TRAFFIC_CONE: DefaultBoxDetectionLabel.TRAFFIC_CONE,
+            NureasoningBoxDetectionLabel.CONSTRUCTION_ZONE_AREA: DefaultBoxDetectionLabel.OTHER,
+            NureasoningBoxDetectionLabel.VEHICLE_CONSTRUCTION: DefaultBoxDetectionLabel.VEHICLE,
+            NureasoningBoxDetectionLabel.VEHICLE_EMERGENCY: DefaultBoxDetectionLabel.VEHICLE,
+            NureasoningBoxDetectionLabel.VEHICLE_TRAILER: DefaultBoxDetectionLabel.VEHICLE,
+            NureasoningBoxDetectionLabel.ANIMAL: DefaultBoxDetectionLabel.ANIMAL,
         }
         return mapping[self]
 

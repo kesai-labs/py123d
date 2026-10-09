@@ -4,7 +4,7 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
@@ -47,11 +47,12 @@ from py123d.parser.nureasoning.utils.nureasoning_constants import (
     NUREASONING_CAMERA_KEY_MAPPING,
     NUREASONING_DATA_SPLITS,
     NUREASONING_DEFAULT_DT,
+    NUREASONING_DEFAULT_EGO_DIMENSIONS,
     NUREASONING_DETECTION_NAME_DICT,
     NUREASONING_LIDAR_DICT,
     NUREASONING_LIDAR_SWEEP_DURATION_US,
-    NUREASONING_PARTS,
     NUREASONING_REAR_AXLE_HEIGHT,
+    NUREASONING_SPLIT_SOURCES,
     NUREASONING_TRAFFIC_STATUS_DICT,
 )
 from py123d.parser.nureasoning.utils.nureasoning_schema import Annotations, load_schema_pickle
@@ -61,6 +62,13 @@ if TYPE_CHECKING:
     from py123d.parser.nureasoning.nureasoning_download import NureasoningDownloader
 
 logger = logging.getLogger(__name__)
+
+_METADATA_FILE = "metadata.json"
+_MAP_FILE = "map.pkl"
+_REASONING_QUESTIONS_FILE = "reasoning_questions.json"
+
+# Annotation categories without a label, to warn about each of them only once per process.
+_UNKNOWN_CATEGORIES: Set[str] = set()
 
 
 class NureasoningParser(BaseDatasetParser):
@@ -75,18 +83,23 @@ class NureasoningParser(BaseDatasetParser):
     ) -> None:
         """Initializes the :class:`NureasoningParser`.
 
-        :param splits: Splits to convert. Available: ``"nureasoning-mini_train"``.
+        :param splits: Splits to convert. Available: ``"nureasoning_train"``,
+            ``"nureasoning_val"``, ``"nureasoning_test"`` and ``"nureasoning-mini_train"``
+            (parts 1-3 of train).
         :param nureasoning_data_root: Root of an already-extracted dataset
-            (``<root>/<split>/<part>/<clip>/...``). Required when ``downloader`` is
+            (``<root>/<split>/[<part>/]<clip>/...``). Required when ``downloader`` is
             ``None``; ignored otherwise.
-        :param log_names: Reserved for future per-log filtering (not yet implemented).
+        :param log_names: Clip names (``<log_name>_<keyframe_token>``) to convert.
+            ``None`` converts every clip of the selected splits.
         :param downloader: Optional
             :class:`~py123d.parser.nureasoning.nureasoning_download.NureasoningDownloader`
             for streaming mode. When provided, the selected clips are materialized once
-            into a session-scoped :class:`tempfile.TemporaryDirectory` (deleted when this
-            parser is garbage-collected), and both log and map parsers read from it just
-            like local mode. Clip selection (splits/parts/log_names/num_logs) is driven
-            by the downloader; ``nureasoning_data_root`` is not required in this mode.
+            (into a :class:`tempfile.TemporaryDirectory` that is deleted when this parser
+            is garbage-collected, unless the downloader has its own ``output_dir``), and
+            both log and map parsers read from it just like local mode. The downloader
+            fetches the splits of this parser; the remaining clip selection
+            (parts/log_names/num_logs) is driven by the downloader.
+            ``nureasoning_data_root`` is not required in this mode.
         """
         for split in splits:
             assert split in NUREASONING_DATA_SPLITS, (
@@ -115,17 +128,19 @@ class NureasoningParser(BaseDatasetParser):
 
         Mirrors the nuScenes streaming model: because nuReasoning maps are per-log
         (``map.pkl`` lives inside each clip), the cleanest way to feed both the log and
-        map parsers is to materialize the selected subset once into a temp directory that
-        mirrors the on-disk layout, then read from it exactly like local mode. The temp
+        map parsers is to materialize the selected subset once into a directory that
+        mirrors the on-disk layout, then read from it exactly like local mode. A temp
         dir (and the extracted clips) is removed in :meth:`__del__`.
         """
-        self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-nureasoning-")
-        tmp_root = Path(self._stream_temp_dir_handle.name)
+        # The downloader fetches the splits this parser converts.
+        downloader.splits = list(self._splits)
         # The BaseDownloader contract lets the parser assign output_dir when it is None.
-        downloader.output_dir = tmp_root
-        logger.info("nuReasoning streaming: materializing selected clips into %s", tmp_root)
+        if downloader.output_dir is None:
+            self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-nureasoning-")
+            downloader.output_dir = Path(self._stream_temp_dir_handle.name)
+        logger.info("nuReasoning streaming: materializing selected clips into %s", downloader.output_dir)
         downloader.download()
-        return tmp_root
+        return Path(downloader.output_dir)
 
     def __del__(self) -> None:
         handle = getattr(self, "_stream_temp_dir_handle", None)
@@ -137,25 +152,20 @@ class NureasoningParser(BaseDatasetParser):
         split_log_path_pairs: List[Tuple[str, Path]] = []
 
         for split in self._splits:
-            split_type = split.split("_")[-1]
-            assert split_type in {"train", "val", "test"}
+            hf_split, split_parts = NUREASONING_SPLIT_SOURCES[split]
+            nureasoning_split_folder = self._nureasoning_data_root / hf_split
+            if not nureasoning_split_folder.is_dir():
+                logger.warning("nuReasoning split %s has no folder at %s; skipping.", split, nureasoning_split_folder)
+                continue
 
-            if split in {"nureasoning-mini_train"}:
-                nureasoning_split_folder = self._nureasoning_data_root / "train"
-            else:
-                raise NotImplementedError(f"nuReasoning split {split} is not yet available.")
+            # A few clips are released in two parts of the same split. They share one log name, so
+            # only the first copy is converted.
+            log_folders: Dict[str, Path] = {}
+            for log_folder in _find_nureasoning_log_folders(nureasoning_split_folder, split_parts):
+                if self._log_names is None or log_folder.name in self._log_names:
+                    log_folders.setdefault(log_folder.name, log_folder)
 
-            valid_log_folders: List[Path] = []
-            for part_folder in sorted(nureasoning_split_folder.iterdir()):
-                if part_folder.is_dir() and part_folder.name in NUREASONING_PARTS[split]:
-                    for log_folder in sorted(part_folder.iterdir()):
-                        if log_folder.is_dir():
-                            valid_log_folders.append(log_folder)
-
-            if self._log_names is not None:
-                raise NotImplementedError("Filtering by log names is not yet implemented for the nuReasoning parser.")
-
-            for log_folder in valid_log_folders:
+            for log_folder in log_folders.values():
                 split_log_path_pairs.append((split, log_folder))
 
         return split_log_path_pairs
@@ -163,6 +173,7 @@ class NureasoningParser(BaseDatasetParser):
     def get_map_parsers(self) -> List[BaseMapParser]:
         """Inherited, see superclass."""
         # nuReasoning maps are per-log: one ``map.pkl`` per clip, so one map parser per log.
+        # Clips of the test split ship without a map.
         return [
             NureasoningMapParser(
                 split=split,
@@ -170,6 +181,7 @@ class NureasoningParser(BaseDatasetParser):
                 source_log_path=source_log_path,
             )
             for split, source_log_path in self._split_log_path_pairs
+            if (source_log_path / _MAP_FILE).is_file()
         ]
 
     def get_log_parsers(self) -> List[BaseLogParser]:
@@ -199,7 +211,7 @@ class NureasoningLogParser(BaseLogParser):
 
     def _get_nureasoning_metadata_json(self) -> Dict[str, Any]:
         """Helper function to load the nuReasoning metadata JSON for this log."""
-        metadata_json_path = self._source_log_path / "metadata.json"
+        metadata_json_path = self._source_log_path / _METADATA_FILE
         if not metadata_json_path.exists() or not metadata_json_path.is_file():
             raise FileNotFoundError(
                 f"Metadata JSON file not found for log {self._source_log_path}: {metadata_json_path}"
@@ -220,16 +232,18 @@ class NureasoningLogParser(BaseLogParser):
         location = metadata_json.get("clip_location", None)
         location = location.replace(" ", "-") if location else None
 
-        # Each clip ships a per-log ``map.pkl`` (converted by NureasoningMapParser). The map is stored in 2D
-        # (all map geometry has z == 0), and routed by (split, log_name) at read time.
-        map_metadata = MapMetadata(
-            dataset="nureasoning",
-            split=self._split,
-            log_name=log_name,
-            location=location,
-            map_has_z=False,
-            map_is_per_log=True,
-        )
+        # Each clip ships a per-log ``map.pkl`` (converted by NureasoningMapParser), except in the test split.
+        # The map is stored in 2D (all map geometry has z == 0), and routed by (split, log_name) at read time.
+        map_metadata: Optional[MapMetadata] = None
+        if (self._source_log_path / _MAP_FILE).is_file():
+            map_metadata = MapMetadata(
+                dataset="nureasoning",
+                split=self._split,
+                log_name=log_name,
+                location=location,
+                map_has_z=False,
+                map_is_per_log=True,
+            )
         return LogMetadata(
             dataset="nureasoning",
             split=self._split,
@@ -248,20 +262,32 @@ class NureasoningLogParser(BaseLogParser):
         box_detections_se3_metadata = NUREASONING_BOX_DETECTIONS_SE3_METADATA
         scenario_type = metadata_json.get("scenario_type", None)
 
-        for frame in metadata_json["frames"]:
+        frames = _deduplicate_nureasoning_frames(metadata_json["frames"])
+        key_frame_index = _get_nureasoning_key_frame_index(metadata_json, frames)
+        reasoning_questions = _load_nureasoning_reasoning_questions(self._source_log_path)
+        reasoning_questions_frame = _find_nureasoning_reasoning_questions_frame(frames, reasoning_questions)
+
+        # Image path last emitted per camera, to skip the images a frame repeats from its predecessor.
+        emitted_camera_paths: Dict[CameraID, str] = {}
+
+        for frame in frames:
             timestamp = Timestamp.from_us(frame["timestamp_us"])
 
             # 1. Ego State
             ego_state_se3 = _extract_nureasoning_ego_state(self._source_log_path, frame, ego_state_se3_metadata)
             ego_trajectory = _extract_nureasoning_ego_trajectory(self._source_log_path, frame, timestamp)
+            modalities: List[BaseModality] = [ego_state_se3]
 
-            # 2. Annotations
-            annotations = load_schema_pickle(self._source_log_path / frame["annotations"])
-            assert isinstance(annotations, Annotations), f"Expected Annotations object, got {type(annotations)}"
-            box_detections_se3 = _extract_nureasoning_box_detections(
-                annotations, timestamp, box_detections_se3_metadata
-            )
-            traffic_lights = _extract_nureasoning_traffic_lights(annotations, timestamp)
+            # 2. Annotations (not available in the test split). Emitted for every annotated frame, even if empty.
+            relative_annotations_path = frame.get("annotations", None)
+            if relative_annotations_path:
+                annotations = load_schema_pickle(self._source_log_path / relative_annotations_path)
+                assert isinstance(annotations, Annotations), f"Expected Annotations object, got {type(annotations)}"
+                modalities.append(
+                    _extract_nureasoning_box_detections(annotations, timestamp, box_detections_se3_metadata)
+                )
+                modalities.append(_extract_nureasoning_traffic_lights(annotations, timestamp))
+            modalities.append(ego_trajectory)
 
             # 3. Sensors
             parsed_cameras = _extract_nureasoning_cameras(
@@ -270,10 +296,8 @@ class NureasoningLogParser(BaseLogParser):
                 frame=frame,
                 ego_state_se3=ego_state_se3,
                 camera_metadatas=camera_metadatas,
+                emitted_camera_paths=emitted_camera_paths,
             )
-
-            # The box detections are the sync reference column, so we always emit them (even empty).
-            modalities: List[BaseModality] = [ego_state_se3, box_detections_se3, traffic_lights, ego_trajectory]
             modalities.extend(parsed_cameras)
 
             parsed_lidar = _extract_nureasoning_lidar_data(
@@ -286,11 +310,105 @@ class NureasoningLogParser(BaseLogParser):
             if reasoning is not None:
                 modalities.append(reasoning)
 
-            scenario = _extract_nureasoning_scenario(frame, scenario_type, timestamp)
-            if scenario is not None:
-                modalities.append(scenario)
+            if reasoning_questions is not None and frame is reasoning_questions_frame:
+                modalities.append(
+                    CustomModality(
+                        data=reasoning_questions,
+                        metadata=CustomModalityMetadata(modality_id="reasoning_questions"),
+                        timestamp=timestamp,
+                    )
+                )
+
+            modalities.append(_extract_nureasoning_scenario(frame, scenario_type, key_frame_index, timestamp))
 
             yield ModalitiesSync(timestamp=timestamp, modalities=modalities)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Clip / frame helpers
+# ------------------------------------------------------------------------------------------------------------------
+
+
+def _find_nureasoning_log_folders(split_folder: Path, split_parts: Optional[List[str]]) -> List[Path]:
+    """Collects the clip folders of a split folder, i.e. the folders holding a ``metadata.json``.
+
+    Clips sit either directly in the split folder (test) or one level down in ``part_<k>`` folders
+    (train, validation). ``split_parts`` restricts the result to clips of these part folders.
+    """
+    log_folders: List[Path] = []
+    for folder in sorted(split_folder.iterdir()):
+        if (folder / _METADATA_FILE).is_file():
+            if split_parts is None:
+                log_folders.append(folder)
+        elif folder.is_dir() and folder.name.startswith("part_"):
+            if split_parts is None or folder.name in split_parts:
+                log_folders.extend(
+                    log_folder for log_folder in sorted(folder.iterdir()) if (log_folder / _METADATA_FILE).is_file()
+                )
+    return log_folders
+
+
+def _deduplicate_nureasoning_frames(frames: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merges consecutive frame records that share a timestamp.
+
+    Most clips list their key frame twice: two records with the same token and timestamp, of which only
+    the second one carries the reasoning path, and the ``frame_index`` that ``key_frame_index`` refers to.
+    The merged record keeps the second record's values wherever they are set.
+    """
+    unique_frames: List[Dict[str, Any]] = []
+    for frame in frames:
+        if unique_frames and frame["timestamp_us"] == unique_frames[-1]["timestamp_us"]:
+            unique_frames[-1] = {
+                **unique_frames[-1],
+                **{key: value for key, value in frame.items() if value not in ("", None)},
+            }
+        else:
+            unique_frames.append(frame)
+    return unique_frames
+
+
+def _get_nureasoning_key_frame_index(metadata_json: Dict[str, Any], frames: List[Dict[str, Any]]) -> Optional[int]:
+    """Returns the upstream ``frame_index`` of the clip's key frame, or None if the clip has none.
+
+    The test split names it in ``metadata.json``. Elsewhere it is the frame whose token is the clip token,
+    which a few clips do not contain.
+    """
+    key_frame_index: Optional[int] = metadata_json.get("key_frame_index", None)
+    if key_frame_index is None:
+        clip_token = metadata_json.get("clip_token", None)
+        for frame in frames:
+            if clip_token is not None and frame.get("token", None) == clip_token:
+                key_frame_index = frame.get("frame_index", None)
+    return key_frame_index
+
+
+def _load_nureasoning_reasoning_questions(source_log_path: Path) -> Optional[Dict[str, Any]]:
+    """Loads the clip's ``reasoning_questions.json`` (test split only), if present."""
+    reasoning_questions: Optional[Dict[str, Any]] = None
+    reasoning_questions_path = source_log_path / _REASONING_QUESTIONS_FILE
+    if reasoning_questions_path.is_file():
+        with open(reasoning_questions_path, "r", encoding="utf-8") as f:
+            reasoning_questions_json = json.load(f)
+        # CustomModality expects a dict with string keys; wrap non-dict payloads.
+        reasoning_questions = (
+            reasoning_questions_json
+            if isinstance(reasoning_questions_json, dict)
+            else {"questions": reasoning_questions_json}
+        )
+    return reasoning_questions
+
+
+def _find_nureasoning_reasoning_questions_frame(
+    frames: List[Dict[str, Any]], reasoning_questions: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Returns the frame the reasoning questions refer to (their ``frame_timestamp``), else the last frame."""
+    questions_frame: Optional[Dict[str, Any]] = None
+    if reasoning_questions is not None and frames:
+        questions_frame = frames[-1]
+        for frame in frames:
+            if frame["timestamp_us"] == reasoning_questions.get("frame_timestamp", None):
+                questions_frame = frame
+    return questions_frame
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -302,13 +420,14 @@ def _get_nureasoning_ego_state_se3_metadata(metadata_json: Dict[str, Any]) -> Eg
     """Extracts the nuReasoning ego state SE3 metadata for a given log."""
     # NOTE @DanielDauner: Assuming Hyundai Ioniq 5 vehicle model.
     # https://en.wikipedia.org/wiki/Hyundai_Ioniq_5
-    ego_dimensions = metadata_json.get("ego_dimensions", None)
-    assert ego_dimensions is not None, "Ego dimensions not found in metadata JSON."
+    # NOTE: The test split has no ``ego_dimensions`` block. Its ego-state pickles carry a ``dimensions``
+    # field instead, but with the nuPlan vehicle's values, so the devkit's constants are used.
+    ego_dimensions = metadata_json.get("ego_dimensions", None) or NUREASONING_DEFAULT_EGO_DIMENSIONS
 
     _length = ego_dimensions["length"]
     _height = ego_dimensions["height"]
 
-    # NOTE: Assuming distance from rear-axle to vehicle rear. Needs verification (see TODO.md).
+    # NOTE: Assuming distance from rear-axle to vehicle rear. Needs verification.
     vehicle_rear_length = ego_dimensions["vehicle_rear_length"]
 
     # TODO @DanielDauner: Verify these values, specifically once lidar available.
@@ -328,7 +447,7 @@ def _get_nureasoning_ego_state_se3_metadata(metadata_json: Dict[str, Any]) -> Eg
         height=ego_dimensions["height"],
         wheel_base=3.000,  # [m] NOTE @DanielDauner: Value from Wikipedia, needs verification.
         center_to_imu_se3=center_to_imu_se3,
-        # NOTE: Assuming rear axle and IMU are co-located. Should be verified for nuReasoning (see TODO.md).
+        # NOTE: Assuming rear axle and IMU are co-located. Should be verified for nuReasoning.
         rear_axle_to_imu_se3=PoseSE3.identity(),
     )
 
@@ -350,7 +469,7 @@ def _get_nureasoning_camera_metadata(
             _width, _height = camera_calibration_json["width"], camera_calibration_json["height"]
 
             # NOTE: The extrinsic is camera->lidar. We treat it as camera->IMU, which is correct only if
-            # the lidar, IMU, and ego-pose origin coincide. Needs verification (see TODO.md).
+            # the lidar, IMU, and ego-pose origin coincide. Needs verification.
             extrinsic = PoseSE3.from_R_t(
                 rotation=np.array(camera_calibration_json["sensor2lidar_rotation"], dtype=np.float64),
                 translation=np.array(camera_calibration_json["sensor2lidar_translation"], dtype=np.float64),
@@ -365,7 +484,7 @@ def _get_nureasoning_camera_metadata(
                 width=_width,
                 height=_height,
                 intrinsics=intrinsic,
-                distortion=None,  # TODO @DanielDauner: Verify if images are rectified (see TODO.md).
+                distortion=None,  # TODO @DanielDauner: Verify if images are rectified.
                 camera_to_imu_se3=extrinsic,
                 is_undistorted=True,  # TODO @DanielDauner: Verify if correct.
             )
@@ -440,6 +559,10 @@ def _extract_nureasoning_box_detections(
 
     box_detections: List[BoxDetectionSE3] = []
     for obj in annotations.objects:
+        if obj.category not in NUREASONING_DETECTION_NAME_DICT and obj.category not in _UNKNOWN_CATEGORIES:
+            _UNKNOWN_CATEGORIES.add(obj.category)
+            logger.warning("Unknown nuReasoning object category %r, stored as OTHER_OTHER.", obj.category)
+
         pose, velocity, dimensions = obj.pose, obj.velocity, obj.dimensions
         quaternion = EulerAngles(roll=DEFAULT_ROLL, pitch=DEFAULT_PITCH, yaw=pose["yaw"]).quaternion
         bounding_box = BoundingBoxSE3(
@@ -505,11 +628,16 @@ def _extract_nureasoning_cameras(
     frame: Dict[str, Any],
     ego_state_se3: EgoStateSE3,
     camera_metadatas: Dict[CameraID, PinholeCameraMetadata],
+    emitted_camera_paths: Dict[CameraID, str],
 ) -> List[ParsedCamera]:
-    """Extracts the nuReasoning camera data for all cameras available in this frame.
+    """Extracts the nuReasoning camera data for all cameras with a new image in this frame.
 
     The camera-to-global pose is composed from the ego (IMU) pose and the static camera-to-IMU
     extrinsic. Image bytes are not loaded here; the log writer reads them at write time.
+
+    A frame can list the image of its predecessor again (seen on the last frame of a clip, which then
+    follows after 50 ms). ``emitted_camera_paths`` tracks the last image per camera across calls, so
+    that such an image is stored once, with the pose of the frame it was first listed in.
     """
     camera_paths: Dict[str, str] = frame.get("sensors", {}).get("cameras", {})
     camera_data_list: List[ParsedCamera] = []
@@ -517,7 +645,7 @@ def _extract_nureasoning_cameras(
     for camera_id, camera_metadata in camera_metadatas.items():
         frame_key = NUREASONING_CAMERA_KEY_MAPPING[camera_id]
         relative_camera_path = camera_paths.get(frame_key, None)
-        if relative_camera_path is None:
+        if not relative_camera_path or relative_camera_path == emitted_camera_paths.get(camera_id, None):
             continue
 
         full_image_path = source_log_path / relative_camera_path
@@ -531,6 +659,7 @@ def _extract_nureasoning_cameras(
 
         timestamp = Timestamp.from_us(int(relative_camera_path.split("/")[-1].removesuffix(".jpg").split("_")[-1]))
 
+        emitted_camera_paths[camera_id] = relative_camera_path
         camera_data_list.append(
             ParsedCamera(
                 metadata=camera_metadata,
@@ -550,7 +679,7 @@ def _get_nureasoning_lidar_merged_metadata() -> LidarMergedMetadata:
     The point cloud merges multiple lidar sensors (see ``NUREASONING_LIDAR_DICT``). The points are
     already in the common ego/lidar frame, so per-sensor extrinsics are the identity.
     """
-    # NOTE: lidar == IMU is assumed, so the extrinsics are the identity (see TODO.md).
+    # NOTE: lidar == IMU is assumed, so the extrinsics are the identity.
     metadata: Dict[LidarID, LidarMetadata] = {
         lidar_id: LidarMetadata(
             lidar_name=lidar_id.serialize(),
@@ -571,8 +700,8 @@ def _extract_nureasoning_lidar_data(
     """Extracts the nuReasoning lidar data from the per-frame lidar path, if present.
 
     Only the path is stored (see the ``lidar_store_option: "path"`` conversion config); the point
-    cloud is decoded at read time by ``nureasoning_sensor_io``. Lidar is only present in some logs
-    (e.g. part_3).
+    cloud is decoded at read time by ``nureasoning_sensor_io``. Lidar is only present in some clips,
+    and never in the test split.
     """
     parsed_lidar: Optional[ParsedLidar] = None
 
@@ -618,22 +747,26 @@ def _extract_nureasoning_reasoning(
 
 
 def _extract_nureasoning_scenario(
-    frame: Dict[str, Any], scenario_type: Optional[str], timestamp: Timestamp
-) -> Optional[CustomModality]:
-    """Extracts the nuReasoning mission-goal / scenario metadata as a custom modality."""
-    custom_modality: Optional[CustomModality] = None
+    frame: Dict[str, Any], scenario_type: Optional[str], key_frame_index: Optional[int], timestamp: Timestamp
+) -> CustomModality:
+    """Extracts the nuReasoning mission-goal / scenario metadata as a custom modality.
 
-    mission_goal = frame.get("mission_goal", None)
-    if mission_goal is not None:
-        data: Dict[str, Any] = {
-            "command": mission_goal.get("command", None),
-            "route_path": mission_goal.get("route_path", []),
-            "scenario_type": scenario_type,
-        }
-        custom_modality = CustomModality(
-            data=data,
-            metadata=CustomModalityMetadata(modality_id="scenario"),
-            timestamp=timestamp,
-        )
-
-    return custom_modality
+    ``frame_index`` and ``frame_token`` are the upstream identifiers of the frame. The index is what the
+    reasoning annotations and the challenge refer to, and can run ahead of the position in the converted
+    log (see :func:`_deduplicate_nureasoning_frames`).
+    """
+    mission_goal = frame.get("mission_goal", None) or {}
+    frame_index = frame.get("frame_index", None)
+    data: Dict[str, Any] = {
+        "command": mission_goal.get("command", None),
+        "route_path": mission_goal.get("route_path", []),
+        "scenario_type": scenario_type,
+        "frame_index": frame_index,
+        "frame_token": frame.get("token", None),
+        "is_key_frame": frame_index is not None and frame_index == key_frame_index,
+    }
+    return CustomModality(
+        data=data,
+        metadata=CustomModalityMetadata(modality_id="scenario"),
+        timestamp=timestamp,
+    )
