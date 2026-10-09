@@ -1,0 +1,48 @@
+defaults:
+  - nureasoning
+  - _self_
+
+# Streaming variant of dataset=nureasoning: the clips are downloaded from Hugging Face
+# into a temporary directory, converted, and deleted when the conversion ends.
+#
+# All selected clips are downloaded before the conversion starts, so the temporary directory
+# ($TMPDIR, by default /tmp) has to hold them at about 2.3 GB per clip (1 GB in the test split).
+# The full release has 11,893 clips (27 TB): narrow it down with `num_logs`, `log_names` or `parts`.
+#
+# Usage:
+#   export HF_TOKEN=hf_...   # nuReasoning is gated, request access on the dataset page first
+#   py123d-conversion dataset=nureasoning-stream dataset.parser.downloader.num_logs=5
+#   py123d-conversion dataset=nureasoning-stream 'dataset.parser.splits=[nureasoning_val]' \
+#     'dataset.parser.downloader.log_names=[<log>_<token>,<log>_<token>]'
+parser:
+  nureasoning_data_root: null   # not read; the clips come from the downloader
+
+  # Fetches the clips selected by the parser's `splits` and the selection below.
+  downloader:
+    _target_: py123d.parser.nureasoning.nureasoning_download.NureasoningDownloader
+    _convert_: 'all'
+
+    output_dir: null            # null = a temporary directory
+    revision: main
+    hf_token: null              # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN / `hf auth login`
+
+    splits: null                # set by the parser
+    parts: null                 # e.g. [part_1, part_2]; drops the test split, which has no parts
+
+    # Selection — mutually exclusive. When neither is set, all clips in the selection are streamed.
+    log_names: null
+    num_logs: null              # first N clips (or N random if sample_random=true) across the selection
+    sample_random: false
+    seed: 0
+
+    max_workers: 8
+    keep_archive: false
+    dry_run: false
+
+log_writer_config:
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the temp dir is
+  # deleted after conversion, which would leave the Arrow logs pointing at vanished files.
+  camera_store_option: "jpeg_binary"  # "jpeg_binary", "png_binary" — "path" forbidden here
+  # NOTE: "laz" keeps the stored features (intensity, ring, source lidar) exactly and quantizes xyz.
+  lidar_store_option: "binary"        # "binary" — "path" forbidden here
+  lidar_codec: "laz"                  # "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"

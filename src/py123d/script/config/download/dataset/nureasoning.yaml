@@ -1,22 +1,26 @@
+# Downloads nuReasoning clips from the gated Hugging Face repo nureasoning/nuReasoning.
+# Request access on the dataset page first, then set $HF_TOKEN or run `hf auth login`.
+# The full release has 11,893 clips (27 TB).
+
 downloader:
   _target_: py123d.parser.nureasoning.nureasoning_download.NureasoningDownloader
   _convert_: 'all'
 
   # Destination = the local data/ root. Defaults to $NUREASONING_DATA_ROOT
-  # (set via default_dataset_paths.yaml). Selected clips land at output_dir/<split>/<part>/<clip>/.
+  # (set via default_dataset_paths.yaml). Selected clips land at output_dir/<split>/[<part>/]<clip>/.
   output_dir: ${dataset_paths.nureasoning_data_root}
 
   revision: main                # HF branch / tag / commit
-  hf_token: null                # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN (repo is public, so null is fine)
+  hf_token: null                # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN / `hf auth login`
 
   # Selection — combine freely. null = no restriction (discovered live from the repo).
-  splits: null                  # e.g. [train], [train, validation]
-  parts: null                   # e.g. [part_1, part_2]
+  splits: null                  # null = [nureasoning_train, nureasoning_val, nureasoning_test]; or nureasoning-mini_train
+  parts: null                   # e.g. [part_1, part_2]; drops the test split, which has no parts
   log_names: null               # explicit clip names <log>_<token>; mutually exclusive with num_logs
   num_logs: null                # first N clips (or N random if sample_random=true) across the selection
   sample_random: false
   seed: 0
 
   max_workers: 8                # parallel clip download/extract workers
-  keep_zip: false               # keep each .zip next to its extracted dir (default: extract then discard)
+  keep_archive: false           # keep each .tar next to its extracted dir (default: extract then discard)
   dry_run: false

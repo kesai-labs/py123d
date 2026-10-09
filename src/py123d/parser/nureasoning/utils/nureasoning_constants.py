@@ -1,4 +1,4 @@
-from typing import Dict, Final, List, Set, Tuple
+from typing import Dict, Final, List, Optional, Set, Tuple
 
 from py123d.datatypes.detections import TrafficLightStatus
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
@@ -12,15 +12,16 @@ def _make_parts_list(num_parts: int) -> List[str]:
     return [f"part_{i}" for i in range(1, num_parts + 1)]
 
 
-# Hugging Face source for the downloader (see ``nureasoning_download.py``). The dataset is public.
-# https://huggingface.co/datasets/qixuewei/nuReasoning
-NUREASONING_REPO_ID: Final[str] = "qixuewei/nuReasoning"
+# Hugging Face source for the downloader (see ``nureasoning_download.py``). The dataset is gated:
+# access must be requested on the dataset page, and downloads need a token with that access.
+# https://huggingface.co/datasets/nureasoning/nuReasoning
+NUREASONING_REPO_ID: Final[str] = "nureasoning/nuReasoning"
 NUREASONING_REPO_TYPE: Final[str] = "dataset"
-# Top-level folder inside the repo holding ``<split>/<part>/<clip>.zip``. Stripped when extracting
+# Top-level folder inside the repo holding ``<split>/[<part>/]<clip>.tar``. Stripped when extracting
 # locally so the on-disk layout matches what the parser expects under ``nureasoning_data_root``.
 NUREASONING_REPO_DATA_DIR: Final[str] = "data"
-# Splits used by the upstream repo. Informational only — the downloader enumerates the repo tree
-# live, so it stays correct even as more splits/parts are uploaded.
+# Split folders used by the upstream repo. ``train`` and ``validation`` are organized in ``part_<k>``
+# folders, ``test`` holds its clips directly.
 NUREASONING_HF_SPLITS: Final[Tuple[str, ...]] = ("train", "validation", "test")
 
 
@@ -45,11 +46,28 @@ NUREASONING_LIDAR_DICT: Final[Dict[int, LidarID]] = {
 NUREASONING_REAR_AXLE_HEIGHT: Final[float] = 0.350
 
 
-NUREASONING_DATA_SPLITS: Set[str] = {"nureasoning-mini_train"}
+# Maps each py123d split to its upstream split folder and the part folders it covers (None = all parts).
+# NOTE: ``nureasoning-mini_train`` covers parts 1-3 of ``train``. They hold the clips of the former
+# mini release (``qixuewei/nuReasoning_mini``, 2,590 clips) and about 400 more.
+NUREASONING_SPLIT_SOURCES: Final[Dict[str, Tuple[str, Optional[List[str]]]]] = {
+    "nureasoning_train": ("train", None),
+    "nureasoning_val": ("validation", None),
+    "nureasoning_test": ("test", None),
+    "nureasoning-mini_train": ("train", _make_parts_list(3)),
+}
+
+NUREASONING_DATA_SPLITS: Set[str] = set(NUREASONING_SPLIT_SOURCES.keys())
+
+NUREASONING_DEFAULT_SPLITS: Final[Tuple[str, ...]] = ("nureasoning_train", "nureasoning_val", "nureasoning_test")
 
 
-NUREASONING_PARTS: Dict[str, List[str]] = {
-    "nureasoning-mini_train": _make_parts_list(3),
+# Ego dimensions [m] used when ``metadata.json`` has no ``ego_dimensions`` block (the test split). These
+# are the devkit's constants (``nureasoning/planning/benchmark.py``) and match the released train clips.
+NUREASONING_DEFAULT_EGO_DIMENSIONS: Final[Dict[str, float]] = {
+    "length": 4.64,
+    "width": 2.176,
+    "height": 1.763,
+    "vehicle_rear_length": 0.79,
 }
 
 
@@ -82,11 +100,11 @@ NUREASONING_CAMERA_KEY_MAPPING: Dict[CameraID, str] = {
 }
 
 
-# Object category strings to labels. The first block is observed in the demo annotation pickles;
-# the second block is from the dataset taxonomy (view_reasoning notebook) and may not appear in the
-# demo logs. Call sites still fall back to GENERIC_OBJECT for unseen categories (see TODO.md).
+# Object category strings to labels. The first block is observed in the released annotation pickles;
+# the second block is listed by the devkit (``view_reasoning.py``, ``vqa/generate.py``) and was not
+# seen in the sampled clips. Call sites fall back to OTHER_OTHER for unseen categories.
 NUREASONING_DETECTION_NAME_DICT: Dict[str, NureasoningBoxDetectionLabel] = {
-    # Present in the demo data.
+    # Observed in the released data.
     "vehicle.car": NureasoningBoxDetectionLabel.VEHICLE_CAR,
     "vehicle.personal_mobility.bicycle": NureasoningBoxDetectionLabel.VEHICLE_PERSONAL_MOBILITY_BYCICLE,
     "human": NureasoningBoxDetectionLabel.HUMAN,
@@ -94,13 +112,18 @@ NUREASONING_DETECTION_NAME_DICT: Dict[str, NureasoningBoxDetectionLabel] = {
     "other.temporary_trafficsign": NureasoningBoxDetectionLabel.OTHER_TEMPORARY_TRAFFICSIGN,
     "other.other": NureasoningBoxDetectionLabel.OTHER_OTHER,
     "vehicle.door": NureasoningBoxDetectionLabel.VEHICLE_DOOR,
-    # From the dataset taxonomy (not present in the demo logs).
+    "construction.traffic_cone": NureasoningBoxDetectionLabel.CONSTRUCTION_TRAFFIC_CONE,
+    "construction_zone_area": NureasoningBoxDetectionLabel.CONSTRUCTION_ZONE_AREA,
+    "animal": NureasoningBoxDetectionLabel.ANIMAL,
+    # Listed by the devkit.
     "vehicle.truck": NureasoningBoxDetectionLabel.VEHICLE_TRUCK,
     "vehicle.bus": NureasoningBoxDetectionLabel.VEHICLE_BUS,
     "vehicle.motorcycle": NureasoningBoxDetectionLabel.VEHICLE_MOTORCYCLE,
     "vehicle.bicycle": NureasoningBoxDetectionLabel.VEHICLE_BICYCLE,
     "human.pedestrian": NureasoningBoxDetectionLabel.HUMAN_PEDESTRIAN,
-    "construction.traffic_cone": NureasoningBoxDetectionLabel.CONSTRUCTION_TRAFFIC_CONE,
+    "vehicle.construction": NureasoningBoxDetectionLabel.VEHICLE_CONSTRUCTION,
+    "vehicle.emergency": NureasoningBoxDetectionLabel.VEHICLE_EMERGENCY,
+    "vehicle.trailer": NureasoningBoxDetectionLabel.VEHICLE_TRAILER,
 }
 
 
