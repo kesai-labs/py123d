@@ -1,0 +1,10 @@
+defaults:
+  - nurec-curated
+  - _self_
+
+# AlpaSim teacher-map profile: every scene of both NuRec releases, converted into the
+# world AlpaSim replays (track smoothing and the 3 s minimum track duration are the
+# nurec-curated defaults). Scenes are discovered below NUREC_DATA_ROOT in
+# <release>_release/<scene uuid>/<scene uuid>.usdz directories.
+parser:
+  splits: [nurec-2601_train, nurec-2604_train]
