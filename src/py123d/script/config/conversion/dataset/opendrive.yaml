@@ -30,6 +30,8 @@ parser:
   road_edge_non_drivable_points:
     Town03:
       - [239.3, 41.5]   # tunnel divider barrier, typed as a 3.5 m bidirectional lane on road 65
+      - [216.4, -47.0]  # none-lane 83: curved 1.8 m strip forming a drivable ring in the kerb area at the corner
+      - [218.7, -50.4]  # none-lane 84: its 1 m inner twin
     Town04:
       - [381.0, 67.0]   # exit gore between the connectors of junction 745: water drums + light pole
       - [382.0, 170.5]  # exit gore between connectors: water drums + light pole
@@ -55,6 +57,10 @@ parser:
       - [-27.6, 100.7]  # plaza east pocket
       - [-141.7, 99.0]  # roundabout east splitter island
       - [-149.5, 88.7]  # roundabout south splitter island
+    Town10HD:
+      - [-46.6, -124.0] # T-junction gore between the turning connectors of junction 468: paved, no lane in the xodr
+      - [-35.5, -67.6]  # T-junction gore between the turning connectors of junction 895: paved, no lane in the xodr
+      - [41.9, -34.2]   # gore between the turning connectors at the junction mouth near (41.7,-34.2): paved, no lane in the xodr
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
