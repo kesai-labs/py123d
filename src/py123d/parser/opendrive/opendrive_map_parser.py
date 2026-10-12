@@ -26,12 +26,17 @@ from py123d.geometry.geometry_index import Point3DIndex
 from py123d.geometry.polyline import Polyline3D
 from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.opendrive.utils.collection import collect_element_helpers
-from py123d.parser.opendrive.utils.id_system import build_lane_id, lane_section_id_from_lane_group_id
+from py123d.parser.opendrive.utils.id_system import (
+    build_lane_id,
+    lane_section_id_from_lane_group_id,
+    road_id_from_lane_id,
+)
 from py123d.parser.opendrive.utils.lane_helper import OpenDriveLaneGroupHelper, OpenDriveLaneHelper
 from py123d.parser.opendrive.utils.objects_helper import OpenDriveObjectHelper
 from py123d.parser.opendrive.utils.stop_zone_helper import create_stop_zones_from_signals
 from py123d.parser.opendrive.xodr_parser.lane import XODRRoadMark
 from py123d.parser.opendrive.xodr_parser.opendrive import XODR, Junction
+from py123d.parser.opendrive.xodr_parser.road import XODRRoad
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,
@@ -42,6 +47,11 @@ from py123d.parser.utils.map_utils.road_edge.road_edge_3d_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Lane types of a junction road that count as junction surface besides its driving lanes
+JUNCTION_SURFACE_LANE_TYPES: Final[frozenset] = frozenset(
+    {"shoulder", "none", "restricted", "border", "bidirectional", "parking"}
+)
 
 MAX_ROAD_EDGE_LENGTH: Final[float] = 100.0  # [m]
 MIN_ROAD_EDGE_HOLE_WIDTH: Final[float] = 1.0  # [m] drops sliver holes between adjacent surfaces at junction corners
@@ -166,7 +176,7 @@ def iter_xodr_map_objects(
 
     # Yield other map elements
     yield from _iter_walkways(lane_helper_dict)
-    yield from _iter_intersections(junction_dict, lane_group_helper_dict)
+    yield from _iter_intersections(junction_dict, lane_group_helper_dict, lane_helper_dict, road_dict)
     yield from _iter_crosswalks(object_helper_dict)
     yield from _iter_stop_zones(signal_dict, lane_helper_dict)
 
@@ -388,14 +398,27 @@ def _iter_walkways(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> Iterator
 def _iter_intersections(
     junction_dict: Dict[str, Junction],
     lane_group_helper_dict: Dict[str, OpenDriveLaneGroupHelper],
+    lane_helper_dict: Dict[str, OpenDriveLaneHelper],
+    road_dict: Dict[int, XODRRoad],
 ) -> Iterator[Intersection]:
-    """Yields intersection objects from junctions."""
+    """Yields intersection objects from junctions.
+    The outline covers the junction roads' lane groups and their non-driving surfaces (shoulders, none lanes,
+    borders, parking), so a surface that belongs to a junction road lies inside its intersection.
+    """
 
     # Pre-build junction_id -> lane_group_helpers mapping
     junction_to_lane_groups: Dict[int, List[OpenDriveLaneGroupHelper]] = {}
     for lane_group_helper in lane_group_helper_dict.values():
         if lane_group_helper.junction_id is not None:
             junction_to_lane_groups.setdefault(lane_group_helper.junction_id, []).append(lane_group_helper)
+
+    junction_to_surface_lanes: Dict[int, List[OpenDriveLaneHelper]] = {}
+    for lane_id, lane_helper in lane_helper_dict.items():
+        if lane_helper.type not in JUNCTION_SURFACE_LANE_TYPES:
+            continue
+        junction_id = _road_junction_id(road_dict.get(int(road_id_from_lane_id(lane_id))))
+        if junction_id is not None:
+            junction_to_surface_lanes.setdefault(junction_id, []).append(lane_helper)
 
     for junction in junction_dict.values():
         lane_group_helpers = junction_to_lane_groups.get(junction.id, [])
@@ -404,7 +427,9 @@ def _iter_intersections(
             logger.debug(f"Skipping Junction {junction.id} without lane groups!")
             continue
 
-        outline = _extract_intersection_outline(lane_group_helpers, junction.id)
+        outline = _extract_intersection_outline(
+            lane_group_helpers, junction_to_surface_lanes.get(junction.id, []), junction.id
+        )
         yield Intersection(
             object_id=junction.id,
             intersection_type=IntersectionType.DEFAULT,
@@ -605,13 +630,25 @@ def _extract_polyline_segment(
     return Polyline3D.from_array(points)
 
 
-def _extract_intersection_outline(lane_group_helpers: List[OpenDriveLaneGroupHelper], junction_id: str) -> Polyline3D:
-    """Helper method to extract intersection outline in 3D from lane group helpers."""
+def _road_junction_id(road: Optional[XODRRoad]) -> Optional[int]:
+    """Junction id of a road, or None for roads outside junctions."""
+    if road is None or road.junction is None or str(road.junction) in ("-1", "None"):
+        return None
+    return int(road.junction)
+
+
+def _extract_intersection_outline(
+    lane_group_helpers: List[OpenDriveLaneGroupHelper],
+    surface_lane_helpers: List[OpenDriveLaneHelper],
+    junction_id: str,
+) -> Polyline3D:
+    """Helper method to extract intersection outline in 3D from lane group helpers and the junction roads'
+    non-driving surface lanes."""
 
     # 1. Extract the intersection outlines in 2D
     intersection_polygons: List[shapely.Polygon] = [
         lane_group_helper.shapely_polygon for lane_group_helper in lane_group_helpers
-    ]
+    ] + [lane_helper.shapely_polygon for lane_helper in surface_lane_helpers]
     intersection_edges = get_road_edge_linear_rings(
         intersection_polygons,
         buffer_distance=0.25,
@@ -621,7 +658,7 @@ def _extract_intersection_outline(lane_group_helpers: List[OpenDriveLaneGroupHel
     # 2. Lift the 2D outlines to 3D
     lane_group_outlines: List[Polyline3D] = [
         lane_group_helper.outline_polyline_3d for lane_group_helper in lane_group_helpers
-    ]
+    ] + [lane_helper.outline_polyline_3d for lane_helper in surface_lane_helpers]
     intersection_outlines = lift_outlines_to_3d(intersection_edges, lane_group_outlines)
 
     # NOTE: When the intersection has multiple non-overlapping outlines, we cannot return a single outline in 3D.
