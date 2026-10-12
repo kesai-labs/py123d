@@ -66,8 +66,13 @@ _KNOWN_ASSOCIATION_KINDS = frozenset(
         "INTERSECTION_AREA_TO_LANE",
         "LIGHT_TO_LANE",
         "SIGN_TO_LANE",
+        "ROAD_MARKING_TO_LANE",
     }
 )
+
+# "STOP" painted on the lane. It marks stop-sign approaches, never signalised ones,
+# so it confirms a stop sign where the sign itself is not mapped.
+_STOP_ROAD_MARKING_CATEGORY = "ROI_POLYGON_ROAD_MARKING_STOP"
 
 
 @dataclass
@@ -86,6 +91,7 @@ class _ClipgtRelations:
     intersection_lanes: Dict[str, set] = field(default_factory=dict)
     light_lanes: Dict[str, set] = field(default_factory=dict)
     sign_lanes: Dict[str, set] = field(default_factory=dict)
+    marking_lanes: Dict[str, set] = field(default_factory=dict)
     # Counts of association `key.kind` values outside the vocabulary below, so
     # schema drift across a large batch shows up in logs instead of vanishing silently.
     unknown_kinds: Dict[str, int] = field(default_factory=dict)
@@ -685,6 +691,9 @@ class NuRecMapParser(BaseMapParser):
                     elif kind == "SIGN_TO_LANE":
                         relations.sign_lanes.setdefault(subject, set()).add(obj)
                         relations.sign_lanes.setdefault(obj, set()).add(subject)
+                    elif kind == "ROAD_MARKING_TO_LANE":
+                        relations.marking_lanes.setdefault(subject, set()).add(obj)
+                        relations.marking_lanes.setdefault(obj, set()).add(subject)
         if relations.unknown_kinds:
             logger.warning(
                 "NuRec map %s: dropped %d association rows with an unrecognised kind %s",
@@ -797,6 +806,11 @@ class NuRecMapParser(BaseMapParser):
         sign_categories = {
             map_id: sign.get("category")
             for map_id, sign in self._read_layer_rows(archive, "traffic_sign")
+            if map_id is not None
+        }
+        marking_categories = {
+            map_id: marking.get("category")
+            for map_id, marking in self._read_layer_rows(archive, "road_marking")
             if map_id is not None
         }
 
@@ -999,7 +1013,9 @@ class NuRecMapParser(BaseMapParser):
             related = _wait_line_lanes(map_id, relations)
             yield StopZone(
                 object_id=next_id,
-                stop_zone_type=_stop_zone_type(related, wait_line.get("category"), subtype, relations, sign_categories),
+                stop_zone_type=_stop_zone_type(
+                    related, wait_line.get("category"), subtype, relations, sign_categories, marking_categories
+                ),
                 outline=Polyline3D.from_array(_segment_to_outline(pts)),
                 lane_ids=sorted(
                     lane_id_by_map_id[lane_map_id] for lane_map_id in related if lane_map_id in lane_id_by_map_id
@@ -1098,13 +1114,15 @@ def _stop_zone_type(
     subtype: Optional[str],
     relations: _ClipgtRelations,
     sign_categories: Dict[str, Optional[str]],
+    marking_categories: Dict[str, Optional[str]],
 ) -> StopZoneType:
     """What obliges traffic to stop at a wait line.
 
-    A light or sign controlling the lane wins, then the crossing the line guards,
-    and only then the line's own category. That category marks a painted stop bar
-    rather than a stop sign — scenes carry far more STOP wait lines than stop
-    signs — so it types just the lines nothing else accounts for.
+    A light or sign controlling the lane wins, then the crossing the line guards.
+    The line's own STOP category only marks a painted stop bar, which signalised
+    junctions carry too, and many scenes map no lights or signs at all. Such a
+    line counts as a stop sign only where "STOP" is painted on its lane;
+    otherwise what controls it is unknown.
     """
     if any(lane_map_id in relations.light_lanes for lane_map_id in lane_map_ids):
         return StopZoneType.TRAFFIC_LIGHT
@@ -1116,7 +1134,10 @@ def _stop_zone_type(
         return StopZoneType.STOP_SIGN
     if subtype == "CROSSWALK_ENTRY":
         return StopZoneType.PEDESTRIAN_CROSSING
-    if category == "STOP":
+    marking_ids = {marking for lane_map_id in lane_map_ids for marking in relations.marking_lanes.get(lane_map_id, ())}
+    if category == "STOP" and any(
+        marking_categories.get(marking_id) == _STOP_ROAD_MARKING_CATEGORY for marking_id in marking_ids
+    ):
         return StopZoneType.STOP_SIGN
     return StopZoneType.UNKNOWN
 
