@@ -5,6 +5,9 @@ parser:
   splits: ["physical-ai-av_train"]
   physical_ai_av_data_root: ${dataset_paths.physical_ai_av_data_root}
   max_clips: null
+  # Some clips of the dataset ship without lidar or egomotion data and cannot be converted.
+  # If true, they are left out; otherwise their conversion fails and they are reported at the end.
+  skip_incomplete_clips: false
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig

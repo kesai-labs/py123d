@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple, Union
@@ -8,6 +9,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from py123d.common.runtime import get_dataset_paths
 from py123d.datatypes import (
     BoxDetectionAttributes,
     BoxDetectionSE3,
@@ -22,8 +24,8 @@ from py123d.datatypes import (
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.ftheta_camera import FThetaCameraMetadata, FThetaIntrinsics
-from py123d.datatypes.sensors.lidar import LidarMergedMetadata
-from py123d.datatypes.sensors.radar import RadarID, RadarMergedMetadata, RadarMetadata
+from py123d.datatypes.sensors.lidar import Lidar, LidarMergedMetadata
+from py123d.datatypes.sensors.radar import Radar, RadarID, RadarMergedMetadata, RadarMetadata
 from py123d.datatypes.vehicle_state.dynamic_state import DynamicStateSE3
 from py123d.datatypes.vehicle_state.ego_state_metadata import EgoStateSE3Metadata
 from py123d.geometry import BoundingBoxSE3, BoundingBoxSE3Index, PoseSE3, Vector3D, Vector3DIndex
@@ -38,6 +40,8 @@ from py123d.parser.base_dataset_parser import (
     ParsedLidar,
     ParsedRadar,
 )
+from py123d.parser.physical_ai_av.physical_ai_av_radar_io import load_physical_ai_av_radar_point_cloud_data_from_path
+from py123d.parser.physical_ai_av.physical_ai_av_sensor_io import load_physical_ai_av_point_cloud_data_from_path
 from py123d.parser.physical_ai_av.utils.physical_ai_av_constants import (
     PHYSICAL_AI_AV_BOX_DETECTIONS_SE3_METADATA,
     PHYSICAL_AI_AV_CAMERA_ID_MAPPING,
@@ -49,7 +53,17 @@ from py123d.parser.physical_ai_av.utils.physical_ai_av_helper import (
     find_closest_index,
     quat_scalar_last_to_pose_se3,
 )
+from py123d.parser.physical_ai_av.utils.physical_ai_av_zip import (
+    extract_file,
+    is_archive_member,
+    path_exists,
+    read_parquet,
+    remove_extracted_files,
+    resolve_clip_file,
+)
 from py123d.parser.registry import PhysicalAIAVBoxDetectionLabel
+
+logger = logging.getLogger(__name__)
 
 # Per the PAIAV wiki (https://github.com/NVlabs/physical_ai_av/wiki/3.-Sensor-Details):
 # the LiDAR spin start timestamp marks the beginning of the 360° sweep and a complete rotation takes 100ms.
@@ -64,12 +78,15 @@ class PhysicalAIAVParser(BaseDatasetParser):
         splits: List[str],
         physical_ai_av_data_root: Union[Path, str],
         max_clips: Optional[int] = None,
+        skip_incomplete_clips: bool = False,
     ) -> None:
         """Initializes the PhysicalAIAVParser.
 
         :param splits: List of dataset splits, e.g. ["physical-ai-av_train"].
         :param physical_ai_av_data_root: Root directory of the Physical AI AV dataset.
         :param max_clips: Maximum number of clips to convert, or None for all available.
+        :param skip_incomplete_clips: If true, clips without lidar or egomotion data are left out. They
+            cannot be converted; by default they are kept and their conversion fails.
         """
         assert physical_ai_av_data_root is not None, "The variable `physical_ai_av_data_root` must be provided."
         assert Path(physical_ai_av_data_root).exists(), (
@@ -83,7 +100,11 @@ class PhysicalAIAVParser(BaseDatasetParser):
         self._splits = splits
         self._data_root = Path(physical_ai_av_data_root)
         self._max_clips = max_clips
+        self._skip_incomplete_clips = skip_incomplete_clips
+        self._num_skipped_clips = 0
         self._clip_entries: List[Tuple[str, int, str]] = self._collect_clips()
+        if self._num_skipped_clips > 0:
+            logger.warning("Skipping %d clips without lidar or egomotion data.", self._num_skipped_clips)
 
     def _collect_clips(self) -> List[Tuple[str, int, str]]:
         """Collects (clip_id, chunk, split_name) tuples for the requested splits.
@@ -100,10 +121,19 @@ class PhysicalAIAVParser(BaseDatasetParser):
             for clip_id, row in split_clips.iterrows():
                 chunk = int(row["chunk"])
                 if chunk in available_chunks:
+                    if self._skip_incomplete_clips and not self._has_lidar_and_egomotion(str(clip_id), chunk):
+                        self._num_skipped_clips += 1
+                        continue
                     entries.append((str(clip_id), chunk, split))
                     if self._max_clips is not None and len(entries) >= self._max_clips:
                         return entries
         return entries
+
+    def _has_lidar_and_egomotion(self, clip_id: str, chunk: int) -> bool:
+        """Whether the two files every conversion of a clip needs are present."""
+        lidar_path = resolve_clip_file(self._data_root, "lidar", "lidar_top_360fov", clip_id, "parquet", chunk)
+        egomotion_path = resolve_clip_file(self._data_root, "labels", "egomotion", clip_id, "parquet", chunk)
+        return path_exists(lidar_path) and path_exists(egomotion_path)
 
     def _discover_available_chunks(self) -> set:
         """Discovers which chunks have calibration data on disk."""
@@ -155,13 +185,91 @@ class PhysicalAIAVLogParser(BaseLogParser):
     # Synchronized iteration (lidar-rate)
     # ------------------------------------------------------------------------------------------------------------------
 
+    def _clip_file(self, group: str, sensor: str, extension: str) -> Path:
+        """Path of one of the clip's files: the extracted file if it exists, otherwise the member of its chunk archive."""
+        return resolve_clip_file(self._data_root, group, sensor, self._clip_id, extension, self._chunk)
+
     def _ego_offline_path(self) -> Path:
         """Path to the offline (smoothed) egomotion file — matches obstacle.offline reference frame."""
-        return self._data_root / "labels" / "egomotion.offline" / f"{self._clip_id}.egomotion.offline.parquet"
+        return self._clip_file("labels", "egomotion.offline", "parquet")
 
     def _ego_regular_path(self) -> Path:
         """Path to the regular (raw) egomotion file — higher rate, includes velocity/acceleration."""
-        return self._data_root / "labels" / "egomotion" / f"{self._clip_id}.egomotion.parquet"
+        return self._clip_file("labels", "egomotion", "parquet")
+
+    def _video_staging_dir(self) -> Optional[Path]:
+        """Directory the clip's videos are copied to when they come from a chunk archive, if there is a download root."""
+        download_root = get_dataset_paths().py123d_download_root
+        return download_root / "physical-ai-av" / self._clip_id if download_root is not None else None
+
+    def _video_file(self, video_path: Path) -> Path:
+        """Path of a video OpenCV can open, which reads files only: a member of a chunk archive is copied out first."""
+        if not is_archive_member(video_path):
+            return video_path
+        staging_dir = self._video_staging_dir()
+        assert staging_dir is not None, (
+            "Reading videos from the chunk archives needs a directory to copy them to: "
+            "set `PY123D_DATA_ROOT` or `PY123D_DOWNLOAD_ROOT`."
+        )
+        return extract_file(video_path, staging_dir)
+
+    def _remove_staged_videos(self) -> None:
+        """Removes the videos :meth:`_video_file` copied out of the chunk archives."""
+        staging_dir = self._video_staging_dir()
+        if staging_dir is not None and staging_dir.exists():
+            remove_extracted_files(staging_dir)
+
+    def _lidar(
+        self, lidar_path: Path, metadata: LidarMergedMetadata, spin_index: int, spin_start_us: int
+    ) -> Union[ParsedLidar, Lidar]:
+        """One LiDAR spin: loaded on demand from an extracted file, decoded right away from a chunk archive."""
+        start_timestamp = Timestamp.from_us(spin_start_us)
+        end_timestamp = Timestamp.from_us(spin_start_us + _LIDAR_SPIN_DURATION_US)
+        if is_archive_member(lidar_path):
+            point_cloud_3d, point_cloud_features = load_physical_ai_av_point_cloud_data_from_path(
+                lidar_path, spin_index, dict(metadata)
+            )
+            return Lidar(
+                timestamp=start_timestamp,
+                timestamp_end=end_timestamp,
+                metadata=metadata,
+                point_cloud_3d=point_cloud_3d,
+                point_cloud_features=point_cloud_features,
+            )
+        return ParsedLidar(
+            metadata=metadata,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+            dataset_root=self._data_root,
+            relative_path=f"lidar/lidar_top_360fov/{self._clip_id}.lidar_top_360fov.parquet",
+            iteration=spin_index,
+        )
+
+    def _radar(
+        self, primary_path: str, radar_paths: Dict[str, str], metadata: RadarMergedMetadata, timestamp_us: int
+    ) -> Union[ParsedRadar, Radar]:
+        """The merged radar scan nearest to a timestamp: loaded on demand from extracted files, decoded right away
+        from chunk archives."""
+        timestamp = Timestamp.from_us(timestamp_us)
+        load_kwargs = {"radar_paths": radar_paths}
+        if is_archive_member(self._data_root / primary_path):
+            point_cloud_3d, point_cloud_features = load_physical_ai_av_radar_point_cloud_data_from_path(
+                self._data_root / primary_path, timestamp_us, dict(metadata), self._data_root, load_kwargs
+            )
+            return Radar(
+                timestamp=timestamp,
+                metadata=metadata,
+                point_cloud_3d=point_cloud_3d,
+                point_cloud_features=point_cloud_features,
+            )
+        return ParsedRadar(
+            metadata=metadata,
+            timestamp=timestamp,
+            dataset_root=self._data_root,
+            relative_path=primary_path,
+            iteration=timestamp_us,
+            load_kwargs=load_kwargs,
+        )
 
     def _read_lidar_timestamps(self, lidar_path: Path) -> np.ndarray:
         """Read lidar timestamps with schema fallback across dataset revisions.
@@ -173,14 +281,14 @@ class PhysicalAIAVLogParser(BaseLogParser):
 
         for col in candidate_columns:
             try:
-                lidar_df = pd.read_parquet(lidar_path, columns=[col])
+                lidar_df = read_parquet(lidar_path, columns=[col])
                 if col in lidar_df.columns:
                     return lidar_df[col].to_numpy(dtype=np.int64)
             except Exception:
                 continue
 
         # Fallback to full read to provide a clear error message with available columns.
-        lidar_df = pd.read_parquet(lidar_path)
+        lidar_df = read_parquet(lidar_path)
         for col in candidate_columns:
             if col in lidar_df.columns:
                 return lidar_df[col].to_numpy(dtype=np.int64)
@@ -199,7 +307,7 @@ class PhysicalAIAVLogParser(BaseLogParser):
         # 1. Load egomotion
         # Regular ego for ego states and camera poses (higher rate, has velocity/acceleration).
         # Offline ego only for box detection transforms (its anchor frame matches obstacle.offline labels).
-        ego_df = pd.read_parquet(self._ego_regular_path())
+        ego_df = read_parquet(self._ego_regular_path())
         ego_timestamps = ego_df["timestamp"].to_numpy(dtype=np.int64)
         # if self._ego_offline_path().exists():
         #     ego_offline_df = pd.read_parquet(self._ego_offline_path())
@@ -209,15 +317,15 @@ class PhysicalAIAVLogParser(BaseLogParser):
         #     ego_offline_ts = ego_timestamps
 
         # 2. Load LiDAR timestamps
-        lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
+        lidar_path = self._clip_file("lidar", "lidar_top_360fov", "parquet")
         lidar_timestamps = self._read_lidar_timestamps(lidar_path)
 
         # 3. Load camera timestamps
         cam_timestamps: Dict[str, np.ndarray] = {}
         for cam_name in PHYSICAL_AI_AV_CAMERA_ID_MAPPING.keys():
-            ts_path = self._data_root / "camera" / cam_name / f"{self._clip_id}.{cam_name}.timestamps.parquet"
-            if ts_path.exists():
-                ts_df = pd.read_parquet(ts_path)
+            ts_path = self._clip_file("camera", cam_name, "timestamps.parquet")
+            if path_exists(ts_path):
+                ts_df = read_parquet(ts_path)
                 cam_timestamps[cam_name] = ts_df["timestamp"].to_numpy(dtype=np.int64)
 
         # 4. Load calibration
@@ -228,18 +336,18 @@ class PhysicalAIAVLogParser(BaseLogParser):
         )
 
         # 5. Load obstacle labels (if available)
-        obstacle_path = self._data_root / "labels" / "obstacle.offline" / f"{self._clip_id}.obstacle.offline.parquet"
-        obstacle_df = pd.read_parquet(obstacle_path) if obstacle_path.exists() else None
+        obstacle_path = self._clip_file("labels", "obstacle.offline", "parquet")
+        obstacle_df = read_parquet(obstacle_path) if path_exists(obstacle_path) else None
         obs_timestamps = obstacle_df["timestamp_us"].to_numpy(dtype=np.int64) if obstacle_df is not None else None
 
         # 6. Open camera video captures
-        captures: Dict[str, cv2.VideoCapture] = {}
-        for cam_name in PHYSICAL_AI_AV_CAMERA_ID_MAPPING.keys():
-            video_path = self._data_root / "camera" / cam_name / f"{self._clip_id}.{cam_name}.mp4"
-            if video_path.exists():
-                captures[cam_name] = cv2.VideoCapture(str(video_path))
-
+        captures: Dict[str, _SequentialFrameReader] = {}
         try:
+            for cam_name in PHYSICAL_AI_AV_CAMERA_ID_MAPPING.keys():
+                video_path = self._clip_file("camera", cam_name, "mp4")
+                if path_exists(video_path):
+                    captures[cam_name] = _SequentialFrameReader(self._video_file(video_path))
+
             for spin_idx, lidar_ts in enumerate(lidar_timestamps):
                 timestamp = Timestamp.from_us(int(lidar_ts))
 
@@ -258,14 +366,7 @@ class PhysicalAIAVLogParser(BaseLogParser):
                 )
 
                 # LiDAR
-                parsed_lidar = ParsedLidar(
-                    metadata=lidar_metadata,
-                    start_timestamp=timestamp,
-                    end_timestamp=Timestamp.from_us(int(lidar_ts) + _LIDAR_SPIN_DURATION_US),
-                    dataset_root=self._data_root,
-                    relative_path=f"lidar/lidar_top_360fov/{self._clip_id}.lidar_top_360fov.parquet",
-                    iteration=spin_idx,
-                )
+                parsed_lidar = self._lidar(lidar_path, lidar_metadata, spin_idx, int(lidar_ts))
 
                 # Cameras
                 parsed_cameras = _extract_cameras(
@@ -280,21 +381,13 @@ class PhysicalAIAVLogParser(BaseLogParser):
                 # Radar (merged across all present sensors; nearest scan to the lidar spin timestamp)
                 modalities: List[BaseModality] = [ego_state, box_detections, parsed_lidar, *parsed_cameras]
                 if radar_metadata is not None and radar_primary_path is not None:
-                    modalities.append(
-                        ParsedRadar(
-                            metadata=radar_metadata,
-                            timestamp=timestamp,
-                            dataset_root=self._data_root,
-                            relative_path=radar_primary_path,
-                            iteration=int(lidar_ts),
-                            load_kwargs={"radar_paths": radar_paths},
-                        )
-                    )
+                    modalities.append(self._radar(radar_primary_path, radar_paths, radar_metadata, int(lidar_ts)))
 
                 yield ModalitiesSync(timestamp=timestamp, modalities=modalities)
         finally:
             for cap in captures.values():
                 cap.release()
+            self._remove_staged_videos()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Asynchronous iteration (native-rate)
@@ -317,7 +410,7 @@ class PhysicalAIAVLogParser(BaseLogParser):
 
     def _iter_ego_states_se3(self, metadata: EgoStateSE3Metadata) -> Iterator[EgoStateSE3]:
         """Yields all ego state observations at native rate (~67-100Hz)."""
-        ego_df = pd.read_parquet(self._ego_regular_path())
+        ego_df = read_parquet(self._ego_regular_path())
 
         for _, row in ego_df.iterrows():
             ego_pose = quat_scalar_last_to_pose_se3(
@@ -338,16 +431,16 @@ class PhysicalAIAVLogParser(BaseLogParser):
         all detections falling within each lidar sweep interval [start, start + 100ms]
         and yield one BoxDetectionsSE3 per lidar timestamp.
         """
-        obstacle_path = self._data_root / "labels" / "obstacle.offline" / f"{self._clip_id}.obstacle.offline.parquet"
-        if not obstacle_path.exists():
+        obstacle_path = self._clip_file("labels", "obstacle.offline", "parquet")
+        if not path_exists(obstacle_path):
             return
 
         ego_metadata = _get_ego_state_metadata(self._data_root, self._clip_id, self._chunk)
-        obstacle_df = pd.read_parquet(obstacle_path)
-        ego_df = pd.read_parquet(self._ego_regular_path())
+        obstacle_df = read_parquet(obstacle_path)
+        ego_df = read_parquet(self._ego_regular_path())
         ego_timestamps = ego_df["timestamp"].to_numpy(dtype=np.int64)
 
-        lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
+        lidar_path = self._clip_file("lidar", "lidar_top_360fov", "parquet")
         lidar_timestamps = self._read_lidar_timestamps(lidar_path)
         obs_timestamps = obstacle_df["timestamp_us"].to_numpy()
 
@@ -365,23 +458,15 @@ class PhysicalAIAVLogParser(BaseLogParser):
                 metadata=metadata,
             )
 
-    def _iter_lidar(self, metadata: LidarMergedMetadata) -> Iterator[ParsedLidar]:
+    def _iter_lidar(self, metadata: LidarMergedMetadata) -> Iterator[Union[ParsedLidar, Lidar]]:
         """Yields all LiDAR spins at native rate (~10Hz)."""
-        lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
+        lidar_path = self._clip_file("lidar", "lidar_top_360fov", "parquet")
         lidar_timestamps = self._read_lidar_timestamps(lidar_path)
 
         for spin_idx, ts in enumerate(lidar_timestamps):
-            ts = int(ts)
-            yield ParsedLidar(
-                metadata=metadata,
-                start_timestamp=Timestamp.from_us(ts),
-                end_timestamp=Timestamp.from_us(ts + _LIDAR_SPIN_DURATION_US),
-                dataset_root=self._data_root,
-                relative_path=f"lidar/lidar_top_360fov/{self._clip_id}.lidar_top_360fov.parquet",
-                iteration=int(spin_idx),  # type: ignore[arg-type]
-            )
+            yield self._lidar(lidar_path, metadata, int(spin_idx), int(ts))
 
-    def _iter_radar(self) -> Iterator[ParsedRadar]:
+    def _iter_radar(self) -> Iterator[Union[ParsedRadar, Radar]]:
         """Yields the merged radar at lidar-spin rate (~10Hz); nearest radar scan per spin is selected on load."""
         radar_metadata, radar_paths, radar_primary_path = _get_radar_metadata_and_paths(
             self._data_root, self._clip_id, self._chunk
@@ -389,34 +474,26 @@ class PhysicalAIAVLogParser(BaseLogParser):
         if radar_metadata is None or radar_primary_path is None:
             return
 
-        lidar_path = self._data_root / "lidar" / "lidar_top_360fov" / f"{self._clip_id}.lidar_top_360fov.parquet"
+        lidar_path = self._clip_file("lidar", "lidar_top_360fov", "parquet")
         lidar_timestamps = self._read_lidar_timestamps(lidar_path)
 
         for ts in lidar_timestamps:
-            ts = int(ts)
-            yield ParsedRadar(
-                metadata=radar_metadata,
-                timestamp=Timestamp.from_us(ts),
-                dataset_root=self._data_root,
-                relative_path=radar_primary_path,
-                iteration=ts,
-                load_kwargs={"radar_paths": radar_paths},
-            )
+            yield self._radar(radar_primary_path, radar_paths, radar_metadata, int(ts))
 
     def _iter_camera(
         self, cam_name: str, cam_metadata: FThetaCameraMetadata, ego_metadata: EgoStateSE3Metadata
     ) -> Iterator[ParsedCamera]:
         """Yields camera frames at native rate (~30fps)."""
-        ts_path = self._data_root / "camera" / cam_name / f"{self._clip_id}.{cam_name}.timestamps.parquet"
-        video_path = self._data_root / "camera" / cam_name / f"{self._clip_id}.{cam_name}.mp4"
-        if not ts_path.exists() or not video_path.exists():
+        ts_path = self._clip_file("camera", cam_name, "timestamps.parquet")
+        video_path = self._clip_file("camera", cam_name, "mp4")
+        if not path_exists(ts_path) or not path_exists(video_path):
             return
 
-        ts_df = pd.read_parquet(ts_path)
-        ego_df = pd.read_parquet(self._ego_regular_path())
+        ts_df = read_parquet(ts_path)
+        ego_df = read_parquet(self._ego_regular_path())
         ego_timestamps = ego_df["timestamp"].to_numpy(dtype=np.int64)
 
-        cap = cv2.VideoCapture(str(video_path))
+        cap = _SequentialFrameReader(self._video_file(video_path))
         try:
             for frame_idx, row in ts_df.iterrows():
                 cam_ts = int(row["timestamp"])
@@ -436,9 +513,8 @@ class PhysicalAIAVLogParser(BaseLogParser):
                 camera_to_global = rel_to_abs_se3(origin=ego_pose, pose_se3=cam_metadata.camera_to_imu_se3)
 
                 # Extract frame
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))  # type: ignore[arg-type]
-                ret, frame = cap.read()
-                if not ret:
+                frame = cap.read_at(int(frame_idx))  # type: ignore[arg-type]
+                if frame is None:
                     continue
                 _, jpeg_bytes = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
@@ -450,6 +526,7 @@ class PhysicalAIAVLogParser(BaseLogParser):
                 )
         finally:
             cap.release()
+            self._remove_staged_videos()
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -623,9 +700,10 @@ def _get_radar_metadata_and_paths(
     primary_relative_path: Optional[str] = None
 
     for radar_name, radar_id in PHYSICAL_AI_AV_RADAR_ID_MAPPING.items():
-        relative_path = f"radar/{radar_name}/{clip_id}.{radar_name}.parquet"
-        if not (data_root / relative_path).exists():
+        radar_path = resolve_clip_file(data_root, "radar", radar_name, clip_id, "parquet", chunk)
+        if not path_exists(radar_path):
             continue
+        relative_path = radar_path.relative_to(data_root).as_posix()
         try:
             radar_ext = extrinsics_df.loc[(clip_id, radar_name)]
         except KeyError:
@@ -656,6 +734,49 @@ def _get_radar_metadata_and_paths(
 # ------------------------------------------------------------------------------------------------------------------
 # Extraction helpers
 # ------------------------------------------------------------------------------------------------------------------
+
+
+class _SequentialFrameReader:
+    """Reads frames of a video by index, decoding forward instead of seeking.
+
+    Seeking to a frame decodes from the previous keyframe again. The conversion asks for frames in
+    increasing order (every frame, or the one nearest to each lidar spin), so the frames in between
+    are skipped with a cheap grab instead. A seek only happens when an index goes backwards.
+    """
+
+    def __init__(self, video_path: Path) -> None:
+        """
+        :param video_path: Path to the video file.
+        """
+        self._capture = cv2.VideoCapture(str(video_path))
+        self._next_index = 0  # index of the frame the next grab reads
+        self._last_index: Optional[int] = None
+        self._last_frame: Optional[np.ndarray] = None
+
+    def read_at(self, frame_index: int) -> Optional[np.ndarray]:
+        """Returns the frame at the given index.
+
+        :param frame_index: Index of the frame in the video.
+        :return: The decoded frame, or None if it cannot be read.
+        """
+        if self._last_index == frame_index:
+            return self._last_frame
+        if frame_index < self._next_index - 1:
+            self._capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            self._next_index = frame_index
+        while self._next_index <= frame_index:
+            if not self._capture.grab():
+                return None
+            self._next_index += 1
+        success, frame = self._capture.retrieve()
+        if not success:
+            return None
+        self._last_index, self._last_frame = frame_index, frame
+        return frame
+
+    def release(self) -> None:
+        """Closes the video."""
+        self._capture.release()
 
 
 def _dynamic_state_in_ego_frame(row: pd.Series, ego_pose: PoseSE3) -> DynamicStateSE3:
@@ -835,7 +956,7 @@ def _extract_cameras(
     lidar_ts: int,
     ego_df: pd.DataFrame,
     ego_timestamps: np.ndarray,
-    captures: Dict[str, cv2.VideoCapture],
+    captures: Dict[str, _SequentialFrameReader],
     cam_timestamps: Dict[str, np.ndarray],
     ftheta_metadatas: Dict[CameraID, FThetaCameraMetadata],
 ) -> List[ParsedCamera]:
@@ -869,9 +990,8 @@ def _extract_cameras(
         camera_to_global = rel_to_abs_se3(origin=ego_pose, pose_se3=cam_metadata.camera_to_imu_se3)
 
         # Extract frame from video
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
-        if not ret:
+        frame = cap.read_at(int(frame_idx))
+        if frame is None:
             continue
 
         # Encode as JPEG

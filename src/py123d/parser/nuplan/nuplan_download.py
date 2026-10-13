@@ -18,6 +18,9 @@ MD5 checksums, so verification is skipped)::
     sensor_blobs/test_set/nuplan-v1.1_test_{camera,lidar}_{0..11}.zip
     sensor_blobs/mini_set/nuplan-v1.1_mini_{camera,lidar}_{0..8}.zip
 
+The train, val and test sensor shards are uncompressed tar archives despite their ``.zip``
+name; the maps, the logs and the mini sensor shards are zip archives.
+
 On-disk layout produced by the downloader, matching what
 :class:`~py123d.parser.nuplan.nuplan_parser.NuplanParser` expects::
 
@@ -67,6 +70,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import shutil
+import tarfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,16 +107,17 @@ _ROUTE_SENSOR_MINI = "sensor_mini"
 # place. Motional ships archives with internal wrapper directories that must be
 # skipped to produce the canonical NuplanParser layout. Train and val log zips
 # both land in ``splits/trainval/`` — that's where NuplanParser expects them.
+# Every sensor shard wraps its logs in one folder named after the shard.
 _ROUTE_LAYOUT: Dict[str, Tuple[Path, int]] = {
     _ROUTE_MAPS: (Path("maps"), 1),
     _ROUTE_LOGS_TRAIN: (Path("nuplan-v1.1/splits/trainval"), 3),
     _ROUTE_LOGS_VAL: (Path("nuplan-v1.1/splits/trainval"), 3),
     _ROUTE_LOGS_TEST: (Path("nuplan-v1.1/splits/test"), 3),
     _ROUTE_LOGS_MINI: (Path("nuplan-v1.1/splits/mini"), 3),
-    _ROUTE_SENSOR_TRAIN: (Path("nuplan-v1.1/sensor_blobs"), 0),
-    _ROUTE_SENSOR_VAL: (Path("nuplan-v1.1/sensor_blobs"), 0),
-    _ROUTE_SENSOR_TEST: (Path("nuplan-v1.1/sensor_blobs"), 0),
-    _ROUTE_SENSOR_MINI: (Path("nuplan-v1.1/sensor_blobs"), 0),
+    _ROUTE_SENSOR_TRAIN: (Path("nuplan-v1.1/sensor_blobs"), 1),
+    _ROUTE_SENSOR_VAL: (Path("nuplan-v1.1/sensor_blobs"), 1),
+    _ROUTE_SENSOR_TEST: (Path("nuplan-v1.1/sensor_blobs"), 1),
+    _ROUTE_SENSOR_MINI: (Path("nuplan-v1.1/sensor_blobs"), 1),
 }
 
 
@@ -523,9 +528,37 @@ def _jump_k_folder_forward(path: Path, k: int) -> Path:
 
 
 def _move_folder_contents(src: Path, dst: Path) -> None:
-    """Move every entry in ``src`` into ``dst``. ``dst`` must exist."""
+    """Move every entry in ``src`` into ``dst``. ``dst`` must exist.
+
+    A folder that already exists in ``dst`` is merged: the camera and lidar shards of one
+    log both carry a ``<log_name>/`` folder.
+    """
     for item in src.iterdir():
-        shutil.move(str(item), str(dst / item.name))
+        target = dst / item.name
+        if item.is_dir() and target.is_dir():
+            _move_folder_contents(item, target)
+        else:
+            shutil.move(str(item), str(target))
+
+
+def _extract_tar_archive(archive_path: Path, staging_dir: Path) -> None:
+    """Extract an uncompressed tar archive into ``staging_dir``, one member at a time.
+
+    A sensor shard holds several hundred thousand files, so the members are not listed up front.
+
+    :param archive_path: Path to the tar archive.
+    :param staging_dir: Directory to extract into.
+    """
+    # Python versions without extraction filters (before 3.9.17 / 3.10.12 / 3.11.4) rely on the checks below.
+    extract_kwargs = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
+    with tarfile.open(archive_path, "r:") as tf:
+        member = tf.next()
+        while member is not None:
+            if _is_unsafe_zip_member(member.name) or not (member.isfile() or member.isdir()):
+                raise ValueError(f"Refusing to extract {archive_path.name}: unsafe member: {member.name}")
+            tf.extract(member, staging_dir, **extract_kwargs)
+            tf.members = []  # tarfile keeps every member it has read, drop them to bound the memory
+            member = tf.next()
 
 
 def _extract_nuplan_archive(
@@ -535,14 +568,15 @@ def _extract_nuplan_archive(
     skip_levels: int,
     staging_root: Path,
 ) -> None:
-    """Extract a nuPlan zip into ``extract_dir / target_subdir`` with wrapper-folder strip.
+    """Extract a nuPlan zip or tar archive into ``extract_dir / target_subdir`` with wrapper-folder strip.
 
     Motional's archives ship with internal wrapper directories that need to be
     stripped before contents land in the canonical NuplanParser layout. This
     function extracts to a per-archive staging dir, descends ``skip_levels``
     folders, and moves the contents into the canonical destination.
 
-    :param archive_path: Path to the ``.zip`` to extract.
+    :param archive_path: Path to the archive to extract. The train, val and test sensor shards
+        are tar archives despite their ``.zip`` name.
     :param extract_dir: Final root (typically ``output_dir``).
     :param target_subdir: Destination relative to ``extract_dir`` (e.g. ``maps/``).
     :param skip_levels: How many wrapper folders to strip from the extracted tree.
@@ -554,12 +588,17 @@ def _extract_nuplan_archive(
     staging_dir.mkdir(parents=True)
 
     try:
-        with zipfile.ZipFile(archive_path, "r") as zf:
-            unsafe = [info.filename for info in zf.infolist() if _is_unsafe_zip_member(info.filename)]
-            if unsafe:
-                preview = ", ".join(unsafe[:3]) + (" …" if len(unsafe) > 3 else "")
-                raise ValueError(f"Refusing to extract {archive_path.name}: {len(unsafe)} unsafe member(s): {preview}")
-            zf.extractall(staging_dir)
+        if tarfile.is_tarfile(archive_path):
+            _extract_tar_archive(archive_path, staging_dir)
+        else:
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                unsafe = [info.filename for info in zf.infolist() if _is_unsafe_zip_member(info.filename)]
+                if unsafe:
+                    preview = ", ".join(unsafe[:3]) + (" …" if len(unsafe) > 3 else "")
+                    raise ValueError(
+                        f"Refusing to extract {archive_path.name}: {len(unsafe)} unsafe member(s): {preview}"
+                    )
+                zf.extractall(staging_dir)
 
         target_dir = extract_dir / target_subdir
         target_dir.mkdir(parents=True, exist_ok=True)

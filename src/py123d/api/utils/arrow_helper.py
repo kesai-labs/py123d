@@ -63,6 +63,12 @@ class _ArrowMmapStore:
                 self._load_locks.pop(path, None)
             return table
 
+    def clear(self) -> None:
+        """Close every cached memory map and empty the cache."""
+        with self._lock:
+            while self._cache:
+                self._cache.popitem()
+
 
 # Lazy init: the cache size is resolved on first access from
 # py123d.common.runtime (Hydra/env-var driven), not at import time.
@@ -148,3 +154,13 @@ def get_lru_cached_arrow_table(arrow_file_path: Union[str, Path]) -> pa.Table:
     :return: The cached memory-mapped arrow table.
     """
     return _get_store().get(str(arrow_file_path))
+
+
+def clear_arrow_table_cache() -> None:
+    """Empty the cache behind :func:`get_lru_cached_arrow_table` and close its memory maps.
+
+    Call it after rewriting an `.arrow` file that was read before, since the cache would keep
+    returning the old table, or to release the maps of files that will not be read again.
+    """
+    if _store is not None:
+        _store.clear()

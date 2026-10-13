@@ -7,6 +7,15 @@ from py123d.common.runtime import DatasetPaths, get_dataset_paths, setup_dataset
 from py123d.common.runtime.dataset_paths import _ENV_VAR_MAP
 
 
+@pytest.fixture
+def without_env_vars(monkeypatch):
+    """Removes the dataset path variables for a test, and restores the environment afterwards."""
+    for env_var in _ENV_VAR_MAP.values():
+        # delenv alone does not restore a variable that was not set before and that the test then exports
+        monkeypatch.setenv(env_var, "")
+        monkeypatch.delenv(env_var)
+
+
 class TestDatasetPathsConstruction:
     """Tests for DatasetPaths dataclass construction and defaults."""
 
@@ -38,6 +47,13 @@ class TestDerivedPaths:
         assert paths.py123d_logs_root == Path("/data/logs")
         assert paths.py123d_maps_root == Path("/data/maps")
         assert paths.py123d_sensors_root == Path("/data/sensors")
+        assert paths.py123d_download_root == Path("/data/.download")
+
+    def test_download_root_from_env(self, monkeypatch):
+        """PY123D_DOWNLOAD_ROOT takes the place of the folder inside the data root, also in child processes."""
+        monkeypatch.setenv("PY123D_DATA_ROOT", "/data")
+        monkeypatch.setenv("PY123D_DOWNLOAD_ROOT", "/scratch/downloads")
+        assert DatasetPaths.from_env().py123d_download_root == Path("/scratch/downloads")
 
     def test_av2_derived_path(self):
         """av2_sensor_data_root should be derived from av2_data_root."""
@@ -114,11 +130,8 @@ class TestFromDictConfig:
 class TestExportToEnv:
     """Tests for DatasetPaths.export_to_env()."""
 
-    def test_exports_primary_roots(self, monkeypatch):
+    def test_exports_primary_roots(self, without_env_vars):
         """export_to_env should set env vars for non-None primary roots."""
-        for env_var in _ENV_VAR_MAP.values():
-            monkeypatch.delenv(env_var, raising=False)
-
         paths = DatasetPaths(py123d_data_root=Path("/data"), av2_data_root=Path("/av2"))
         paths.export_to_env()
 
@@ -126,12 +139,9 @@ class TestExportToEnv:
         assert os.environ["AV2_DATA_ROOT"] == "/av2"
         assert "NUPLAN_DATA_ROOT" not in os.environ
 
-    def test_roundtrip_env(self, monkeypatch):
+    def test_roundtrip_env(self, without_env_vars):
         """from_dict_config -> export_to_env -> from_env should produce equivalent paths."""
         from omegaconf import OmegaConf
-
-        for env_var in _ENV_VAR_MAP.values():
-            monkeypatch.delenv(env_var, raising=False)
 
         cfg = OmegaConf.create(
             {
@@ -194,7 +204,7 @@ class TestGlobalAccessor:
         # Clean up
         monkeypatch.setattr(module, "_global_dataset_paths", None)
 
-    def test_setup_then_get(self, monkeypatch):
+    def test_setup_then_get(self, monkeypatch, without_env_vars):
         """setup_dataset_paths should store the provided instance."""
         import py123d.common.runtime.dataset_paths as module
 
@@ -209,7 +219,7 @@ class TestGlobalAccessor:
         # Clean up
         monkeypatch.setattr(module, "_global_dataset_paths", None)
 
-    def test_setup_only_sets_once(self, monkeypatch):
+    def test_setup_only_sets_once(self, monkeypatch, without_env_vars):
         """setup_dataset_paths should not overwrite an existing global."""
         import py123d.common.runtime.dataset_paths as module
 

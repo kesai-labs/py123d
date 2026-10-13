@@ -97,7 +97,8 @@ Download
 The dataset can be downloaded from `Hugging Face <https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles>`_.
 For additional tools and documentation, see the `Physical AI AV devkit <https://github.com/NVlabs/physical_ai_av>`_.
 
-The downloaded dataset should have the following structure:
+The dataset comes in chunks of about 100 clips. The files of a chunk's clips are packed into one archive per
+sensor or label, which the conversion reads as downloaded:
 
 .. code-block:: none
 
@@ -106,8 +107,39 @@ The downloaded dataset should have the following structure:
   ├── calibration/
   │   ├── camera_intrinsics/
   │   │   └── camera_intrinsics.chunk_XXXX.parquet
-  │   └── sensor_extrinsics/
-  │       └── sensor_extrinsics.chunk_XXXX.parquet
+  │   ├── sensor_extrinsics/
+  │   │   └── sensor_extrinsics.chunk_XXXX.parquet
+  │   └── vehicle_dimensions/
+  │       └── vehicle_dimensions.chunk_XXXX.parquet
+  ├── labels/
+  │   ├── egomotion/
+  │   │   └── egomotion.chunk_XXXX.zip
+  │   └── obstacle.offline/
+  │       └── obstacle.offline.chunk_XXXX.zip
+  ├── lidar/
+  │   └── lidar_top_360fov/
+  │       └── lidar_top_360fov.chunk_XXXX.zip
+  ├── radar/
+  │   └── {radar_name}/
+  │       └── {radar_name}.chunk_XXXX.zip
+  └── camera/
+      └── {cam_name}/
+          └── {cam_name}.chunk_XXXX.zip
+
+The archives do not have to be extracted. Extracted files are read as well, and are preferred over the archive if
+both are present. They are expected in the folder of their archive, under the names they have inside it:
+
+.. code-block:: none
+
+  $PHYSICAL_AI_AV_DATA_ROOT
+  ├── clip_index.parquet
+  ├── calibration/
+  │   ├── camera_intrinsics/
+  │   │   └── camera_intrinsics.chunk_XXXX.parquet
+  │   ├── sensor_extrinsics/
+  │   │   └── sensor_extrinsics.chunk_XXXX.parquet
+  │   └── vehicle_dimensions/
+  │       └── vehicle_dimensions.chunk_XXXX.parquet
   ├── labels/
   │   ├── egomotion/
   │   │   └── {clip_id}.egomotion.parquet
@@ -152,12 +184,20 @@ You can also override the file path directly:
   By default, the conversion stores camera data as JPEG binary and LiDAR data as IPC with LZ4 compression.
   You can adjust these options in the ``physical-ai-av.yaml`` converter configuration.
 
+.. note::
+  When a clip is read from the chunk archives, its videos are copied to
+  ``$PY123D_DATA_ROOT/.download/physical-ai-av`` (or ``$PY123D_DOWNLOAD_ROOT/physical-ai-av``) while the clip is
+  converted and deleted afterwards. LiDAR and radar from the archives can only be stored with the ``binary`` store
+  option, which is the default.
+
 
 Dataset Issues
 ~~~~~~~~~~~~~~
 
 - **Auto-labeled detections:** Bounding box labels are auto-generated and may be noisier than manually annotated datasets.
 - **No map data:** This dataset does not include HD-Map information.
+- **Incomplete clips:** Some clips come without LiDAR or egomotion data and cannot be converted. Their conversion
+  fails and they are listed at the end of the run. Set ``dataset.parser.skip_incomplete_clips=true`` to leave them out.
 
 
 Citation

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Only primary roots are mapped — derived paths are computed in __post_init__.
 _ENV_VAR_MAP: Dict[str, str] = {
     "py123d_data_root": "PY123D_DATA_ROOT",
+    "py123d_download_root": "PY123D_DOWNLOAD_ROOT",
     "nuplan_data_root": "NUPLAN_DATA_ROOT",
     "nuplan_maps_root": "NUPLAN_MAPS_ROOT",
     "nuplan_sensor_root": "NUPLAN_SENSOR_ROOT",
@@ -70,6 +71,7 @@ class DatasetPaths:
     py123d_logs_root: Optional[Path] = field(default=None, repr=False)
     py123d_maps_root: Optional[Path] = field(default=None, repr=False)
     py123d_sensors_root: Optional[Path] = field(default=None, repr=False)
+    py123d_download_root: Optional[Path] = field(default=None, repr=False)
 
     nuplan_maps_root: Optional[Path] = field(default=None, repr=False)
     nuplan_sensor_root: Optional[Path] = field(default=None, repr=False)
@@ -87,6 +89,8 @@ class DatasetPaths:
             _derive(self, "py123d_maps_root", self.py123d_data_root / "maps")
         if self.py123d_sensors_root is None and self.py123d_data_root is not None:
             _derive(self, "py123d_sensors_root", self.py123d_data_root / "sensors")
+        if self.py123d_download_root is None and self.py123d_data_root is not None:
+            _derive(self, "py123d_download_root", self.py123d_data_root / ".download")
 
         if self.nuplan_maps_root is None and self.nuplan_data_root is not None:
             _derive(self, "nuplan_maps_root", self.nuplan_data_root / "maps")

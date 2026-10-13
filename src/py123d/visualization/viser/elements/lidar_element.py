@@ -127,8 +127,10 @@ class LidarElement(ViewerElement):
 
         # One checkbox per available sensor, same style as the camera frustum checklist.
         server.gui.add_markdown("**Lidars**")
+        # A scene without any of the configured sensors (e.g. no merged lidar) starts with all of its sensors checked.
+        checked_ids = [lidar_id for lidar_id in lidar_id_list if lidar_id in self._config.ids] or lidar_id_list
         for lidar_id in lidar_id_list:
-            checkbox = server.gui.add_checkbox(lidar_id.serialize(lower=False), lidar_id in self._config.ids)
+            checkbox = server.gui.add_checkbox(lidar_id.serialize(lower=False), lidar_id in checked_ids)
             checkbox.on_update(self._on_sensor_selection_changed)
             self._gui_sensor_checkboxes[lidar_id] = checkbox
 

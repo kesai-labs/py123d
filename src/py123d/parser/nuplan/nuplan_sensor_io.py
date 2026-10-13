@@ -94,7 +94,11 @@ def load_nuplan_point_cloud_data_from_path(pcd_path: Path) -> Tuple[np.ndarray, 
     """Loads nuPlan Lidar point clouds from a ``.pcd`` file."""
 
     assert pcd_path.exists(), f"Lidar file not found: {pcd_path}"
-    raw = pcd_path.read_bytes()
+    return load_nuplan_point_cloud_data_from_bytes(pcd_path.read_bytes())
+
+
+def load_nuplan_point_cloud_data_from_bytes(raw: bytes) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
+    """Loads nuPlan Lidar point clouds from the content of a ``.pcd`` file."""
 
     pcd = _load_pcd_from_bytes(raw)
 

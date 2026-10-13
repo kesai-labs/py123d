@@ -312,6 +312,24 @@ Conversion
   The conversion of nuPlan by default does not store sensor data in the logs, but only relative file paths.
   To change this behavior, you need to adapt the ``nuplan.yaml`` or ``nuplan-mini.yaml`` converter configuration.
 
+**Sensor archives** — the train, val and test sensor shards hold about 150 million files, and are
+uncompressed tar archives despite their ``.zip`` name. Instead of extracting them into
+``$NUPLAN_SENSOR_ROOT``, the conversion can read the camera images and lidar sweeps from the archives.
+Keep the shards in one directory and index them once (one file scan per shard), then convert:
+
+.. code-block:: bash
+
+  export NUPLAN_ARCHIVE_ROOT=/path/to/nuplan/sensor/archives
+  python -m py123d.parser.nuplan.nuplan_tar_index $NUPLAN_ARCHIVE_ROOT/nuplan-v1.1_*_camera_*.zip \
+                                                  $NUPLAN_ARCHIVE_ROOT/nuplan-v1.1_*_lidar_*.zip
+  py123d-conversion dataset=nuplan-tar
+
+.. note::
+  ``dataset=nuplan-tar`` stores the sensor data in the logs, since a log cannot point at a file inside
+  an archive. The log databases and the maps are read from ``$NUPLAN_DATA_ROOT`` and
+  ``$NUPLAN_MAPS_ROOT`` as in local mode. The mini sensor shards are compressed zip archives and cannot
+  be read this way.
+
 **Streaming mode** — materialize the configured archive subset from the public nuPlan
 AWS bucket into ``$PY123D_DATA_ROOT/.download/nuplan`` at parser construction time, convert
 from it, and delete that directory when the conversion ends. The ``maps/`` and

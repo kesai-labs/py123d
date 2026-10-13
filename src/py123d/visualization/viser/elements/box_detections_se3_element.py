@@ -95,14 +95,15 @@ class BoxDetectionsSE3Element(ViewerElement):
                 lines, colors, _ = _get_bounding_box_outlines(
                     self._context.scene, iteration, self._context.initial_ego_state
                 )
-                self._handles["lines"] = self._server.scene.add_line_segments(
-                    "box_detections_lines",
-                    points=lines,
-                    colors=colors,
-                    line_width=self._config.line_width,
-                    visible=True,
-                )
-                visible_handle_keys.append("lines")
+                if len(lines) > 0:  # a frame without detections has nothing to draw (viser rejects empty segments)
+                    self._handles["lines"] = self._server.scene.add_line_segments(
+                        "box_detections_lines",
+                        points=lines,
+                        colors=colors,
+                        line_width=self._config.line_width,
+                        visible=True,
+                    )
+                    visible_handle_keys.append("lines")
 
         self._update_center_frames(iteration)
 

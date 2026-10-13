@@ -117,8 +117,10 @@ class RadarElement(ViewerElement):
 
         # One checkbox per available sensor, same style as the camera frustum checklist.
         server.gui.add_markdown("**Radars**")
+        # A scene without any of the configured sensors (e.g. no merged radar) starts with all of its sensors checked.
+        checked_ids = [radar_id for radar_id in radar_id_list if radar_id in self._config.ids] or radar_id_list
         for radar_id in radar_id_list:
-            checkbox = server.gui.add_checkbox(radar_id.serialize(lower=False), radar_id in self._config.ids)
+            checkbox = server.gui.add_checkbox(radar_id.serialize(lower=False), radar_id in checked_ids)
             checkbox.on_update(self._on_sensor_selection_changed)
             self._gui_sensor_checkboxes[radar_id] = checkbox
 

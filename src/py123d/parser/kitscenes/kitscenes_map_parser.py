@@ -266,6 +266,10 @@ def _extract_lanes(lanelet_map: _LaneletMap) -> Dict[int, _LaneData]:
             continue  # e.g. crosswalks and walkways
         left_way_id = lanelet_map.members(lanelet_id, "left")[0]
         right_way_id = lanelet_map.members(lanelet_id, "right")[0]
+        if min(len(lanelet_map.way_node_ids[left_way_id]), len(lanelet_map.way_node_ids[right_way_id])) < 2:
+            # e.g. KITScenes train/1e51cd26: a lanelet at the map border whose left way has a single node.
+            logger.warning("Skipping lanelet %d: a boundary has fewer than two nodes.", lanelet_id)
+            continue
         left_node_ids, right_node_ids = _orient_boundaries(
             lanelet_map.way_node_ids[left_way_id], lanelet_map.way_node_ids[right_way_id], lanelet_map
         )

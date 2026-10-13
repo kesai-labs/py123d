@@ -3,5 +3,6 @@ _convert_: 'all'
 master_node_ip: null    # Set to a master node IP if you desire to connect to cluster remotely
 threads_per_node: null  # Number of CPU threads to use per node, "null" means all threads available
 log_to_driver: true     # If true, all printouts from ray threads will be displayed in driver
-logs_subdir: 'logs'     # Subdirectory to store logs inside the experiment directory
+output_dir: null        # If set, every worker writes its log messages (INFO and above) to a file in <output_dir>/<logs_subdir>
+logs_subdir: 'logs'     # Subdirectory to store logs inside the output directory
 use_distributed: false  # Whether to use the built-in distributed mode of ray

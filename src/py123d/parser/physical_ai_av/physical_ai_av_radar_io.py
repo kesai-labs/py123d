@@ -25,12 +25,13 @@ import pandas as pd
 
 from py123d.datatypes.sensors.radar import RADAR_FEATURE_DTYPES, RadarFeature, RadarID, RadarMetadata
 from py123d.geometry.transform import rel_to_abs_points_3d_array
+from py123d.parser.physical_ai_av.utils.physical_ai_av_zip import path_exists, read_parquet
 
 
 @lru_cache(maxsize=16)
 def _read_radar_parquet(parquet_path: str) -> pd.DataFrame:
     """Read and cache one radar parquet (one per clip+radar)."""
-    return pd.read_parquet(parquet_path)
+    return read_parquet(parquet_path)
 
 
 def load_physical_ai_av_radar_point_cloud_data_from_path(
@@ -63,7 +64,7 @@ def load_physical_ai_av_radar_point_cloud_data_from_path(
         if metadata is None:
             continue
         full_path = Path(sensor_root) / relative_path
-        if not full_path.exists():
+        if not path_exists(full_path):
             continue
 
         df = _read_radar_parquet(str(full_path))

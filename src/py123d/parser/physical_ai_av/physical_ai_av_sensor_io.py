@@ -9,12 +9,15 @@ import pandas as pd
 
 from py123d.datatypes.sensors.lidar import LidarFeature, LidarID, LidarMetadata
 from py123d.geometry.transform import rel_to_abs_points_3d_array
+from py123d.parser.physical_ai_av.utils.physical_ai_av_zip import read_parquet
+
+_SPIN_START_COLUMNS = ("reference_timestamp", "spin_start_timestamp", "timestamp")
 
 
 @lru_cache(maxsize=4)
 def _read_lidar_parquet(parquet_path: str) -> pd.DataFrame:
     """Read and cache a LiDAR parquet file. Cached to avoid re-reading the same ~200MB file per spin."""
-    return pd.read_parquet(parquet_path)
+    return read_parquet(parquet_path)
 
 
 def load_physical_ai_av_point_cloud_data_from_path(
@@ -57,7 +60,8 @@ def load_physical_ai_av_point_cloud_data_from_path(
         blue = colors_arr[:, 2].astype(np.int32)
         raw_ts = (blue << 8) | green
         relative_us = 105000.0 - raw_ts * (210000.0 / 65535.0)
-        reference_timestamp = int(row["reference_timestamp"])
+        # Older snapshots name the spin start `reference_timestamp`, newer ones `spin_start_timestamp`.
+        reference_timestamp = int(row[next(column for column in _SPIN_START_COLUMNS if column in row.index)])
         absolute_us = reference_timestamp + np.round(relative_us).astype(np.int64)
         lidar_features[LidarFeature.TIMESTAMPS.serialize()] = absolute_us
 

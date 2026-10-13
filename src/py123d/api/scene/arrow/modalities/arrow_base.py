@@ -136,7 +136,7 @@ class ArrowBaseModalityWriter:
     def _validate_timestamp_order(self) -> None:
         """Read back the written file and verify that timestamps are monotonically increasing.
 
-        :raises ValueError: If any timestamp is less than or equal to its predecessor.
+        :raises ValueError: If any timestamp is less than its predecessor.
         """
         ts_column: Optional[str] = None
         for name in self._schema.names:
