@@ -1,6 +1,7 @@
 """Fetching the Physical AI AV files of NuRec scenes out of the chunk archives, through HTTP range requests."""
 
 import http.server
+import logging
 import threading
 import zipfile
 from pathlib import Path
@@ -171,3 +172,21 @@ def test_dry_run_fetches_nothing(downloader: NuRecPAIDownloader):
 def test_unknown_camera_is_rejected(tmp_path: Path):
     with pytest.raises(ValueError):
         NuRecPAIDownloader(output_dir=tmp_path, hf_token="unused", cameras=["camera_top"])
+
+
+def test_clip_without_lidar_in_its_archive_is_skipped(downloader: NuRecPAIDownloader, repo: Path, caplog):
+    # A few percent of the clips ship without their lidar, although the clip index marks them valid.
+    archive_path = repo / "lidar" / "lidar_top_360fov" / f"lidar_top_360fov.chunk_{CHUNK:04d}.zip"
+    archive_path.unlink()
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
+        member = f"{CLIP_IDS[0]}.lidar_top_360fov.parquet"
+        archive.writestr(member, member_content(member))
+
+    with caplog.at_level(logging.WARNING):
+        downloader.download()
+
+    output_dir = downloader.output_dir
+    assert (output_dir / "lidar" / "lidar_top_360fov" / f"{CLIP_IDS[0]}.lidar_top_360fov.parquet").exists()
+    assert not (output_dir / "lidar" / "lidar_top_360fov" / f"{CLIP_IDS[1]}.lidar_top_360fov.parquet").exists()
+    assert (output_dir / "camera" / CAMERA / f"{CLIP_IDS[1]}.{CAMERA}.mp4").exists()
+    assert CLIP_IDS[1] in caplog.text

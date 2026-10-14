@@ -193,21 +193,32 @@ class NuRecPAIDownloader(BaseDownloader):
             logger.info("Calibration of %d chunks fetched", len(chunks))
 
             num_done = 0
-            futures = [
-                pool.submit(self._download_archive_members, group, sensor, chunk, members)
+            missing: List[str] = []
+            futures = {
+                pool.submit(self._download_archive_members, group, sensor, chunk, members): len(members)
                 for (group, sensor, chunk), members in sorted(members_by_archive.items())
-            ]
+            }
             for future in concurrent.futures.as_completed(futures):
-                num_done += future.result()
-                if num_done % 100 < future.result():
+                missing += future.result()
+                num_done += futures[future]
+                if num_done % 100 < futures[future]:
                     logger.info("Fetched %d of %d files", num_done, num_members)
-        logger.info("Physical AI AV download complete: %d files under %s", num_done, self.output_dir)
+        if missing:
+            clips_without_files = sorted({member.split(".")[0] for member in missing})
+            logger.warning(
+                "%d file(s) of %d clip(s) are not in their archives on the Hub; the conversion leaves these clips "
+                "out: %s",
+                len(missing),
+                len(clips_without_files),
+                clips_without_files,
+            )
+        logger.info("Physical AI AV download complete: %d files under %s", num_done - len(missing), self.output_dir)
 
     @property
     def _session(self) -> requests.Session:
         """The HTTP session, shared by the threads."""
         if self._http_session is None:
-            self._http_session = _make_session()
+            self._http_session = _make_session(pool_size=self.max_workers)
         return self._http_session
 
     def _fetch_repo_file(self, filename: str) -> Path:
@@ -233,20 +244,28 @@ class NuRecPAIDownloader(BaseDownloader):
 
         return hf_hub_url(self.hf_repo_id, filename, repo_type=_REPO_TYPE)
 
-    def _download_archive_members(self, group: str, sensor: str, chunk: int, members: Sequence[str]) -> int:
-        """Copies the members of one chunk archive that are not on disk yet. Returns the number of members."""
+    def _download_archive_members(self, group: str, sensor: str, chunk: int, members: Sequence[str]) -> List[str]:
+        """Copies the members of one chunk archive that are not on disk yet.
+
+        :return: The members the archive does not contain. A few percent of the clips ship without their lidar;
+            the conversion leaves such a clip out.
+        """
         assert self.output_dir is not None
         destination_dir = self.output_dir / group / sensor
         url = self._archive_url(group, sensor, chunk)
         archive: Optional[_RemoteArchive] = None
+        missing: List[str] = []
         for member in members:
             destination = destination_dir / member
             if archive is None:
                 archive = _RemoteArchive(self._session, url, self.hf_token)
-            if destination.exists() and destination.stat().st_size == archive.members[member].file_size:
-                continue
-            archive.extract(member, destination)
-        return len(members)
+            info = archive.members.get(member)
+            if info is None:
+                logger.warning("%s is not in %s", member, url)
+                missing.append(member)
+            elif not (destination.exists() and destination.stat().st_size == info.file_size):
+                archive.extract(member, destination)
+        return missing
 
     def _archive_url(self, group: str, sensor: str, chunk: int) -> str:
         """URL of a chunk archive in the repo."""
@@ -255,11 +274,14 @@ class NuRecPAIDownloader(BaseDownloader):
         return hf_hub_url(self.hf_repo_id, f"{group}/{sensor}/{sensor}.chunk_{chunk:04d}.zip", repo_type=_REPO_TYPE)
 
 
-def _make_session() -> requests.Session:
-    """A session that retries the Hub's rate limits and transient errors with a backoff."""
+def _make_session(pool_size: int) -> requests.Session:
+    """A session that retries the Hub's rate limits and transient errors with a backoff.
+
+    :param pool_size: Connections kept open per host, one per thread that uses the session.
+    """
     session = requests.Session()
     retry = Retry(total=8, backoff_factor=2.0, status_forcelist=(429, 500, 502, 503, 504), allowed_methods=None)
-    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.mount("https://", HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=pool_size))
     return session
 
 
