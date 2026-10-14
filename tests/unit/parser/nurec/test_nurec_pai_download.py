@@ -1,7 +1,6 @@
 """Fetching the Physical AI AV files of NuRec scenes out of the chunk archives, through HTTP range requests."""
 
 import http.server
-import shutil
 import threading
 import zipfile
 from pathlib import Path
@@ -111,14 +110,7 @@ def downloader(tmp_path: Path, repo: Path, server: str, monkeypatch) -> NuRecPAI
         max_workers=2,
     )
 
-    def fetch_repo_file(filename: str) -> Path:
-        destination = downloader.output_dir / filename
-        if not destination.exists():
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(repo / filename, destination)
-        return destination
-
-    monkeypatch.setattr(downloader, "_fetch_repo_file", fetch_repo_file)
+    monkeypatch.setattr(downloader, "_repo_file_url", lambda filename: f"{server}/{filename}")
     monkeypatch.setattr(
         downloader,
         "_archive_url",

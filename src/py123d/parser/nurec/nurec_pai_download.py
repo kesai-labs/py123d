@@ -109,6 +109,7 @@ class NuRecPAIDownloader(BaseDownloader):
         self.cameras: List[str] = list(cameras) if cameras is not None else list(PHYSICAL_AI_AV_CAMERA_ID_MAPPING)
         self.include_lidar: bool = include_lidar
         self.max_workers: int = max_workers
+        self._http_session: Optional[requests.Session] = None
         # Selects the scenes; the NuRec repo is only contacted for a split that covers a whole release.
         self._scenes = NuRecDownloader(
             hf_token=hf_token,
@@ -181,15 +182,19 @@ class NuRecPAIDownloader(BaseDownloader):
             logger.warning("None of the selected NuRec scenes is a Physical AI AV clip, nothing to download.")
             return
 
-        for chunk in chunks:
-            for table in _CALIBRATION_TABLES:
-                self._fetch_repo_file(f"calibration/{table}/{table}.chunk_{chunk:04d}.parquet")
-
-        session = _make_session()
-        num_done = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            calibration_futures = [
+                pool.submit(self._fetch_repo_file, f"calibration/{table}/{table}.chunk_{chunk:04d}.parquet")
+                for chunk in chunks
+                for table in _CALIBRATION_TABLES
+            ]
+            for future in concurrent.futures.as_completed(calibration_futures):
+                future.result()
+            logger.info("Calibration of %d chunks fetched", len(chunks))
+
+            num_done = 0
             futures = [
-                pool.submit(self._download_archive_members, session, group, sensor, chunk, members)
+                pool.submit(self._download_archive_members, group, sensor, chunk, members)
                 for (group, sensor, chunk), members in sorted(members_by_archive.items())
             ]
             for future in concurrent.futures.as_completed(futures):
@@ -198,21 +203,37 @@ class NuRecPAIDownloader(BaseDownloader):
                     logger.info("Fetched %d of %d files", num_done, num_members)
         logger.info("Physical AI AV download complete: %d files under %s", num_done, self.output_dir)
 
+    @property
+    def _session(self) -> requests.Session:
+        """The HTTP session, shared by the threads."""
+        if self._http_session is None:
+            self._http_session = _make_session()
+        return self._http_session
+
     def _fetch_repo_file(self, filename: str) -> Path:
         """Downloads a plain file of the repo into ``output_dir``, keeping its path, unless it is there already."""
-        from huggingface_hub import hf_hub_download
-
         assert self.output_dir is not None
         destination = self.output_dir / filename
-        if not destination.exists():
-            hf_hub_download(
-                self.hf_repo_id, filename, repo_type=_REPO_TYPE, local_dir=str(self.output_dir), token=self.hf_token
-            )
+        if destination.exists():
+            return destination
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        headers = {"Authorization": f"Bearer {self.hf_token}"} if self.hf_token else {}
+        response = self._session.get(self._repo_file_url(filename), headers=headers, stream=True, timeout=60)
+        response.raise_for_status()
+        partial = destination.with_name(destination.name + ".part")
+        with open(partial, "wb") as file:
+            for chunk in response.iter_content(chunk_size=_COPY_CHUNK_SIZE):
+                file.write(chunk)
+        partial.replace(destination)
         return destination
 
-    def _download_archive_members(
-        self, session: requests.Session, group: str, sensor: str, chunk: int, members: Sequence[str]
-    ) -> int:
+    def _repo_file_url(self, filename: str) -> str:
+        """URL of a file in the repo."""
+        from huggingface_hub import hf_hub_url
+
+        return hf_hub_url(self.hf_repo_id, filename, repo_type=_REPO_TYPE)
+
+    def _download_archive_members(self, group: str, sensor: str, chunk: int, members: Sequence[str]) -> int:
         """Copies the members of one chunk archive that are not on disk yet. Returns the number of members."""
         assert self.output_dir is not None
         destination_dir = self.output_dir / group / sensor
@@ -221,7 +242,7 @@ class NuRecPAIDownloader(BaseDownloader):
         for member in members:
             destination = destination_dir / member
             if archive is None:
-                archive = _RemoteArchive(session, url, self.hf_token)
+                archive = _RemoteArchive(self._session, url, self.hf_token)
             if destination.exists() and destination.stat().st_size == archive.members[member].file_size:
                 continue
             archive.extract(member, destination)
