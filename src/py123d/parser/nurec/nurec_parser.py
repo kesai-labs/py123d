@@ -403,30 +403,10 @@ class NuRecLogParser(BaseLogParser):
     @override
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Inherited, see superclass."""
-        with ZipFile(self._usdz_path) as archive:
-            rig_root = _read_required_json_member(archive, "rig_trajectories.json", self._uuid)
-            tracks_root = _read_required_json_member(archive, "sequence_tracks.json", self._uuid)
-            bbox_length_m = float(rig_root["rig_trajectories"][0]["rig_bbox"]["dim"][0])
-            wheel_base_m = _rig_wheel_base_m(archive, bbox_length_m, self._uuid)
-
-        # One clip is one vehicle's drive, so the single rig trajectory is the ego.
-        rig_trajectories = rig_root["rig_trajectories"]
-        if len(rig_trajectories) != 1:
-            raise ValueError(f"NuRec scene {self._uuid}: expected one rig trajectory, found {len(rig_trajectories)}")
-        rig = rig_trajectories[0]
-        ego_metadata = _extract_ego_metadata(rig, wheel_base_m)
-        tracks = _extract_tracks(tracks_root, smooth_positions=self._smooth_track_positions)
-
-        # The rig timestamps are the window tracks are filtered against.
+        rig, ego_metadata, tracks = _read_scene(
+            self._usdz_path, self._uuid, self._smooth_track_positions, self._min_traffic_duration_us
+        )
         rig_timestamps_us = [int(ts) for ts in rig["T_rig_world_timestamps_us"]]
-        if rig_timestamps_us:
-            tracks = _filter_short_tracks(
-                tracks,
-                rig_timestamps_us[0],
-                rig_timestamps_us[-1],
-                self._min_traffic_duration_us,
-            )
-
         rig_poses = [PoseSE3.from_transformation_matrix(np.asarray(T, dtype=np.float64)) for T in rig["T_rig_worlds"]]
 
         # Uniform 10 Hz grid anchored at ts[1] - 100 ms; ts[0] is typically off-grid.
@@ -460,6 +440,38 @@ class NuRecLogParser(BaseLogParser):
                     ),
                 ],
             )
+
+
+def _read_scene(
+    usdz_path: Path, uuid: str, smooth_track_positions: bool, min_traffic_duration_us: int
+) -> Tuple[Dict, EgoStateSE3Metadata, List[_NuRecTrack]]:
+    """Reads the rig trajectory, the ego metadata and the tracks of a scene from its USDZ.
+
+    :param usdz_path: Path of the scene's USDZ archive.
+    :param uuid: Scene uuid, for error messages.
+    :param smooth_track_positions: Smooths track positions with a cubic smoothing spline.
+    :param min_traffic_duration_us: Drops tracks living shorter than this inside the rig trajectory window.
+    :return: The rig trajectory, the ego metadata and the tracks.
+    """
+    with ZipFile(usdz_path) as archive:
+        rig_root = _read_required_json_member(archive, "rig_trajectories.json", uuid)
+        tracks_root = _read_required_json_member(archive, "sequence_tracks.json", uuid)
+        bbox_length_m = float(rig_root["rig_trajectories"][0]["rig_bbox"]["dim"][0])
+        wheel_base_m = _rig_wheel_base_m(archive, bbox_length_m, uuid)
+
+    # One clip is one vehicle's drive, so the single rig trajectory is the ego.
+    rig_trajectories = rig_root["rig_trajectories"]
+    if len(rig_trajectories) != 1:
+        raise ValueError(f"NuRec scene {uuid}: expected one rig trajectory, found {len(rig_trajectories)}")
+    rig = rig_trajectories[0]
+    ego_metadata = _extract_ego_metadata(rig, wheel_base_m)
+    tracks = _extract_tracks(tracks_root, smooth_positions=smooth_track_positions)
+
+    # The rig timestamps are the window tracks are filtered against.
+    rig_timestamps_us = [int(ts) for ts in rig["T_rig_world_timestamps_us"]]
+    if rig_timestamps_us:
+        tracks = _filter_short_tracks(tracks, rig_timestamps_us[0], rig_timestamps_us[-1], min_traffic_duration_us)
+    return rig, ego_metadata, tracks
 
 
 def _read_required_json_member(archive: ZipFile, member: str, uuid: str) -> Dict:

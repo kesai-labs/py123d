@@ -1,0 +1,26 @@
+defaults:
+  - nurec-curated
+  - _self_
+
+# Converts the NuRec scenes of nurec-curated_train / nurec-curated_val together with the cameras
+# and the lidar of their Physical AI AV clip. Frames are the clip's lidar spins; the ego pose is
+# the rig pose of the scene, so map, boxes and sensors share the scene's world frame.
+#
+# The Physical AI AV files are read from $PHYSICAL_AI_AV_DATA_ROOT in the flat layout written by
+#   py123d-download dataset=nurec-pai
+# A scene that is no Physical AI AV clip, or whose clip files are missing, is left out.
+# All other options are those of dataset=nurec-curated.
+parser:
+  _target_: py123d.parser.nurec.nurec_pai_parser.NuRecPAIParser
+  physical_ai_av_data_root: ${dataset_paths.physical_ai_av_data_root}
+
+  cameras: null       # Physical AI AV camera names to convert; null means all seven
+  jpeg_quality: 75    # JPEG quality of the stored camera frames
+
+log_writer_config:
+  # The sensors are joined to the scene on the lidar spins, which needs the synchronous conversion.
+  async_conversion: false
+
+  camera_store_option: "jpeg_binary" # "path", "jpeg_binary", "png_binary", "mp4"
+  lidar_store_option: "binary" # "path", "binary"
+  lidar_codec: "laz" # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"

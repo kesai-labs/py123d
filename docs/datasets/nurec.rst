@@ -219,6 +219,52 @@ then has no map, and a scene filter with ``has_map`` treats it accordingly. A ma
 by an earlier conversion is not removed, so convert into a fresh ``PY123D_DATA_ROOT`` when
 changing ``map_source`` for scenes that were already converted.
 
+Sensors from Physical AI AV
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Every scene reconstructs one clip of the :doc:`Physical AI AV <physical-ai-av>` dataset, under
+the clip's id, and that clip carries the seven f-theta cameras and the lidar of the drive.
+``dataset=nurec-pai`` converts a scene together with them. Of the curated scenes, 1510 are
+Physical AI AV clips (1206 of ``nurec-curated_train``, 304 of ``nurec-curated_val``); the
+others are left out with a warning.
+
+The Hub packs the files of about 100 clips into one archive per sensor, so fetching whole
+archives for the scenes would download tens of terabytes. ``py123d-download dataset=nurec-pai``
+instead reads only the files of the scenes' clips out of the archives, by HTTP range requests
+(about 0.45 GB per clip, 650 GB for all curated scenes), into the flat Physical AI AV layout.
+It needs the same Hugging Face token, with NVIDIA's license accepted for the
+`Physical AI AV dataset <https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles>`_,
+and takes the selection options of ``dataset=nurec-curated``:
+
+.. code-block:: bash
+
+  export HF_TOKEN=hf_...
+  export NUREC_DATA_ROOT=/path/to/nurec
+  export PHYSICAL_AI_AV_DATA_ROOT=/path/to/physical_ai_av
+  export PY123D_DATA_ROOT=/path/to/py123d_data
+
+  py123d-download dataset=nurec-curated                   # the scenes, unless they are there already
+  py123d-download dataset=nurec-pai                       # their clips' cameras, lidar and calibration
+  py123d-download dataset=nurec-pai dataset.downloader.num_sequences=5 dataset.downloader.dry_run=true
+
+  py123d-conversion dataset=nurec-pai
+
+The log of a scene is the one ``dataset=nurec-curated`` writes, with the sensors added: it keeps
+``dataset=nurec``, the split, the map, the tracks and all options above. What changes:
+
+- Frames are the lidar spins of the clip (10 Hz, 199 per scene) instead of a uniform grid, so
+  that every frame carries a lidar spin and the frame of each camera nearest to it. The
+  conversion runs in sync mode.
+- The ego pose is the rig pose of the scene at the spin start, and the cameras are posed with
+  the rig pose at their own timestamp, so map, boxes and sensors share the scene's world frame.
+  The clip's own egomotion is not used.
+- Timestamps stay on the scene's clock. The clip's clock starts where the scene's rig trajectory
+  starts; the lidar spins both record confirm the offset, and a scene whose spins do not match
+  its clip fails with an error.
+- Cameras are stored as JPEG (``dataset.parser.jpeg_quality``, default 75) and the lidar
+  LAZ-compressed, about 300 MB per log. ``dataset.parser.cameras`` selects a subset of the
+  camera names, for the download and the conversion alike.
+
 
 Not Converted
 ~~~~~~~~~~~~~

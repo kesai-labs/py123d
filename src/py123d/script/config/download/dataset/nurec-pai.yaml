@@ -1,0 +1,31 @@
+# Downloads the Physical AI AV files of the nurec-curated_train / nurec-curated_val scenes: the
+# cameras and the lidar of the clip every scene reconstructs, for dataset=nurec-pai.
+#
+# The Hub packs the files of about 100 clips into one archive per sensor, 32 GB of which is lidar,
+# so only the members of the selected clips are read, by HTTP range requests. They land in the
+# flat Physical AI AV layout under output_dir, next to clip_index.parquet and the calibration.
+
+downloader:
+  _target_: py123d.parser.nurec.nurec_pai_download.NuRecPAIDownloader
+  _convert_: 'all'
+
+  # Destination, the Physical AI AV data root the conversion reads. Defaults to $PHYSICAL_AI_AV_DATA_ROOT.
+  output_dir: ${dataset_paths.physical_ai_av_data_root}
+
+  hf_repo_id: nvidia/PhysicalAI-Autonomous-Vehicles
+  hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+  # NuRec splits whose scenes are fetched; a scene that is no Physical AI AV clip is skipped.
+  splits: [nurec-curated_train, nurec-curated_val]
+
+  # Selection within the splits — mutually exclusive. When neither is set, every scene is fetched.
+  sequence_ids: null        # explicit list of scene UUIDs
+  num_sequences: null       # first N scenes per split, or N random if sample_random=true
+  sample_random: false
+  seed: 0
+
+  cameras: null             # null = all 7 cameras
+  include_lidar: true       # about 325 MB per clip, the bulk of the download
+
+  max_workers: 8            # archives read in parallel
+  dry_run: false
