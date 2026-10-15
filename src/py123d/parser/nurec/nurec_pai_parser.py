@@ -45,7 +45,10 @@ from py123d.parser.physical_ai_av.physical_ai_av_parser import (
     _get_lidar_metadata,
     _SequentialFrameReader,
 )
-from py123d.parser.physical_ai_av.physical_ai_av_sensor_io import load_physical_ai_av_point_cloud_data_from_path
+from py123d.parser.physical_ai_av.physical_ai_av_sensor_io import (
+    _read_lidar_parquet,
+    load_physical_ai_av_point_cloud_data_from_path,
+)
 from py123d.parser.physical_ai_av.utils.physical_ai_av_constants import PHYSICAL_AI_AV_CAMERA_ID_MAPPING
 from py123d.parser.physical_ai_av.utils.physical_ai_av_helper import find_closest_index
 from py123d.parser.physical_ai_av.utils.physical_ai_av_zip import path_exists, read_parquet, resolve_clip_file
@@ -61,10 +64,11 @@ _MAX_SPIN_RESIDUAL_US = 1_000
 class NuRecPAIParser(NuRecParser):
     """Dataset parser for NuRec scenes with the sensors of their Physical AI AV clip.
 
-    Scenes are selected like in :class:`NuRecParser`. Those that are not Physical AI AV clips,
-    or whose clip files are not under ``physical_ai_av_data_root``, are left out and counted
-    in a warning. The Physical AI AV files are expected in the flat layout
-    ``py123d-download dataset=nurec-pai`` writes.
+    Scenes are selected like in :class:`NuRecParser`, and all of them are converted. A scene
+    whose clip's lidar and egomotion are under ``physical_ai_av_data_root`` gets the sensors;
+    a scene that is no Physical AI AV clip, or whose clip files are missing, is converted as by
+    :class:`NuRecParser`, without sensors. The Physical AI AV files are expected in the flat
+    layout ``py123d-download dataset=nurec-pai`` writes.
     """
 
     def __init__(
@@ -101,20 +105,22 @@ class NuRecPAIParser(NuRecParser):
                 num_without_files += 1
             else:
                 self._chunks[scene.name] = chunk
-        if num_without_clip or num_without_files:
-            logger.warning(
-                "NuRec: leaving out %d scene(s) that are no Physical AI AV clip and %d whose clip's lidar or "
-                "egomotion is not under %s",
-                num_without_clip,
-                num_without_files,
-                self._data_root,
-            )
-        self._scenes = [scene for scene in self._scenes if scene.name in self._chunks]
-        if not self._scenes:
+        if not self._chunks and num_without_files:
             raise FileNotFoundError(
                 f"None of the selected NuRec scenes has its Physical AI AV files under {self._data_root}."
             )
-        logger.info("NuRec: %d scene(s) with Physical AI AV sensors", len(self._scenes))
+        if num_without_files:
+            logger.warning(
+                "NuRec: %d scene(s) are converted without sensors because their clip's lidar or egomotion is not "
+                "under %s",
+                num_without_files,
+                self._data_root,
+            )
+        logger.info(
+            "NuRec: %d scene(s) with Physical AI AV sensors, %d without (no Physical AI AV clip)",
+            len(self._chunks),
+            num_without_clip,
+        )
 
     def _has_lidar_and_egomotion(self, clip_id: str, chunk: int) -> bool:
         return path_exists(resolve_clip_file(self._data_root, "lidar", _LIDAR_NAME, clip_id, "parquet", chunk)) and (
@@ -123,21 +129,34 @@ class NuRecPAIParser(NuRecParser):
 
     @override
     def get_log_parsers(self) -> List[BaseLogParser]:
-        """Inherited, see superclass."""
-        return [
-            NuRecPAILogParser(
-                usdz_path=scene.usdz_path,
-                split=scene.split,
-                has_map=scene.has_map,
-                min_traffic_duration_us=self._min_traffic_duration_us,
-                smooth_track_positions=self._smooth_track_positions,
-                data_root=self._data_root,
-                chunk=self._chunks[scene.name],
-                cameras=self._cameras,
-                jpeg_quality=self._jpeg_quality,
-            )
-            for scene in self._scenes
-        ]
+        """Inherited, see superclass. A scene without its clip's files gets the log parser without sensors."""
+        log_parsers: List[BaseLogParser] = []
+        for scene in self._scenes:
+            if scene.name in self._chunks:
+                log_parsers.append(
+                    NuRecPAILogParser(
+                        usdz_path=scene.usdz_path,
+                        split=scene.split,
+                        has_map=scene.has_map,
+                        min_traffic_duration_us=self._min_traffic_duration_us,
+                        smooth_track_positions=self._smooth_track_positions,
+                        data_root=self._data_root,
+                        chunk=self._chunks[scene.name],
+                        cameras=self._cameras,
+                        jpeg_quality=self._jpeg_quality,
+                    )
+                )
+            else:
+                log_parsers.append(
+                    NuRecLogParser(
+                        usdz_path=scene.usdz_path,
+                        split=scene.split,
+                        min_traffic_duration_us=self._min_traffic_duration_us,
+                        smooth_track_positions=self._smooth_track_positions,
+                        has_map=scene.has_map,
+                    )
+                )
+        return log_parsers
 
 
 class NuRecPAILogParser(PhysicalAIAVLogParser):
@@ -272,6 +291,9 @@ class NuRecPAILogParser(PhysicalAIAVLogParser):
             for capture in captures.values():
                 capture.release()
             self._remove_staged_videos()
+            # The lidar table of a clip is about 300 MB and cached for the spins; a worker converting log after
+            # log would otherwise hold the tables of its last four clips.
+            _read_lidar_parquet.cache_clear()
 
 
 def _scene_spin_starts_us(rig: Dict, uuid: str) -> npt.NDArray[np.int64]:

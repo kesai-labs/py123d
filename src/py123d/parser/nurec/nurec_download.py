@@ -200,7 +200,7 @@ class NuRecDownloader(BaseDownloader):
             ``nurec-curated_val``. Each release they draw from is fetched from its own
             HuggingFace branch.
         :param scene_lists: Mapping of split name to scene names, each ``"<release>/<scene uuid>"``.
-            Defaults to the bundled train/val lists.
+            Defaults to the bundled lists (curated train/val and other).
         """
         if sequence_ids and num_sequences is not None:
             raise ValueError("sequence_ids and num_sequences are mutually exclusive.")

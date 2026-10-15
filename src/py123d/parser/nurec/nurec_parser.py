@@ -163,7 +163,7 @@ class NuRecParser(BaseDatasetParser):
         :param seed: Random seed used when ``sample_random`` is set.
         :param splits: Splits to convert, defaults to ``nurec-curated_train`` and ``nurec-curated_val``.
         :param scene_lists: Mapping of split name to scene names, each ``"<release>/<scene uuid>"``.
-            Defaults to the bundled train/val lists.
+            Defaults to the bundled lists (curated train/val and other).
         :param min_traffic_duration_us: Drops tracks living shorter than this inside the scene window.
             Defaults to AlpaSim's 3 s; 0 keeps all tracks.
         :param smooth_track_positions: Smooths track positions with a cubic smoothing spline, as

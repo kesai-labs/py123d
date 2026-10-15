@@ -1,7 +1,7 @@
 """Releases and splits of the NuRec dataset, shared by the parser and the downloader.
 
 A split is either a whole release (``nurec-2601_train``, ``nurec-2604_train``) or a list of
-named scenes (``nurec-curated_train``, ``nurec-curated_val``, listed in
+named scenes (``nurec-curated_train``, ``nurec-curated_val`` and ``nurec-other_train``, listed in
 ``nurec_curated_splits.yaml`` next to this module). A scene name is
 ``"<release>/<scene uuid>"``: some scene uuids exist in more than one release, so the uuid
 alone does not identify a scene.
@@ -56,7 +56,7 @@ def _load_bundled_scene_lists() -> Dict[str, Tuple[str, ...]]:
 
 
 def load_default_scene_lists() -> Dict[str, List[str]]:
-    """Loads the bundled train/val scene lists.
+    """Loads the bundled scene lists: nurec-curated_train, nurec-curated_val and nurec-other_train.
 
     :return: Mapping of split name to scene names, each ``"<release>/<scene uuid>"``.
     """
@@ -92,7 +92,7 @@ def release_from_path(path: Path) -> Optional[str]:
 
 
 def resolve_scene_lists(scene_lists: Optional[Mapping[str, Sequence[str]]]) -> Dict[str, List[str]]:
-    """Returns the scene lists to use, falling back to the bundled train/val lists.
+    """Returns the scene lists to use, falling back to the bundled scene lists.
 
     :param scene_lists: Mapping of split name to scene names, or None for the bundled lists.
     :return: Mapping of split name to scene names.

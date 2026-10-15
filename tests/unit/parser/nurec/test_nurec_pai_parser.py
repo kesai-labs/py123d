@@ -13,6 +13,7 @@ from py123d.datatypes import BoxDetectionsSE3, EgoStateSE3
 from py123d.datatypes.sensors.lidar import Lidar
 from py123d.parser.base_dataset_parser import ParsedCamera
 from py123d.parser.nurec.nurec_pai_parser import NuRecPAILogParser, NuRecPAIParser, _clock_offset_us
+from py123d.parser.nurec.nurec_parser import NuRecLogParser
 
 from ..physical_ai_av.conftest import (
     CAMERA_NAMES,
@@ -128,7 +129,7 @@ def test_scene_with_clip_files_is_selected(nurec_root: Path, physical_ai_av_root
     assert parser.get_map_parsers() == []
 
 
-def test_scene_without_clip_is_left_out(tmp_path: Path, nurec_root: Path, physical_ai_av_root: Path):
+def test_scene_without_clip_is_converted_without_sensors(tmp_path: Path, nurec_root: Path, physical_ai_av_root: Path):
     other_uuid = "00000000-0000-4000-8000-000000000002"
     write_scene(nurec_root, other_uuid, SPIN_STARTS_US)
     scene_lists = {SPLIT: [f"{RELEASE}/{CLIP_ID}", f"{RELEASE}/{other_uuid}"]}
@@ -137,7 +138,14 @@ def test_scene_without_clip_is_left_out(tmp_path: Path, nurec_root: Path, physic
         physical_ai_av_data_root=physical_ai_av_root, nurec_root=nurec_root, splits=[SPLIT], scene_lists=scene_lists
     )
 
-    assert [log_parser.get_log_metadata().log_name for log_parser in parser.get_log_parsers()] == [CLIP_ID]
+    with_sensors, without_sensors = parser.get_log_parsers()
+    assert isinstance(with_sensors, NuRecPAILogParser)
+    assert with_sensors.get_log_metadata().log_name == CLIP_ID
+    assert type(without_sensors) is NuRecLogParser
+    assert without_sensors.get_log_metadata().log_name == other_uuid
+    assert without_sensors.get_log_metadata().split == SPLIT
+    frames = list(without_sensors.iter_modalities_sync())
+    assert frames and all(len(frame.modalities) == 2 for frame in frames)  # ego state and boxes only
 
 
 def test_no_scene_with_clip_files_raises(tmp_path: Path, nurec_root: Path, physical_ai_av_root: Path):

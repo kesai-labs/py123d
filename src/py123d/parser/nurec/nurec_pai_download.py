@@ -85,7 +85,7 @@ class NuRecPAIDownloader(BaseDownloader):
         :param splits: NuRec splits to fetch the clips of, defaults to ``nurec-curated_train`` and
             ``nurec-curated_val``.
         :param scene_lists: Mapping of split name to scene names, each ``"<release>/<scene uuid>"``.
-            Defaults to the bundled train/val lists.
+            Defaults to the bundled lists (curated train/val and other).
         :param sequence_ids: Narrows the splits down to these scenes, each given as a scene uuid or
             as ``"<release>/<scene uuid>"``. Mutually exclusive with ``num_sequences``.
         :param num_sequences: The first N scenes of each split, or N random ones when ``sample_random`` is set.

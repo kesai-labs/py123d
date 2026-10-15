@@ -156,6 +156,10 @@ E2E challenge, which draw from both releases. The other two configs convert one 
    * - ``nurec-curated_val``
      - 441 named scenes (177 of ``26.01``, 264 of ``26.04``)
      - ``dataset=nurec-curated``
+   * - ``nurec-other_train``
+     - 162 named scenes (37 of ``26.01``, 125 of ``26.04``) that the curation left out, mostly for
+       issues in the HD maps AlpaSim scores with
+     - ``dataset=nurec-curated 'dataset.parser.splits=[nurec-other_train]'``
    * - ``nurec-2601_train``
      - Every scene of release ``26.01``
      - ``dataset=nurec-2601``
@@ -163,10 +167,10 @@ E2E challenge, which draw from both releases. The other two configs convert one 
      - Every scene of release ``26.04``
      - ``dataset=nurec-2604``
 
-The scene names of ``nurec-curated_train`` and ``nurec-curated_val`` are listed in
+The scene names of ``nurec-curated_train``, ``nurec-curated_val`` and ``nurec-other_train`` are listed in
 ``parser/nurec/nurec_curated_splits.yaml``. A listed scene that is not on
 disk is skipped with a warning, so a partial download converts partially.
-``dataset.parser.splits`` selects any combination of the four splits.
+``dataset.parser.splits`` selects any combination of the five splits. A configuration converts the curated splits unless told otherwise; the scenes of ``nurec-other_train`` carry a map, but one AlpaSim did not trust for scoring.
 
 Each config has a ``-stream`` variant, which downloads the scenes into
 ``$PY123D_DATA_ROOT/.download/nurec-<...>`` instead of reading ``NUREC_DATA_ROOT`` and deletes
@@ -224,9 +228,12 @@ Sensors from Physical AI AV
 
 Every scene reconstructs one clip of the :doc:`Physical AI AV <physical-ai-av>` dataset, under
 the clip's id, and that clip carries the seven f-theta cameras and the lidar of the drive.
-``dataset=nurec-pai`` converts a scene together with them. Of the curated scenes, 1510 are
-Physical AI AV clips (1206 of ``nurec-curated_train``, 304 of ``nurec-curated_val``); the
-others are left out with a warning.
+``dataset=nurec-pai`` converts the same scenes as ``dataset=nurec-curated``, with the sensors
+added where the clip is available: 1510 of the curated scenes are Physical AI AV clips (1206 of
+``nurec-curated_train``, 304 of ``nurec-curated_val``), and a few percent of those ship without
+lidar. The other scenes are converted as by ``dataset=nurec-curated``, without sensors, so the
+converted dataset covers the whole curated set. A scene filter with
+``required_scene_modalities`` selects the logs that have sensors.
 
 The Hub packs the files of about 100 clips into one archive per sensor, so fetching whole
 archives for the scenes would download tens of terabytes. ``py123d-download dataset=nurec-pai``
@@ -248,6 +255,10 @@ and takes the selection options of ``dataset=nurec-curated``:
   py123d-download dataset=nurec-pai dataset.downloader.num_sequences=5 dataset.downloader.dry_run=true
 
   py123d-conversion dataset=nurec-pai
+
+  # The scenes the curation left out (136 of the 162 are Physical AI AV clips)
+  py123d-download dataset=nurec-pai 'dataset.downloader.splits=[nurec-other_train]'
+  py123d-conversion dataset=nurec-pai 'dataset.parser.splits=[nurec-other_train]'
 
 The log of a scene is the one ``dataset=nurec-curated`` writes, with the sensors added: it keeps
 ``dataset=nurec``, the split, the map, the tracks and all options above. What changes:
