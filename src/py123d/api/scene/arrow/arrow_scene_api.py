@@ -25,6 +25,7 @@ from py123d.api.scene.arrow.modalities.sync_utils import (
     get_modality_index_from_sync_index,
     get_modality_table,
     get_sync_table,
+    get_timestamp_array,
 )
 from py123d.api.scene.arrow.utils.arrow_scene_caches import _get_complete_log_scene_metadata
 from py123d.api.scene.scene_api import SceneAPI
@@ -343,7 +344,7 @@ class ArrowSceneAPI(SceneAPI):
             }
             start_side, end_side = sides[inclusive]
 
-            ts_array = modality_table[f"{_modality_key}.timestamp_us"].to_numpy()
+            ts_array, _ = get_timestamp_array(modality_table, f"{_modality_key}.timestamp_us")
             lo = int(np.searchsorted(ts_array, start_us, side=start_side))
             hi = int(np.searchsorted(ts_array, end_us, side=end_side))
 
