@@ -18,8 +18,8 @@ The decoded points come in the stored order: sensor by sensor (ascending id), an
 elevation row, then azimuth) or in (beam, column) order. The order of the input is not kept.
 
 Blob layout: ``b"KEDC"``, version (uint8), reserved (uint8), head length (uint32, little-endian), the msgpack head,
-and the compressed parts in the order of the head. The head holds everything needed for decoding, including the
-sensor poses, so decoding requires no log metadata, and a CRC32 of the parts.
+and the compressed parts in the order of the head. The head contains everything that decoding requires, including
+the sensor poses (so no log metadata is required), and a CRC32 of the parts.
 """
 
 from __future__ import annotations
@@ -321,7 +321,7 @@ def read_kedec_head(blob: bytes) -> Tuple[Dict[str, Any], int]:
         raise ValueError("kedec: the blob head lacks its sections or features.")
     total = sum(int(part[2]) for section in head["sections"] for part in section["parts"])
     if start + total != len(blob):
-        raise ValueError(f"kedec: the blob holds {len(blob) - start} bytes of parts, its head lists {total}.")
+        raise ValueError(f"kedec: the blob contains {len(blob) - start} bytes of parts, its head lists {total}.")
     if zlib.crc32(memoryview(blob)[start:]) != head.get("crc32"):
         raise ValueError("kedec: the checksum of the parts does not match (corrupt data).")
     return head, start
