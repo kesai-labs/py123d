@@ -15,22 +15,12 @@ from py123d.api.scene.arrow.modalities.utils import (
     read_arrival_timestamp,
 )
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
-from py123d.common.io.lidar.draco_lidar_io import (
-    encode_point_cloud_as_draco_binary,
-    is_draco_binary,
-    load_point_cloud_from_draco_binary,
-)
-from py123d.common.io.lidar.ipc_lidar_io import (
-    encode_point_cloud_as_ipc_binary,
-    is_ipc_binary,
-    load_point_cloud_from_ipc_binary,
-)
-from py123d.common.io.lidar.laz_lidar_io import (
-    encode_point_cloud_as_laz_binary,
-    is_laz_binary,
-    load_point_cloud_from_laz_binary,
-)
 from py123d.common.io.lidar.point_cloud_codec_config import PointCloudCodecConfig
+from py123d.common.io.lidar.point_cloud_codec_registry import (
+    decode_point_cloud,
+    encode_point_cloud,
+    point_cloud_codec_names,
+)
 from py123d.common.io.radar.path_radar_io import load_radar_point_cloud_data_from_path
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
@@ -46,7 +36,7 @@ class ArrowRadarWriter(ArrowBaseModalityWriter):
         metadata: Union[RadarMetadata, RadarMergedMetadata],
         log_metadata: LogMetadata,
         radar_store_option: Literal["path", "binary"],
-        radar_codec: Optional[Literal["laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"]],
+        radar_codec: Optional[str],
         ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
         ipc_compression_level: Optional[int] = None,
         radar_codec_config: Optional[PointCloudCodecConfig] = None,
@@ -55,6 +45,8 @@ class ArrowRadarWriter(ArrowBaseModalityWriter):
             f"Expected RadarMetadata or RadarMergedMetadata, got {type(metadata)}"
         )
         assert radar_store_option in {"path", "binary"}, f"Unsupported radar store option: {radar_store_option}"
+        if radar_store_option == "binary":
+            assert radar_codec in point_cloud_codec_names("radar"), f"Unsupported radar codec: {radar_codec}"
 
         self._modality_metadata = metadata
         self._modality_key = metadata.modality_key
@@ -146,20 +138,10 @@ class ArrowRadarWriter(ArrowBaseModalityWriter):
         if point_cloud_3d is None:
             return None
 
-        codec = self._radar_codec
-        config = self._radar_codec_config
-        if codec == "draco":
-            return encode_point_cloud_as_draco_binary(point_cloud_3d, point_cloud_features, config=config)
-        elif codec == "laz":
-            return encode_point_cloud_as_laz_binary(point_cloud_3d, point_cloud_features, config=config)
-        elif codec == "ipc":
-            return encode_point_cloud_as_ipc_binary(point_cloud_3d, point_cloud_features, codec=None)
-        elif codec == "ipc_zstd":
-            return encode_point_cloud_as_ipc_binary(point_cloud_3d, point_cloud_features, codec="zstd")
-        elif codec == "ipc_lz4":
-            return encode_point_cloud_as_ipc_binary(point_cloud_3d, point_cloud_features, codec="lz4")
-        else:
-            raise NotImplementedError(f"Unsupported radar codec: {codec}")
+        assert self._radar_codec is not None, "The binary store option requires a radar codec."
+        return encode_point_cloud(
+            self._radar_codec, point_cloud_3d, point_cloud_features, config=self._radar_codec_config
+        )
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -324,11 +306,4 @@ def _deserialize_pcs(
 
 def _decode_radar_binary(blob: bytes) -> Tuple[npt.NDArray[np.float32], Optional[Dict[str, npt.NDArray]]]:
     """Auto-detect codec and decode a radar binary blob into xyz + features."""
-    if is_draco_binary(blob):
-        return load_point_cloud_from_draco_binary(blob)
-    elif is_laz_binary(blob):
-        return load_point_cloud_from_laz_binary(blob)
-    elif is_ipc_binary(blob):
-        return load_point_cloud_from_ipc_binary(blob)
-    else:
-        raise ValueError("Unknown radar binary format (not Draco, LAZ, or IPC).")
+    return decode_point_cloud(blob)

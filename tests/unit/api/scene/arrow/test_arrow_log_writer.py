@@ -124,6 +124,26 @@ class TestReset:
         writer.close()
         assert (log_dir / "sync.arrow").exists() and not (log_dir / "leftover.arrow").exists()
 
+    def test_close_writers_closes_all_when_one_raises(self, tmp_path: Path):
+        """A writer whose close() raises does not leave the other writers open; its error is raised after."""
+
+        class _Writer:
+            def __init__(self, error=None):
+                self.closed, self.error = False, error
+
+            def close(self):
+                self.closed = True
+                if self.error is not None:
+                    raise self.error
+
+        writer = self._make_writer(tmp_path)
+        writer.reset(make_log_metadata())
+        writers = [_Writer(ValueError("encoding failed")), _Writer(), _Writer(RuntimeError("second"))]
+        writer._state.modality_writers.update({f"m{i}": w for i, w in enumerate(writers)})
+        with pytest.raises(ValueError, match="encoding failed"):
+            writer._close_writers()
+        assert all(w.closed for w in writers) and not writer._state.modality_writers
+
     def test_close_keeps_existing_files(self, tmp_path: Path):
         """Files already in the log directory are kept, e.g. a per-log map written by the map writer."""
         log_meta = make_log_metadata()

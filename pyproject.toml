@@ -27,6 +27,7 @@ license = {text = "Apache-2.0"}
 dependencies = [
     "geopandas",
     "matplotlib",
+    "msgpack",
     "networkx",
     "numpy",
     "opencv-python",

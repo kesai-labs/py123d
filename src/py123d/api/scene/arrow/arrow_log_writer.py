@@ -160,11 +160,22 @@ class ArrowLogWriter(BaseLogWriter):
     # ------------------------------------------------------------------------------------------------------------------
 
     def _close_writers(self) -> None:
-        """Close all open modality writers."""
+        """Close all open modality writers.
+
+        Every writer is closed, also when an earlier one raises (for example a lidar writer whose encoding thread
+        failed), so that no file or encoder session stays open; the first error is raised afterwards.
+        """
         if self._state is not None:
+            first_error: Optional[BaseException] = None
             for writer in self._state.modality_writers.values():
-                writer.close()
+                try:
+                    writer.close()
+                except Exception as error:  # noqa: BLE001 - re-raised below, after all writers are closed
+                    if first_error is None:
+                        first_error = error
             self._state.modality_writers.clear()
+            if first_error is not None:
+                raise first_error
 
     def _include_modality(self, modality_metadata: BaseModalityMetadata) -> bool:
         """Determine whether to include a modality based on the dataset converter config."""
@@ -242,6 +253,7 @@ class ArrowLogWriter(BaseLogWriter):
                 lidar_codec_config=self._log_writer_config.lidar_codec_config,
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
+                encode_threads=self._log_writer_config.encode_threads,
             )
 
         elif isinstance(modality_metadata, (RadarMergedMetadata, RadarMetadata)):
