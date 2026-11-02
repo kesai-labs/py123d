@@ -37,9 +37,12 @@ class VideoCodecConfig:
     nvenc_gpu: int = -1
 
     # --- SVT-AV1 ---
-    # Constant rate factor (0 to 63) and preset (0 slowest to 13 fastest).
-    svt_crf: int = 38
-    svt_preset: int = 6
+    # Constant rate factor (0 to 63) and preset (0 slowest to 13 fastest). No single CRF gives NVENC cq 38's file
+    # size on all content: on 50-image samples (docs/notes/kedec.rst) the matching CRF at preset 8 was 26 (KE:SAI
+    # day, 4K), 30 (PhysicalAI), 37 (nuPlan), 42 (OpenDV) and above 46 (KE:SAI night). 36 is the median; preset 8
+    # encodes 1.5 to 1.7 times faster than preset 6 at 0.4 to 0.9 dB lower PSNR for the same size.
+    svt_crf: int = 36
+    svt_preset: int = 8
     # Logical processors per encoder, 0 for SVT-AV1's choice (all).
     svt_threads: int = 0
 

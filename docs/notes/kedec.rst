@@ -11,6 +11,51 @@ kedec is a compact storage format for the cameras and lidars of 123D logs:
   compression of the same scan.
 
 
+Benchmark and the CPU encoder
+-----------------------------
+
+``python -m py123d.script.run_kedec_benchmark lidar LOG_DIR`` codes the scans of a converted log with kedec and
+reports bytes per point (per part), the share of the stored blobs, position errors and times;
+``... video NAME=SOURCE ...`` codes image samples with NVENC (cq 38) and SVT-AV1 (presets, CRFs) and reports size,
+PSNR of the luma and time per image, and the SVT CRF that gives NVENC's file size.
+
+On 50 images per sample (car PC, RTX PRO 6000, 64 threads), NVENC cq 38 against SVT-AV1 preset 8 at the CRF of
+the same file size:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Sample
+     - NVENC cq 38 (bytes per image, PSNR-Y)
+     - SVT-AV1 preset 8: CRF of the same size (PSNR-Y difference)
+   * - KE:SAI day, 3840x2160
+     - 33.5 KB, 46.9 dB
+     - 26.3 (-0.3 dB)
+   * - KE:SAI night, 3840x2160
+     - 405 KB, 22.8 dB
+     - above 46 (CRF 46: 707 KB, 24.3 dB)
+   * - PhysicalAI front wide, 1920x1080
+     - 15.0 KB, 46.2 dB
+     - 30.1 (-1.0 dB)
+   * - nuPlan front, 1920x1080
+     - 22.8 KB, 39.0 dB
+     - 36.5 (-0.5 dB)
+   * - OpenDV, 1920x1080
+     - 27.0 KB, 36.0 dB
+     - 41.5 (0.0 dB)
+
+No single SVT CRF reproduces NVENC cq 38; the CPU default (preset 8, CRF 36) is the median of these CRFs. Preset 8
+encodes 1.5 to 1.7 times faster than preset 6, at 0.4 to 0.9 dB lower PSNR for the same file size. A dataset
+configuration that encodes on the CPU sets its own ``svt_crf``. One NVENC session used 0.97 GB of GPU memory for
+3840x2160 and 0.69 GB for 1920x1080 images.
+
+On the KE:SAI lidars, the spherical mode around the sensor position stores the top lidar (RoboSense Ruby Plus) in
+0.65 bytes per point and the 120 degree lidars (Seyond Falcon) in 2.9 to 3.3 bytes per point; in the full sensor
+frame (``kedec_frame: "pose"``) the top lidar needs 13 % fewer bytes and the 120 degree lidars 35 % more (their
+z axis is the viewing direction). A random read of one 3840x2160 image from an AV1 log took 45 ms (decoding from
+the previous key frame), a sequential read 6 ms; from a JPEG log 11 ms and 9 ms.
+
+
 Converting and transcoding
 --------------------------
 
@@ -52,8 +97,8 @@ Cameras: AV1 video
       frame_rate: 10
       gop_size: 10             # one key frame every 10 images
       nvenc_cq: 38
-      svt_crf: 38
-      svt_preset: 6
+      svt_crf: 36
+      svt_preset: 8
 
 The images of a camera are written to ``{modality_key}.av1.mp4`` next to its Arrow file; the column
 ``{modality_key}.data`` stores the number of each image in the video, and the time stamps, poses and exposure stay
