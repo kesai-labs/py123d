@@ -38,7 +38,7 @@ class PointCloudCodecConfig:
     draco_preserve_order: bool = True
 
     # --- kedec (lidar only; see py123d.common.io.lidar.kedec_lidar_io) ---
-    # "grid" codes beams and columns against per-scan tables and needs both a beam index (feature "channel") and a
+    # "grid" codes beams and columns against per-scan tables and requires a beam index (feature "channel") and a
     # column index (feature "column"); "spherical" works for every lidar; "auto" uses "grid" only when both
     # indices are stored.
     kedec_mode: str = "auto"

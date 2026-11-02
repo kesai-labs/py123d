@@ -74,7 +74,7 @@ class TestConversions:
         np.testing.assert_array_equal(rgb[..., 1], ramp)
 
     def test_limited_range_bt709(self):
-        """Limited range: luma 16 is black and 235 is white; BT.709 red has its own luma."""
+        """Limited range: luma 16 is black and 235 is white; BT.709 red maps to its own luma value."""
         black = YUV420Frame(
             np.full((2, 2), 16, np.uint8),
             np.full((1, 1), 128, np.uint8),

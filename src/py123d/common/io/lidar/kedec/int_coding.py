@@ -6,7 +6,7 @@ An integer channel (n values of a NumPy integer or bool dtype) is stored in one 
 * differences: the zigzag-mapped differences of ``u`` between neighboring values (the first value against 0).
 
 Both forms are non-negative integers. They are written as byte planes (all first bytes, then all second bytes,
-...) of the smallest width, 0 to 8 bytes, that holds their largest value, and compressed with Zstandard. A channel
+...) of the smallest width, 0 to 8 bytes, in which their largest value fits, and compressed with Zstandard. A channel
 whose values are all equal has width 0 in raw form and stores no bytes. The arithmetic is modulo 2**64 on the
 order-preserving unsigned image of the values, so every int64 and uint64 value is decoded exactly.
 
@@ -53,7 +53,7 @@ def _from_ordered_u64(u: npt.NDArray[np.uint64], dtype: np.dtype) -> npt.NDArray
 
 
 def _width(u: npt.NDArray[np.uint64]) -> int:
-    """The number of bytes (0 to 8) that holds the largest value."""
+    """The number of bytes (0 to 8) in which the largest value fits."""
     if len(u) == 0:
         return 0
     return (int(u.max()).bit_length() + 7) // 8
