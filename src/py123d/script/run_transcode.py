@@ -36,6 +36,7 @@ def _transcode_one(log: Tuple[str, str], cfg: DictConfig) -> Optional[str]:
     config = TranscodeConfig(
         log_writer_config=hydra.utils.instantiate(cfg.log_writer_config),
         camera_threads=cfg.camera_threads,
+        lidar_threads=cfg.get("lidar_threads", 0),
         force=cfg.force,
         ipc_compression=cfg.ipc_compression,
     )

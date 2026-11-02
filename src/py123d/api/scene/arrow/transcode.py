@@ -117,6 +117,8 @@ class TranscodeConfig:
         ``video_codec_config``, ``lidar_codec``, ``lidar_codec_config``, ``encode_threads``); its other fields are
         not used.
     :param camera_threads: Cameras of a log transcoded at the same time (each with its own video encoder).
+    :param lidar_threads: Lidar files of a log transcoded at the same time, 0 for all of them. The lidar files are
+        transcoded at the same time as the cameras.
     :param force: Transcode logs whose target already exists.
     :param ipc_compression: Compression of the new camera and lidar Arrow files (None, "lz4" or "zstd").
     """
@@ -127,6 +129,7 @@ class TranscodeConfig:
         )
     )
     camera_threads: int = 4
+    lidar_threads: int = 0
     force: bool = False
     ipc_compression: Optional[str] = None
 
@@ -192,6 +195,14 @@ def _check_columns(path: Path, known: Sequence[str]) -> None:
 def _timestamps(path: Path) -> npt.NDArray[np.int64]:
     table = _open(path).read_all()
     return table.column(f"{path.stem}.timestamp_us").to_numpy().astype(np.int64)
+
+
+def _copy_file(source: Path, target: Path) -> None:
+    """Copy the content and the access and modification times of a file; the new file takes the default mode, not
+    the source's (a write-protected source gives a writable copy)."""
+    shutil.copyfile(source, target)
+    stat = source.stat()
+    os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
 
 
 def _camera_image(source_dir: Path, key: str, data: object) -> Tuple[Optional[bytes], Optional[np.ndarray]]:
@@ -357,19 +368,31 @@ def transcode_log(
     for path in files:
         if path in camera_videos or path in camera_files or path in lidar_files or path.name == _SYNC_FILE:
             continue
-        shutil.copy2(path, work_dir / path.name)
+        _copy_file(path, work_dir / path.name)
 
     camera_timestamps = {p.stem: _timestamps(p) for p in camera_files}
     kept = (selection or KeepAllImages()).select(source_dir, camera_timestamps)
-    written: Dict[str, npt.NDArray[np.int64]] = {}
-    with ThreadPoolExecutor(max_workers=max(1, config.camera_threads)) as pool:
-        futures = {p.stem: pool.submit(transcode_camera, p, work_dir, kept[p.stem], config) for p in camera_files}
-        for key, future in futures.items():
-            written[key] = future.result()
-
     log_metadata = get_metadata_from_arrow_schema(_open(source_dir / _SYNC_FILE).schema, LogMetadata)
-    for path in lidar_files:
-        transcode_lidar(path, work_dir, log_metadata, config)
+
+    # Cameras (video encoder, e.g. on the GPU) and lidars (CPU) at the same time, the largest lidar file first.
+    lidar_workers = config.lidar_threads if config.lidar_threads > 0 else len(lidar_files)
+    lidar_pool = ThreadPoolExecutor(max_workers=max(1, lidar_workers))
+    camera_pool = ThreadPoolExecutor(max_workers=max(1, config.camera_threads))
+    try:
+        lidar_futures = [
+            lidar_pool.submit(transcode_lidar, path, work_dir, log_metadata, config)
+            for path in sorted(lidar_files, key=lambda p: p.stat().st_size, reverse=True)
+        ]
+        camera_futures = {
+            p.stem: camera_pool.submit(transcode_camera, p, work_dir, kept[p.stem], config) for p in camera_files
+        }
+        written = {key: future.result() for key, future in camera_futures.items()}
+        for future in lidar_futures:
+            future.result()
+    finally:
+        # after a failure: tasks that have not started are dropped, running tasks end first
+        for pool in (camera_pool, lidar_pool):
+            pool.shutdown(wait=True, cancel_futures=True)
     rewrite_sync_cameras(source_dir / _SYNC_FILE, work_dir / _SYNC_FILE, written)
 
     target_dir.mkdir(parents=True, exist_ok=True)

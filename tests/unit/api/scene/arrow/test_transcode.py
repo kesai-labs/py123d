@@ -285,3 +285,53 @@ def test_a_camera_file_named_after_another_camera_is_refused(source_log, tmp_pat
 
     with pytest.raises(ValueError, match="names the camera camera.pcam_f0"):
         transcode_camera(renamed, tmp_path, np.arange(2), _config())
+
+
+def test_cameras_and_lidars_are_transcoded_at_the_same_time(source_log, tmp_path, monkeypatch):
+    """The camera and the lidar of the log each wait for the other at a barrier; one after the other they would
+    break it after the timeout."""
+    import threading
+
+    from py123d.api.scene.arrow import transcode
+
+    barrier = threading.Barrier(2, timeout=30)
+    camera, lidar = transcode.transcode_camera, transcode.transcode_lidar
+
+    def camera_at_barrier(*args, **kwargs):
+        barrier.wait()
+        return camera(*args, **kwargs)
+
+    def lidar_at_barrier(*args, **kwargs):
+        barrier.wait()
+        return lidar(*args, **kwargs)
+
+    monkeypatch.setattr(transcode, "transcode_camera", camera_at_barrier)
+    monkeypatch.setattr(transcode, "transcode_lidar", lidar_at_barrier)
+    log_metadata = make_log_metadata()
+    assert transcode_log(source_log, tmp_path, log_metadata.split, log_metadata.log_name, _config(), EvenImages())
+    assert _table(_log_dir(tmp_path) / "camera.pcam_f0.arrow").num_rows == 12
+
+
+def test_copies_of_write_protected_files_are_writable(source_log, tmp_path):
+    """The copied files keep the content and the modification time, not the mode of a write-protected source."""
+    import os
+    import shutil
+    import stat
+
+    source = tmp_path / "source"
+    shutil.copytree(source_log, source)
+    log_dir = _log_dir(source)
+    for path in log_dir.iterdir():
+        path.chmod(0o444)
+    log_metadata = make_log_metadata()
+    target = tmp_path / "target"
+    assert transcode_log(source, target, log_metadata.split, log_metadata.log_name, _config(), EvenImages())
+    copied = [p for p in _log_dir(target).iterdir() if not p.name.startswith(("camera.", "lidar.", "sync."))]
+    assert copied
+    for path in copied:
+        assert path.stat().st_mode & stat.S_IWUSR, path.name
+        assert path.stat().st_mtime_ns == (log_dir / path.name).stat().st_mtime_ns, path.name
+        assert path.read_bytes() == (log_dir / path.name).read_bytes()
+    for path in log_dir.iterdir():
+        path.chmod(0o644)
+    assert os.access(_log_dir(target) / "sync.arrow", os.W_OK)
