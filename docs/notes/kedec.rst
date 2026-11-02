@@ -1,14 +1,51 @@
 kedec Sensor Codec
 ==================
 
-kedec is a compact storage format for lidar scans in 123D logs. It stores point positions with a fixed largest
-error and every other per-point feature (time stamps, intensity, ring, ...) without loss. For a scan of the KE:SAI
-top lidar (RoboSense Ruby Plus, 780,641 points), kedec needs 0.80 bytes per point, 7.9 % of the Arrow IPC blob with
-LZ4 compression of the same scan.
+kedec is a compact storage format for the cameras and lidars of 123D logs:
+
+* Cameras: AV1 video, one file per camera (camera store option ``"av1"``), encoded on an NVIDIA GPU (NVENC) or on
+  the CPU (SVT-AV1).
+* Lidars: the lidar codec ``"kedec"``, which stores point positions with a fixed largest error and every other
+  per-point feature (time stamps, intensity, ring, ...) without loss. For a scan of the KE:SAI top lidar
+  (RoboSense Ruby Plus, 780,641 points), it needs 0.80 bytes per point, 7.9 % of the Arrow IPC blob with LZ4
+  compression of the same scan.
 
 
-Enabling kedec
---------------
+Cameras: AV1 video
+------------------
+
+.. code-block:: yaml
+
+  log_writer_config:
+    camera_store_option: "av1"
+    video_codec_config:        # optional; the values shown are the defaults
+      _target_: py123d.common.io.camera.video_codec_config.VideoCodecConfig
+      backend: "nvenc"         # "nvenc" (GPU), "svt" (CPU) or "auto"
+      frame_rate: 10
+      gop_size: 10             # one key frame every 10 images
+      nvenc_cq: 38
+      svt_crf: 38
+      svt_preset: 6
+
+The images of a camera are written to ``{modality_key}.av1.mp4`` next to its Arrow file; the column
+``{modality_key}.data`` stores the number of each image in the video, and the time stamps, poses and exposure stay
+in the Arrow file. The camera's Arrow file has the schema-metadata key ``codec`` with the encoder and its settings.
+
+* NVENC settings: preset p7, tuning hq, variable rate with constant quality 38, rate cap 200 Mbit/s (buffer
+  400 Mbit), up to 3 B-frames. NVENC encodes AV1 on NVIDIA GPUs from the RTX 40 series on (Ada Lovelace,
+  Blackwell); ``backend: "auto"`` falls back to SVT-AV1 when no such encoder opens.
+* JPEG sources keep their decoded YUV 4:2:0 planes, so the encoder receives exactly the JPEG's pixels (full range,
+  BT.601 matrix, as in JFIF). RGB images are converted with the JFIF matrix; video sources keep their planes and
+  color tags. Width and height must be even.
+* Reading (``AV1Reader``, used by the camera reader): sequential reads decode one image; other reads seek to the
+  previous key frame and decode at most ``gop_size - 1`` further images. The decoder is dav1d on the CPU; the
+  NVIDIA decoder (``decoder="av1_cuvid"``) returns the same planes. The conversion to RGB uses the range and matrix
+  of the file.
+* Logs written with the older ``"mp4"`` option (``{modality_key}.mp4``) stay readable.
+
+
+Lidars: enabling kedec
+----------------------
 
 kedec is a lidar codec of the log writer. Set it in the ``log_writer_config`` of a conversion:
 

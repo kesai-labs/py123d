@@ -241,6 +241,7 @@ class ArrowLogWriter(BaseLogWriter):
                 camera_codec=camera_codec,
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
+                video_codec_config=self._log_writer_config.video_codec_config,
             )
 
         elif isinstance(modality_metadata, (LidarMergedMetadata, LidarMetadata)):

@@ -48,7 +48,7 @@ dependencies = [
     "trimesh",
     "mapbox-earcut",
     "viser==1.0.24",
-    "av>=14.4.0,<16",
+    "av>=15.0.0,<16",  # 15.0 is the oldest release with Linux wheels that the AV1 camera codec was tested with
     "laspy[lazrs]",
     "DracoPy",
     "omegaconf",
@@ -194,5 +194,6 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
     "slow: tests that are slow to run (deselected by default; run with `-m slow` or `-m ''`)",
+    "gpu: tests that require an NVIDIA GPU with AV1 encoding (deselected by default; run with `-m gpu`)",
 ]
-addopts = ["-m", "not slow"]
+addopts = ["-m", "not slow and not gpu"]

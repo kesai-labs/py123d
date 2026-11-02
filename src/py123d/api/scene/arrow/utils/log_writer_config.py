@@ -3,8 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from py123d.common.io.camera.video_codec_config import VideoCodecConfig
 from py123d.common.io.lidar.point_cloud_codec_config import PointCloudCodecConfig
 from py123d.common.io.lidar.point_cloud_codec_registry import point_cloud_codec_names
+
+# Camera store options of the dataset configurations ("label_png" is chosen internally for label cameras).
+CAMERA_STORE_OPTIONS = ("path", "jpeg_binary", "png_binary", "mp4", "av1")
 
 
 @dataclass
@@ -16,8 +20,9 @@ class LogWriterConfig:
     exclude_modality_keys: set[str] = field(default_factory=set)
     exclude_modality_types: set[str] = field(default_factory=set)
 
-    # Cameras
-    camera_store_option: Literal["path", "jpeg_binary", "png_binary", "mp4"] = "path"
+    # Cameras: one of CAMERA_STORE_OPTIONS. "av1" stores the images in an AV1 video per camera ({key}.av1.mp4).
+    camera_store_option: Literal["path", "jpeg_binary", "png_binary", "mp4", "av1"] = "path"
+    video_codec_config: VideoCodecConfig = field(default_factory=VideoCodecConfig)
 
     # Lidars
     lidar_store_option: Literal["path", "binary"] = "path"
@@ -52,12 +57,9 @@ class LogWriterConfig:
     infer_box_dynamics: bool = False
 
     def __post_init__(self):
-        assert self.camera_store_option in {
-            "path",
-            "jpeg_binary",
-            "png_binary",
-            "mp4",
-        }, f"Invalid camera store option, got {self.camera_store_option}."
+        assert self.camera_store_option in CAMERA_STORE_OPTIONS, (
+            f"Invalid camera store option, got {self.camera_store_option}."
+        )
 
         assert self.lidar_store_option in {
             "path",
@@ -80,6 +82,8 @@ class LogWriterConfig:
             self.lidar_codec_config = PointCloudCodecConfig(**_tuple_values(self.lidar_codec_config))
         if isinstance(self.radar_codec_config, dict):
             self.radar_codec_config = PointCloudCodecConfig(**_tuple_values(self.radar_codec_config))
+        if isinstance(self.video_codec_config, dict):
+            self.video_codec_config = VideoCodecConfig(**self.video_codec_config)
         assert self.encode_threads >= 1, f"encode_threads must be >= 1, got {self.encode_threads}."
 
         assert self.route_resolution_m > 0.0, f"route_resolution_m must be > 0, got {self.route_resolution_m}."

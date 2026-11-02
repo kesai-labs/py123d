@@ -7,13 +7,13 @@ logs stay readable.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, FrozenSet, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import numpy.typing as npt
 
+from py123d.common.io.codec_metadata import CODEC_METADATA_KEY, decode_codec_metadata, encode_codec_metadata
 from py123d.common.io.lidar.draco_lidar_io import (
     encode_point_cloud_as_draco_binary,
     is_draco_binary,
@@ -40,8 +40,19 @@ from py123d.common.io.lidar.point_cloud_codec_config import PointCloudCodecConfi
 PointCloud = Tuple[npt.NDArray[np.float32], Optional[Dict[str, npt.NDArray]]]
 SensorPoses = Mapping[int, Sequence[float]]
 
-# Schema-metadata key of an Arrow file that names the codec of its blobs (written for kedec logs).
-CODEC_METADATA_KEY = b"codec"
+__all__ = [
+    "CODEC_METADATA_KEY",
+    "PointCloudCodec",
+    "decode_codec_metadata",
+    "decode_point_cloud",
+    "detect_point_cloud_codec",
+    "encode_codec_metadata",
+    "encode_point_cloud",
+    "get_point_cloud_codec",
+    "point_cloud_codec_metadata",
+    "point_cloud_codec_names",
+    "register_point_cloud_codec",
+]
 
 
 @dataclass(frozen=True)
@@ -176,13 +187,3 @@ def point_cloud_codec_metadata(name: str, config: Optional[PointCloudCodecConfig
             key: getattr(config, key) for key in config.__dataclass_fields__ if key.startswith("kedec_")
         }
     return description
-
-
-def encode_codec_metadata(description: Mapping[str, Any]) -> bytes:
-    """The schema-metadata value of a codec description (UTF-8 JSON)."""
-    return json.dumps(dict(description), sort_keys=True).encode("utf-8")
-
-
-def decode_codec_metadata(value: Optional[bytes]) -> Optional[Dict[str, Any]]:
-    """The codec description of a schema-metadata value, or None if there is none."""
-    return None if value is None else json.loads(value.decode("utf-8"))
