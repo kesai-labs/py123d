@@ -218,6 +218,10 @@ def transcode_camera(
     _check_columns(source_path, _CAMERA_COLUMNS)
     metadata = _metadata(source_path)
     assert isinstance(metadata, BaseCameraMetadata)
+    if metadata.modality_key != source_path.stem:
+        raise ValueError(
+            f"{source_path}: its metadata names the camera {metadata.modality_key}, not {source_path.stem}."
+        )
     writer = ArrowCameraWriter(
         log_dir=target_dir,
         metadata=metadata,
@@ -259,6 +263,10 @@ def transcode_lidar(source_path: Path, target_dir: Path, log_metadata: LogMetada
     _check_columns(source_path, _LIDAR_COLUMNS)
     metadata = _metadata(source_path)
     assert isinstance(metadata, (LidarMetadata, LidarMergedMetadata))
+    if metadata.modality_key != source_path.stem:
+        raise ValueError(
+            f"{source_path}: its metadata names the lidar {metadata.modality_key}, not {source_path.stem}."
+        )
     writer_config = config.log_writer_config
     writer = ArrowLidarWriter(
         log_dir=target_dir,

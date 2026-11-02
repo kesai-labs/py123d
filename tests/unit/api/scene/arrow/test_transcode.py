@@ -273,3 +273,15 @@ def test_failure_leaves_the_target_untouched(source_log, tmp_path, monkeypatch):
         transcode_log(source_log, tmp_path, log_metadata.split, log_metadata.log_name, _config(), EvenImages())
     assert not (_log_dir(tmp_path)).exists()
     assert (tmp_path / ".incomplete" / log_metadata.split / log_metadata.log_name).exists()
+
+
+def test_a_camera_file_named_after_another_camera_is_refused(source_log, tmp_path):
+    """The new files are named after the metadata; a file whose metadata names another camera is not renamed."""
+    renamed = tmp_path / "camera.pcam_l0.arrow"
+    import shutil
+
+    shutil.copy(_log_dir(source_log) / "camera.pcam_f0.arrow", renamed)
+    from py123d.api.scene.arrow.transcode import transcode_camera
+
+    with pytest.raises(ValueError, match="names the camera camera.pcam_f0"):
+        transcode_camera(renamed, tmp_path, np.arange(2), _config())

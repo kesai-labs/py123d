@@ -60,8 +60,9 @@ def main(cfg: DictConfig) -> None:
     """Main entry point of ``py123d-transcode``."""
     build_logger(cfg)
     setup_runtime(cfg)
-    splits = OmegaConf.to_container(cfg.splits) if cfg.splits is not None else None
-    log_names = OmegaConf.to_container(cfg.log_names) if cfg.log_names is not None else None
+    # Names as strings: an unquoted override such as log_names=[2021_05] reaches the config as a number.
+    splits = [str(s) for s in OmegaConf.to_container(cfg.splits)] if cfg.splits is not None else None
+    log_names = [str(s) for s in OmegaConf.to_container(cfg.log_names)] if cfg.log_names is not None else None
     logs = find_logs(Path(cfg.source_logs_root), splits, log_names)  # type: ignore[arg-type]
     logger.info(f"Transcoding {len(logs)} logs from {cfg.source_logs_root} to {cfg.target_logs_root}.")
     executor = build_executor(cfg)
