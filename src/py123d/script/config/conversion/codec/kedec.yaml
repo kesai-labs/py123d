@@ -1,0 +1,28 @@
+# @package _global_
+# The kedec codecs (docs/notes/kedec.rst): cameras as AV1 video (NVENC, cq 38) and lidars with the kedec codec
+# (2 cm, 0.008 degrees, Zstandard 19); the sync table references each camera's nearest image.
+# Usage: py123d-conversion dataset=<name> codec=kedec
+# The number of stored images per second is set by the dataset configuration (its parser's frame selection).
+
+dataset:
+  log_writer_config:
+    camera_store_option: "av1"
+    video_codec_config:
+      backend: "nvenc"  # "nvenc" (GPU), "svt" (CPU) or "auto"
+      frame_rate: 10
+      gop_size: 10
+      nvenc_cq: 38
+    lidar_store_option: "binary"
+    lidar_codec: "kedec"
+    lidar_codec_config:
+      kedec_mode: "auto"
+      kedec_range_step_m: 0.02
+      kedec_angle_step_deg: 0.008
+      kedec_side_step_m: 0.02
+      kedec_zstd_level: 19
+    encode_threads: 4
+
+  log_writer:
+    sync_config:
+      direction_overrides:
+        camera: "nearest"

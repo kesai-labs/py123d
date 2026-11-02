@@ -43,7 +43,11 @@ def executor_map_chunked_single(
 
 
 def executor_map_chunked_list(
-    executor: Executor, fn: Callable[..., List[Any]], input_objects: List[Any], name: Optional[str] = None
+    executor: Executor,
+    fn: Callable[..., List[Any]],
+    input_objects: List[Any],
+    name: Optional[str] = None,
+    num_gpus: Optional[float] = None,
 ) -> List[Any]:
     """Map a list of objects through an executor. The input list is pre-chunked into
     equal-sized chunks (one per worker), and fn receives an entire chunk at once.
@@ -52,20 +56,25 @@ def executor_map_chunked_list(
     :param fn: Function that takes a list of objects and returns a list of results.
     :param input_objects: List of objects to map.
     :param name: Optional name for the progress bar description.
+    :param num_gpus: GPUs (or a fraction of a GPU) that each task requests from Ray; ignored by other executors.
     :return: List of mapped objects.
     """
     if executor.number_of_threads == 0:
         return fn(input_objects)
 
     object_chunks = chunk_list(input_objects, executor.number_of_threads)
-    scattered_objects = executor.map(Task(fn=fn), object_chunks, desc=name)
+    scattered_objects = executor.map(Task(fn=fn, num_gpus=num_gpus), object_chunks, desc=name)
     output_objects = [result for results in scattered_objects for result in results]
 
     return output_objects
 
 
 def executor_map_queued(
-    executor: Executor, fn: Callable[..., Any], input_objects: List[Any], name: Optional[str] = None
+    executor: Executor,
+    fn: Callable[..., Any],
+    input_objects: List[Any],
+    name: Optional[str] = None,
+    num_gpus: Optional[float] = None,
 ) -> List[Any]:
     """Map a function over individual objects through an executor without pre-chunking.
     Each item is submitted as an individual task, so workers dynamically pick up the next
@@ -76,9 +85,28 @@ def executor_map_queued(
     :param fn: Function that takes a single object and returns a single result.
     :param input_objects: List of objects to map.
     :param name: Optional name for the progress bar description.
+    :param num_gpus: GPUs (or a fraction of a GPU) that each task requests from Ray; ignored by other executors.
     :return: List of mapped objects.
     """
     if executor.number_of_threads == 0:
         return [fn(obj) for obj in input_objects]
 
-    return executor.map(Task(fn=fn), input_objects, desc=name)
+    return executor.map(Task(fn=fn, num_gpus=num_gpus), input_objects, desc=name)
+
+
+def gpu_share_per_task(executor: Executor, requires_gpu: bool) -> Optional[float]:
+    """The GPU share of each task when tasks need a GPU (e.g. for NVENC video encoding) and the executor has GPUs:
+    the GPUs of a node divided by its parallel tasks, so that Ray spreads the tasks evenly over the GPUs (Ray then
+    sets ``CUDA_VISIBLE_DEVICES`` per task). None otherwise.
+
+    :param executor: The executor (only a Ray executor schedules GPUs).
+    :param requires_gpu: Whether the tasks need a GPU.
+    """
+    from py123d.common.execution.ray_executor import RayExecutor
+
+    if not requires_gpu or not isinstance(executor, RayExecutor):
+        return None
+    gpus, threads = executor.config.number_of_gpus_per_node, executor.config.number_of_cpus_per_node
+    if gpus <= 0 or threads <= 0:
+        return None
+    return float(np.floor(gpus / threads * 1e4) / 1e4) if gpus < threads else 1.0

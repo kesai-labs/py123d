@@ -6,12 +6,12 @@ import shutil
 import traceback
 from functools import partial
 from pathlib import Path
-from typing import List
+from typing import Any, List, Optional
 
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
-from py123d.common.execution.utils import executor_map_chunked_list
+from py123d.common.execution.utils import executor_map_chunked_list, gpu_share_per_task
 from py123d.common.runtime import setup_runtime
 from py123d.parser.base_dataset_parser import BaseDatasetParser, BaseLogParser, BaseMapParser
 from py123d.script.builders.execution_builder import build_executor
@@ -56,6 +56,7 @@ def main(cfg: DictConfig) -> None:
         partial(convert_fn, cfg=cfg),
         log_parsers,
         name=f"Logs {parser_class_name}",
+        num_gpus=gpus_per_task(cfg.get("gpus_per_task", "auto"), cfg.dataset.get("log_writer_config"), executor),
     )
 
     if len(failed_maps) + len(failed_logs) > 0:
@@ -74,6 +75,21 @@ def main(cfg: DictConfig) -> None:
         # The download root goes too, once no other conversion has a folder in it (rmdir fails otherwise).
         with contextlib.suppress(OSError):
             os.rmdir(cfg.dataset_paths.py123d_download_root)
+
+
+def uses_gpu_video(log_writer_config: Optional[DictConfig]) -> bool:
+    """Whether a log writer configuration encodes camera video on the GPU (AV1 with the NVENC or auto backend)."""
+    if log_writer_config is None or OmegaConf.select(log_writer_config, "camera_store_option") != "av1":
+        return False
+    return OmegaConf.select(log_writer_config, "video_codec_config.backend", default="nvenc") != "svt"
+
+
+def gpus_per_task(setting: Any, log_writer_config: Optional[DictConfig], executor: Any) -> Optional[float]:
+    """The GPU share of each conversion task: ``"auto"`` requests a share when the cameras are encoded with NVENC and
+    the executor has GPUs (see :func:`gpu_share_per_task`), None or a number is used as given."""
+    if setting is None or setting == "auto":
+        return gpu_share_per_task(executor, uses_gpu_video(log_writer_config)) if setting == "auto" else None
+    return float(setting)
 
 
 def _convert_maps(args: List[BaseMapParser], cfg: DictConfig) -> List[str]:

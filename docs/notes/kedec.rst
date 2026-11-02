@@ -11,6 +11,34 @@ kedec is a compact storage format for the cameras and lidars of 123D logs:
   compression of the same scan.
 
 
+Converting and transcoding
+--------------------------
+
+The preset ``codec=kedec`` switches a conversion to the kedec codecs (AV1 cameras with NVENC at cq 38, kedec
+lidars, cameras referenced by their nearest image in the sync table); without it, every dataset keeps its own
+settings:
+
+.. code-block:: bash
+
+  py123d-conversion dataset=nuplan-mini codec=kedec
+
+``py123d-transcode`` converts existing 123D logs into the kedec codecs without the raw dataset: every file except
+the camera and lidar files is copied byte for byte, the cameras and lidars are written again from their stored
+rows, and only the camera columns of ``sync.arrow`` are recomputed (UUIDs, time stamps and all other columns stay
+identical). A log is written into ``.incomplete`` and moved into place when complete; existing logs are skipped
+unless ``force=true``. ``camera_selection`` chooses the kept images (all by default, or one per grid time with
+:class:`~py123d.api.scene.arrow.transcode.GridSelection`):
+
+.. code-block:: bash
+
+  py123d-transcode source_logs_root=/data/123D/logs target_logs_root=/data/123D_kedec/logs splits=[nuplan_mini]
+
+With the Ray executor, each task of a conversion or transcoding that encodes with NVENC requests a share of a GPU
+(``gpus_per_task: auto``: the GPUs of a node divided by its parallel tasks), so the tasks spread over the GPUs. When
+``RAY_TMPDIR`` is set, a local Ray instance keeps its session files and object store there (for cluster nodes
+whose ``/tmp`` and ``/dev/shm`` must stay free).
+
+
 Cameras: AV1 video
 ------------------
 

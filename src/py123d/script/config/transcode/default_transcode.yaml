@@ -1,0 +1,51 @@
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+  searchpath:
+    - pkg://py123d.script.config
+    - pkg://py123d.script.config.common
+  job:
+    chdir: False
+
+defaults:
+  - default_common
+  - _self_
+
+logger_level: info  # "debug", "info", "warning", "error"
+
+# Logs to transcode: <source_logs_root>/<split>/<log>, written to <target_logs_root>/<split>/<log>.
+source_logs_root: ???
+target_logs_root: ???
+splits: null  # list of splits, null for all
+log_names: null  # list of log names, null for all
+
+force: false  # transcode logs whose target exists
+camera_threads: 4  # cameras of a log transcoded at the same time (one video encoder each)
+ipc_compression: null  # compression of the new camera and lidar Arrow files: null, "lz4" or "zstd"
+gpus_per_task: auto  # GPU share per Ray task; "auto": GPUs per node / tasks per node when cameras use NVENC
+
+# The codecs of the new logs (the kedec codecs by default; see docs/notes/kedec.rst).
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+  camera_store_option: "av1"
+  video_codec_config:
+    backend: "nvenc"
+    frame_rate: 10
+    gop_size: 10
+    nvenc_cq: 38
+  lidar_store_option: "binary"
+  lidar_codec: "kedec"
+  lidar_codec_config:
+    kedec_mode: "auto"
+    kedec_range_step_m: 0.02
+    kedec_angle_step_deg: 0.008
+    kedec_zstd_level: 19
+  encode_threads: 4
+
+# Which images each camera keeps; KeepAllImages keeps all, GridSelection one per grid time, e.g.:
+#   _target_: py123d.api.scene.arrow.transcode.GridSelection
+#   config: {_target_: py123d.common.frame_selection.FrameSelectionConfig, mode: grid, period_us: 100000}
+camera_selection:
+  _target_: py123d.api.scene.arrow.transcode.KeepAllImages

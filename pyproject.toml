@@ -61,6 +61,7 @@ dependencies = [
 py123d-viser = "py123d.script.run_viser:main"
 py123d-conversion = "py123d.script.run_conversion:main"
 py123d-download = "py123d.script.run_download:main"
+py123d-transcode = "py123d.script.run_transcode:main"
 
 [project.optional-dependencies]
 dev = [
