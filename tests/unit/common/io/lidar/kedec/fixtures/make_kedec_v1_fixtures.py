@@ -44,7 +44,7 @@ def main():
     clouds = []
     for sensor_id, pose in ((2, pose_a), (5, pose_b)):
         points, features = _scan(rng, pose, 8, 64, beam_and_column=True)
-        # sensor 2 has no valid column index (-1), so the blob holds a spherical and a grid section
+        # sensor 2 stores no valid column index (-1), so the blob contains a spherical and a grid section
         features["column"] = (
             features["column"].astype(np.int32) if sensor_id == 5 else np.full(len(points), -1, np.int32)
         )

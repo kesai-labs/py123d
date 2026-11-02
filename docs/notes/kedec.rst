@@ -3,8 +3,8 @@ kedec Sensor Codec
 
 kedec is a compact storage format for lidar scans in 123D logs. It stores point positions with a fixed largest
 error and every other per-point feature (time stamps, intensity, ring, ...) without loss. For a scan of the KE:SAI
-top lidar (RoboSense Ruby Plus, 780,641 points), kedec needs 0.80 bytes per point, 7.9 % of the Arrow IPC blob with
-LZ4 compression of the same scan.
+top lidar (RoboSense Ruby Plus, 780,641 points), kedec stores 0.80 bytes per point, 7.9 % of the Arrow IPC blob
+with LZ4 compression of the same scan.
 
 
 Enabling kedec
@@ -27,7 +27,7 @@ kedec is a lidar codec of the log writer. Set it in the ``log_writer_config`` of
       kedec_zstd_level: 19
 
 Readers detect the codec of every blob from its first bytes, so logs written with other codecs stay readable and
-no reader setting is needed. Each lidar file written with kedec has the schema-metadata key ``codec``, a JSON
+no reader setting is needed. Each lidar file written with kedec carries the schema-metadata key ``codec``, a JSON
 object with the codec name, the format version, the writing py123d version and the settings.
 
 The functions can also be called directly:
@@ -45,7 +45,7 @@ Modes
 
 **Spherical** (every lidar). The points are moved to the sensor position. Per point, the range is rounded to
 2 cm and the azimuth and elevation to 0.008 degrees. The points are stored in beam order: sorted by the ring index
-(feature ``channel``) when the scan has one, else by rows of 0.1 degrees elevation, then by azimuth.
+(feature ``channel``) when the scan stores one, else by rows of 0.1 degrees elevation, then by azimuth.
 
 **Grid** (lidars that report a beam index ``channel`` and a column index ``column``, for example the PhysicalAI
 ``model_element``). The points are transformed into the sensor frame and sorted by beam, then by column. Per scan,

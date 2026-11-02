@@ -51,7 +51,7 @@ def spinning_scan(
         [r * np.cos(elevation) * np.cos(azimuth), r * np.cos(elevation) * np.sin(azimuth), r * np.sin(elevation)], 1
     )
     points = to_vehicle_frame(sensor, pose).astype(np.float32)
-    shuffle = rng.permutation(n)  # the stored order of a scan need not be beam order
+    shuffle = rng.permutation(n)  # the stored order of a scan is not necessarily beam order
     features = {
         "intensity": rng.integers(0, 256, n).astype(np.uint8),
         "timestamps": (t0_us + column * 277 + beam).astype(np.int64),
