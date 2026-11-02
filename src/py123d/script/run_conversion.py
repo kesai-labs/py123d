@@ -86,7 +86,7 @@ def uses_gpu_video(log_writer_config: Optional[DictConfig]) -> bool:
 
 def gpus_per_task(setting: Any, log_writer_config: Optional[DictConfig], executor: Any) -> Optional[float]:
     """The GPU share of each conversion task: ``"auto"`` requests a share when the cameras are encoded with NVENC and
-    the executor has GPUs (see :func:`gpu_share_per_task`), None or a number is used as given."""
+    the executor provides GPUs (see :func:`gpu_share_per_task`), None or a number is used as given."""
     if setting is None or setting == "auto":
         return gpu_share_per_task(executor, uses_gpu_video(log_writer_config)) if setting == "auto" else None
     return float(setting)

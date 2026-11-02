@@ -95,12 +95,12 @@ def executor_map_queued(
 
 
 def gpu_share_per_task(executor: Executor, requires_gpu: bool) -> Optional[float]:
-    """The GPU share of each task when tasks need a GPU (e.g. for NVENC video encoding) and the executor has GPUs:
+    """The GPU share of each task when the tasks require a GPU (e.g. for NVENC video encoding) and the executor provides GPUs:
     the GPUs of a node divided by its parallel tasks, so that Ray spreads the tasks evenly over the GPUs (Ray then
     sets ``CUDA_VISIBLE_DEVICES`` per task). None otherwise.
 
     :param executor: The executor (only a Ray executor schedules GPUs).
-    :param requires_gpu: Whether the tasks need a GPU.
+    :param requires_gpu: Whether the tasks require a GPU.
     """
     from py123d.common.execution.ray_executor import RayExecutor
 

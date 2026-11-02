@@ -202,8 +202,8 @@ class AV1Reader:
     """Reads images from an AV1 video written by :class:`AV1Writer`.
 
     Reads of the next image decode one image; other reads seek to the key frame at or before the image (one per
-    ``gop_size`` images) and decode from there. The last image is kept. Instances are not shared between threads
-    without :func:`get_av1_reader`, whose readers hold a lock.
+    ``gop_size`` images) and decode from there. The last image is kept. An instance is not thread-safe; the readers of
+    :func:`get_av1_reader` come with a lock for that.
     """
 
     def __init__(self, video_path: Union[str, Path], decoder: str = "libdav1d", threads: int = 0) -> None:
