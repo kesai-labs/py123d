@@ -1,6 +1,6 @@
 """8-bit YUV 4:2:0 images: the input and output of the AV1 camera codec.
 
-A :class:`YUV420Frame` holds the luma plane (H, W) and the two chroma planes (H/2, W/2), together with the color
+A :class:`YUV420Frame` consists of the luma plane (H, W) and the two chroma planes (H/2, W/2), together with the color
 range (full: 0-255, as in JPEG; limited: 16-235 luma, 16-240 chroma, as in most videos) and the matrix (BT.601 or
 BT.709) that relate them to RGB. Images from JPEG files keep their decoded planes exactly (JPEG stores YUV 4:2:0 with
 the full-range BT.601 matrix of JFIF), so no color conversion is applied before the video encoder; RGB images are
