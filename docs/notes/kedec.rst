@@ -51,7 +51,7 @@ configuration that encodes on the CPU sets its own ``svt_crf``. One NVENC sessio
 
 On the KE:SAI lidars, the spherical mode around the sensor position stores the top lidar (RoboSense Ruby Plus) in
 0.65 bytes per point and the 120 degree lidars (Seyond Falcon) in 2.9 to 3.3 bytes per point; in the full sensor
-frame (``kedec_frame: "pose"``) the top lidar needs 13 % fewer bytes and the 120 degree lidars 35 % more (their
+frame (``kedec_frame: "pose"``) the top lidar is stored in 13 % fewer bytes and the 120 degree lidars in 35 % more (their
 z axis is the viewing direction). A random read of one 3840x2160 image from an AV1 log took 45 ms (decoding from
 the previous key frame), a sequential read 6 ms; from a JPEG log 11 ms and 9 ms.
 
