@@ -44,6 +44,33 @@ in the Arrow file. The camera's Arrow file has the schema-metadata key ``codec``
 * Logs written with the older ``"mp4"`` option (``{modality_key}.mp4``) stay readable.
 
 
+Camera rate and the sync table
+------------------------------
+
+A camera that captures faster than it is stored (20 or 30 images per second, stored at 10) keeps one image per
+reference time, selected with :func:`py123d.common.frame_selection.select_nearest_frames`: the image nearest to the
+reference time, or, with hysteresis (0.5 ms in kedec), the image one period after the previously kept image unless
+the nearest image is nearer by more than the hysteresis. This keeps the intervals of the kept images regular when a
+camera clock drifts against the reference. The reference times come from the dataset parser (for example the times at
+which the lidar measures the camera direction), or from a uniform grid
+(:func:`~py123d.common.frame_selection.uniform_reference_grid`).
+
+The deferred sync table can reference the cameras by the nearest image instead of the first image after the
+reference time, with ``direction_overrides`` of the
+:class:`~py123d.api.scene.arrow.arrow_log_writer.SyncConfig`:
+
+.. code-block:: yaml
+
+  sync_config:
+    reference_column: lidar.lidar_top.timestamp_us
+    direction: "forward"
+    direction_overrides:
+      camera: "nearest"   # the image nearest to each row, strictly within half the row period
+
+With one kept image per row, ``"nearest"`` also references an image captured shortly before the row's reference
+time, which ``"forward"`` would assign to no row.
+
+
 Lidars: enabling kedec
 ----------------------
 

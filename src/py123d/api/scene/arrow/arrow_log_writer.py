@@ -36,12 +36,18 @@ from py123d.api.scene.arrow.utils.scene_builder_utils import (
 from py123d.api.scene.base_log_writer import BaseLogWriter
 from py123d.api.utils.arrow_metadata_utils import _NON_MODALITY_FILES, add_metadata_to_arrow_schema
 from py123d.api.utils.cache_source_utils import build_cache_source_info
+from py123d.common.frame_selection import match_frames
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
 from py123d.datatypes import LogMetadata
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
-from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
+from py123d.datatypes.modalities.base_modality import (
+    BaseModality,
+    BaseModalityMetadata,
+    ModalityType,
+    get_modality_type_from_key,
+)
 from py123d.datatypes.sensors.barometer import BarometerMetadata
 from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraChannelType
 from py123d.datatypes.sensors.gnss import GnssMetadata
@@ -58,6 +64,21 @@ logger = logging.getLogger(__name__)
 # Sync table column names (plain strings replacing the deleted ModalitySchema)
 _SYNC_COL_UUID = "sync.uuid"
 _SYNC_COL_TIMESTAMP_US = "sync.timestamp_us"
+_SYNC_DIRECTIONS = ("forward", "backward", "nearest")
+
+
+def nearest_sync_rows(modality_ts: np.ndarray, sync_ts: np.ndarray) -> np.ndarray:
+    """The row of a modality for each sync row with the direction "nearest": the observation nearest to the sync
+    time if it lies strictly within half the median period of the sync table, else -1 (a tie goes to the earlier
+    observation). A sync table of one row takes the nearest observation without a window."""
+    sync_ts = np.asarray(sync_ts, dtype=np.int64)
+    modality_ts = np.asarray(modality_ts, dtype=np.int64)
+    if len(modality_ts) == 0:
+        return np.full(len(sync_ts), -1, dtype=np.int64)
+    if len(sync_ts) < 2:
+        return match_frames(modality_ts, sync_ts, np.iinfo(np.int64).max)
+    half_period = int(np.median(np.diff(sync_ts))) // 2
+    return match_frames(modality_ts, sync_ts, half_period)
 
 
 def _get_uuid_arrow_type() -> pa.DataType:
@@ -81,12 +102,19 @@ class SyncConfig:
     :param target_iteration_duration_s: Optional target iteration duration in seconds.
         If set, stride is computed from the raw iteration duration.
         Takes priority over ``target_iteration_stride``.
+    :param direction_overrides: Optional sync direction per modality type (``"camera"``, ``"lidar"``, ...), which
+        replaces ``direction`` for the modalities of that type in the deferred sync table. Besides ``"forward"``
+        and ``"backward"`` it may be ``"nearest"``: the observation nearest to the row's reference time if it lies
+        strictly within half the period of the sync table, else none; a tie goes to the earlier observation. For
+        cameras stored at the rate of the sync table (one kept image per reference time), ``"nearest"`` also
+        references an image captured shortly before the reference time.
     """
 
     reference_column: str
     direction: Literal["forward", "backward"] = "forward"
     target_iteration_stride: Optional[int] = None
     target_iteration_duration_s: Optional[float] = None
+    direction_overrides: Optional[Dict[str, str]] = None
 
     def __post_init__(self):
         # Validate reference_column format: must contain at least one dot
@@ -106,6 +134,27 @@ class SyncConfig:
                 "Both target_iteration_stride and target_iteration_duration_s set in SyncConfig; "
                 "target_iteration_duration_s takes priority."
             )
+        if self.direction not in _SYNC_DIRECTIONS[:2]:
+            raise ValueError(f"direction must be 'forward' or 'backward', got '{self.direction}'.")
+        for modality_type, direction in (self.direction_overrides or {}).items():
+            if modality_type.upper() not in ModalityType.__members__:
+                raise ValueError(f"direction_overrides: unknown modality type '{modality_type}'.")
+            if direction not in _SYNC_DIRECTIONS:
+                raise ValueError(
+                    f"direction_overrides: direction must be one of {_SYNC_DIRECTIONS}, got '{direction}'."
+                )
+
+    def direction_of(self, modality_key: str) -> str:
+        """The sync direction of a modality: its type's override, else ``direction``."""
+        if self.direction_overrides:
+            try:
+                modality_type = get_modality_type_from_key(modality_key).serialize()
+            except KeyError:  # a custom modality key without a modality-type prefix
+                return self.direction
+            for key, direction in self.direction_overrides.items():
+                if key.lower() == modality_type:
+                    return direction
+        return self.direction
 
     @property
     def reference_modality(self) -> str:
@@ -630,7 +679,6 @@ class ArrowLogWriter(BaseLogWriter):
 
         ref_modality_key = self._sync_config.reference_modality
         ref_timestamp_field = self._sync_config.reference_timestamp_field
-        direction = self._sync_config.direction
 
         # Read timestamps from all written Arrow files using memory-mapped I/O.
         modality_timestamps: Dict[str, np.ndarray] = {}  # modality_key -> int64 timestamps
@@ -693,6 +741,13 @@ class ArrowLogWriter(BaseLogWriter):
             fields.append(pa.field(modality_key, pa.int64()))
         schema = pa.schema(fields)
 
+        # Modalities with the direction "nearest": all rows at once, within half the period of the sync table.
+        kept_ref_ts = ref_ts_array[kept_ref_indices].astype(np.int64)
+        nearest_rows: Dict[str, np.ndarray] = {}
+        for modality_key in sync_modality_keys:
+            if self._sync_config.direction_of(modality_key) == "nearest":
+                nearest_rows[modality_key] = nearest_sync_rows(modality_timestamps[modality_key], kept_ref_ts)
+
         # Build one sync row per kept reference timestamp, picking the single closest
         # modality observation within the interval defined by the sync direction.
         sync_rows: List[Dict[str, Any]] = []
@@ -703,8 +758,12 @@ class ArrowLogWriter(BaseLogWriter):
 
             for modality_key in sync_modality_keys:
                 ts_arr = modality_timestamps[modality_key]
+                direction = self._sync_config.direction_of(modality_key)
 
-                if direction == "forward":
+                if direction == "nearest":
+                    row = int(nearest_rows[modality_key][kept_pos])
+                    best_idx = row if row >= 0 else None
+                elif direction == "forward":
                     # Interval: [ref_ts, next_kept_ref_ts) — pick first (closest to sync ts)
                     lo = int(np.searchsorted(ts_arr, ref_ts, side="left"))
                     if kept_pos + 1 < len(kept_ref_indices):
