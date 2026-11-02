@@ -79,7 +79,9 @@ class KeepAllImages(CameraSelection):
 class GridSelection(CameraSelection):
     """Keeps, per camera, the image nearest to each time of a uniform grid, with hysteresis.
 
-    :param config: The period, phase (``grid_phase_us``), hysteresis and limit of the selection.
+    :param config: The period, phase (``grid_phase_us``), hysteresis and limit of the selection. Without a limit, an
+        image is kept only within half the camera's frame period of its grid time, so that the grid times beyond
+        the first and last images do not keep an image of the other phase.
     """
 
     config: FrameSelectionConfig = field(default_factory=lambda: FrameSelectionConfig(mode="grid"))
@@ -90,8 +92,14 @@ class GridSelection(CameraSelection):
             if len(ts) == 0:
                 kept[key] = np.zeros(0, dtype=np.int64)
                 continue
-            grid = uniform_reference_grid(int(ts[0]), int(ts[-1]) + 1, self.config.period_us, self.config.grid_phase_us)
-            rows = select_nearest_frames(ts, grid, self.config.hysteresis_us, limit_us=self.config.limit_us)
+            half = self.config.period_us // 2  # grid times within half a period of the first and last images
+            grid = uniform_reference_grid(
+                int(ts[0]) - half, int(ts[-1]) + half + 1, self.config.period_us, self.config.grid_phase_us
+            )
+            limit = self.config.limit_us
+            if limit is None:
+                limit = int(np.median(np.diff(ts))) // 2 if len(ts) > 1 else half
+            rows = select_nearest_frames(ts, grid, self.config.hysteresis_us, limit_us=limit)
             kept[key] = np.unique(rows[rows >= 0])
         return kept
 

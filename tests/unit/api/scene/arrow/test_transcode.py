@@ -253,6 +253,14 @@ def test_grid_selection_and_force(source_log, tmp_path):
     assert len(timestamps) == 12 and np.all(np.diff(timestamps) >= 99_000)
 
 
+def test_grid_selection_keeps_the_first_image():
+    """A grid time up to half a period before the first image selects it."""
+    selection = GridSelection(FrameSelectionConfig(mode="grid", period_us=100_000, grid_phase_us=0))
+    ts = 1_000_000 + 18_000 + np.arange(20) * 50_000  # images at phase 18 and 68 ms
+    kept = selection.select(Path("."), {"camera.pcam_f0": ts})["camera.pcam_f0"]
+    np.testing.assert_array_equal(kept, np.arange(0, 20, 2))
+
+
 def test_failure_leaves_the_target_untouched(source_log, tmp_path, monkeypatch):
     from py123d.api.scene.arrow import transcode
 
