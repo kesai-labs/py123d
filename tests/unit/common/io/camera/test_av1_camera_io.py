@@ -121,6 +121,8 @@ class TestWriter:
             VideoCodecConfig(nvenc_cq=64)
         options = VideoCodecConfig().nvenc_options()
         assert options["cq"] == "38" and options["g"] == "10" and options["maxrate"] == "200M"
+        assert options["bf"] == "0"  # no B-frames (kedec default since 3 November 2026)
+        assert VideoCodecConfig(nvenc_b_frames=3).nvenc_options()["bf"] == "3"
         assert VideoCodecConfig(svt_threads=4).svt_options()["svtav1-params"] == "lp=4"
 
 

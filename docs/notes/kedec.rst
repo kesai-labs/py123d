@@ -105,7 +105,8 @@ The images of a camera are written to ``{modality_key}.av1.mp4`` next to its Arr
 in the Arrow file. The camera's Arrow file carries the schema-metadata key ``codec`` with the encoder and its settings.
 
 * NVENC settings: preset p7, tuning hq, variable rate with constant quality 38, rate cap 200 Mbit/s (buffer
-  400 Mbit), up to 3 B-frames. NVENC encodes AV1 on NVIDIA GPUs from the RTX 40 series on (Ada Lovelace,
+  400 Mbit), no B-frames (with 3 B-frames, the quality of the images changed from image to image by about 1.3 dB,
+  and night images took 6 % more bytes at equal quality). NVENC encodes AV1 on NVIDIA GPUs from the RTX 40 series on (Ada Lovelace,
   Blackwell); ``backend: "auto"`` falls back to SVT-AV1 when no such encoder opens.
 * JPEG sources keep their decoded YUV 4:2:0 planes, so the encoder receives exactly the JPEG's pixels (full range,
   BT.601 matrix, as in JFIF). RGB images are converted with the JFIF matrix; video sources keep their planes and

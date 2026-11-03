@@ -13,7 +13,7 @@ class VideoCodecConfig:
     """Encoder settings of the AV1 camera codec.
 
     The defaults are the kedec settings: NVIDIA's AV1 encoder (NVENC) at constant quality 38, one key frame every
-    10 images, at most 3 B-frames, rate caps of 200 Mbit/s (buffer 400 Mbit). ``backend: "svt"`` encodes on the
+    10 images, no B-frames, rate caps of 200 Mbit/s (buffer 400 Mbit). ``backend: "svt"`` encodes on the
     CPU with SVT-AV1; ``"auto"`` uses NVENC when a GPU encoder opens and SVT-AV1 otherwise.
     """
 
@@ -32,7 +32,10 @@ class VideoCodecConfig:
     nvenc_tune: str = "hq"
     nvenc_max_rate: str = "200M"
     nvenc_buffer_size: str = "400M"
-    nvenc_b_frames: int = 3
+    # B-frames between reference images. None by default: with 3 B-frames, NVENC coded the B-frames with 1.2 to 1.4 dB
+    # lower PSNR than the reference images between them, so the quality changed from image to image, and night clips
+    # took 6 % more bytes at equal quality (report "camera-lidar-compression", Section 8.1).
+    nvenc_b_frames: int = 0
     # GPU index, -1 for any.
     nvenc_gpu: int = -1
 
