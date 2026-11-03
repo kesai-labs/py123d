@@ -22,7 +22,7 @@ log_names: null  # list of log names, null for all
 
 force: false  # transcode logs whose target exists
 camera_threads: 4  # cameras of a log transcoded at the same time (one video encoder each)
-lidar_threads: 0  # lidar files of a log transcoded at the same time (0: all); at the same time as the cameras
+lidar_threads: 0  # lidar and radar files of a log transcoded at the same time (0: all); at the same time as the cameras
 ipc_compression: null  # compression of the new camera and lidar Arrow files: null, "lz4" or "zstd"
 gpus_per_task: auto  # GPU share per Ray task; "auto": GPUs per node / tasks per node when cameras use NVENC
 
@@ -39,6 +39,13 @@ log_writer_config:
   lidar_store_option: "binary"
   lidar_codec: "kedec"
   lidar_codec_config:
+    kedec_mode: "auto"
+    kedec_range_step_m: 0.02
+    kedec_angle_step_deg: 0.008
+    kedec_zstd_level: 19
+  radar_store_option: "binary"
+  radar_codec: "kedec"
+  radar_codec_config:
     kedec_mode: "auto"
     kedec_range_step_m: 0.02
     kedec_angle_step_deg: 0.008

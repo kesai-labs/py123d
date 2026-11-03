@@ -374,13 +374,15 @@ class TestLidarKedecRoundtrip:
         table = pa.ipc.open_file(str(tmp_path / f"{metadata.modality_key}.arrow")).read_all()
         assert table.num_rows == 1
 
-    def test_kedec_is_not_a_radar_codec(self):
+    def test_kedec_is_a_lidar_and_a_radar_codec(self):
         from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig
 
+        config = LogWriterConfig(
+            lidar_store_option="binary", lidar_codec="kedec", radar_store_option="binary", radar_codec="kedec"
+        )
+        assert config.lidar_codec == "kedec" and config.radar_codec == "kedec"
         with pytest.raises(AssertionError):
-            LogWriterConfig(radar_store_option="binary", radar_codec="kedec")
-        config = LogWriterConfig(lidar_store_option="binary", lidar_codec="kedec")
-        assert config.lidar_codec == "kedec"
+            LogWriterConfig(radar_store_option="binary", radar_codec="not_a_codec")
 
     def test_log_writer_config_accepts_mappings(self):
         from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig

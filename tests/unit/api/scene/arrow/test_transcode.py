@@ -335,3 +335,75 @@ def test_copies_of_write_protected_files_are_writable(source_log, tmp_path):
     for path in log_dir.iterdir():
         path.chmod(0o644)
     assert os.access(_log_dir(target) / "sync.arrow", os.W_OK)
+
+
+def _radar_log(root: Path) -> Path:
+    """A log with ego states and one radar stored as IPC (zstd) blobs."""
+    from py123d.datatypes.sensors.radar import Radar, RadarID, RadarMetadata
+
+    config = LogWriterConfig(radar_store_option="binary", radar_codec="ipc_zstd")
+    sync = SyncConfig(reference_column="ego_state_se3.timestamp_us", direction="forward")
+    writer = ArrowLogWriter(config, logs_root=root, sensors_root=root, sync_config=sync)
+    log_metadata = make_log_metadata()
+    writer.reset(log_metadata)
+    metadata = RadarMetadata(radar_name="RADAR_FRONT", radar_id=RadarID.RADAR_FRONT)
+    rng = np.random.default_rng(3)
+    events = []
+    for i in range(30):
+        events.append((T0 + i * 10_000, 0, _ego(T0 + i * 10_000)))
+    for i in range(6):
+        n = 40 + i
+        xyz = (rng.normal(size=(n, 3)) * [30.0, 10.0, 1.0]).astype(np.float32)
+        features = {
+            "rcs": rng.normal(size=n).astype(np.float32),
+            "radial_velocity": rng.normal(size=n).astype(np.float32),
+        }
+        events.append((T0 + i * 50_000, 1, Radar(Timestamp.from_us(T0 + i * 50_000), metadata, xyz, features)))
+    for _, _, modality in sorted(events, key=lambda e: (e[0], e[1])):
+        writer.write_async(modality)
+    writer.close()
+    return root / log_metadata.split / log_metadata.log_name
+
+
+def test_radar_is_transcoded_with_a_radar_codec_and_copied_without(tmp_path):
+    from py123d.api.scene.arrow.modalities.arrow_radar import ArrowRadarReader
+    from py123d.datatypes.sensors.radar import RadarMetadata
+
+    source_dir = _radar_log(tmp_path / "source")
+    name = "radar.radar_front.arrow"
+    log_metadata = make_log_metadata()
+    writer_config = LogWriterConfig(radar_store_option="binary", radar_codec="kedec", encode_threads=2)
+    kedec_root = tmp_path / "kedec"
+    assert transcode_log(
+        tmp_path / "source",
+        kedec_root,
+        log_metadata.split,
+        log_metadata.log_name,
+        TranscodeConfig(log_writer_config=writer_config),
+    )
+    source, target = _table(source_dir / name), _table(_log_dir(kedec_root) / name)
+    assert decode_codec_metadata(target.schema.metadata[CODEC_METADATA_KEY])["codec"] == "kedec"
+    assert (
+        target.column("radar.radar_front.timestamp_us").to_pylist()
+        == source.column("radar.radar_front.timestamp_us").to_pylist()
+    )
+    metadata = get_metadata_from_arrow_schema(target.schema, RadarMetadata)
+    for row in range(source.num_rows):
+        a = ArrowRadarReader.read_at_index(row, source, metadata, "test")
+        b = ArrowRadarReader.read_at_index(row, target, metadata, "test")
+        ia, ib = np.argsort(a.point_cloud_features["rcs"]), np.argsort(b.point_cloud_features["rcs"])
+        np.testing.assert_array_equal(
+            b.point_cloud_features["radial_velocity"][ib], a.point_cloud_features["radial_velocity"][ia]
+        )
+        assert (
+            np.linalg.norm(b.point_cloud_3d[ib].astype(float) - a.point_cloud_3d[ia].astype(float), axis=1).max() < 0.02
+        )
+    copy_root = tmp_path / "copy"
+    assert transcode_log(
+        tmp_path / "source",
+        copy_root,
+        log_metadata.split,
+        log_metadata.log_name,
+        TranscodeConfig(log_writer_config=LogWriterConfig()),
+    )
+    assert (_log_dir(copy_root) / name).read_bytes() == (source_dir / name).read_bytes()

@@ -33,7 +33,7 @@ def _cloud():
 
 def test_names_per_modality():
     assert point_cloud_codec_names("lidar") == {"laz", "draco", "ipc_zstd", "ipc_lz4", "ipc", "kedec"}
-    assert point_cloud_codec_names("radar") == {"laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"}
+    assert point_cloud_codec_names("radar") == {"laz", "draco", "ipc_zstd", "ipc_lz4", "ipc", "kedec"}
 
 
 @pytest.mark.parametrize(

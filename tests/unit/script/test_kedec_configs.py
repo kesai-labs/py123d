@@ -39,6 +39,8 @@ def test_kedec_preset():
     cfg = _compose("dataset=nuplan-mini", "codec=kedec")
     lwc = cfg.dataset.log_writer_config
     assert lwc.camera_store_option == "av1" and lwc.lidar_codec == "kedec" and lwc.lidar_store_option == "binary"
+    assert lwc.radar_codec == "kedec" and lwc.radar_store_option == "binary"
+    assert lwc.radar_codec_config.kedec_range_step_m == lwc.lidar_codec_config.kedec_range_step_m
     assert cfg.dataset.log_writer.sync_config.direction_overrides == {"camera": "nearest"}
     import hydra
 

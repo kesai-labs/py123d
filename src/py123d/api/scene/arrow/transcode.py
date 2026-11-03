@@ -29,6 +29,7 @@ import pyarrow as pa
 from py123d.api.scene.arrow.arrow_log_writer import nearest_sync_rows
 from py123d.api.scene.arrow.modalities.arrow_camera import ArrowCameraWriter
 from py123d.api.scene.arrow.modalities.arrow_lidar import ArrowLidarWriter
+from py123d.api.scene.arrow.modalities.arrow_radar import ArrowRadarWriter
 from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig
 from py123d.api.utils.arrow_metadata_utils import get_metadata_from_arrow_schema, resolve_metadata_class
 from py123d.common.frame_selection import FrameSelectionConfig, select_nearest_frames, uniform_reference_grid
@@ -37,6 +38,7 @@ from py123d.common.io.lidar.point_cloud_codec_registry import decode_point_cloud
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.sensors.base_camera import BaseCameraMetadata
 from py123d.datatypes.sensors.lidar import Lidar, LidarMergedMetadata, LidarMetadata
+from py123d.datatypes.sensors.radar import Radar, RadarMergedMetadata, RadarMetadata
 from py123d.datatypes.time.timestamp import Timestamp
 from py123d.geometry.pose import PoseSE3
 from py123d.parser.base_dataset_parser import ParsedCamera
@@ -45,9 +47,11 @@ logger = logging.getLogger(__name__)
 
 _CAMERA_PREFIX = "camera."
 _LIDAR_PREFIX = "lidar."
+_RADAR_PREFIX = "radar."
 _SYNC_FILE = "sync.arrow"
 _CAMERA_COLUMNS = ("timestamp_us", "data", "camera_to_global_se3", "exposure_factor", "arrival_us")
 _LIDAR_COLUMNS = ("timestamp_us", "end_timestamp_us", "data", "arrival_us")
+_RADAR_COLUMNS = ("timestamp_us", "data", "arrival_us")
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -117,8 +121,9 @@ class TranscodeConfig:
         ``video_codec_config``, ``lidar_codec``, ``lidar_codec_config``, ``encode_threads``); its other fields are
         not used.
     :param camera_threads: Cameras of a log transcoded at the same time (each with its own video encoder).
-    :param lidar_threads: Lidar files of a log transcoded at the same time, 0 for all of them. The lidar files are
-        transcoded at the same time as the cameras.
+    :param lidar_threads: Lidar and radar files of a log transcoded at the same time, 0 for all of them. They are
+        transcoded at the same time as the cameras. Radar files are transcoded only when ``log_writer_config`` stores
+        radar as binary blobs of a codec (``radar_codec``); otherwise they are copied.
     :param force: Transcode logs whose target already exists.
     :param ipc_compression: Compression of the new camera and lidar Arrow files (None, "lz4" or "zstd").
     """
@@ -313,6 +318,52 @@ def transcode_lidar(source_path: Path, target_dir: Path, log_metadata: LogMetada
     return rows
 
 
+def transcode_radar(source_path: Path, target_dir: Path, log_metadata: LogMetadata, config: TranscodeConfig) -> int:
+    """Decode every row of one radar file and write it again with the configured radar codec
+    (``log_writer_config.radar_codec``, binary store).
+
+    :return: The number of rows.
+    """
+    _check_columns(source_path, _RADAR_COLUMNS)
+    metadata = _metadata(source_path)
+    assert isinstance(metadata, (RadarMetadata, RadarMergedMetadata))
+    if metadata.modality_key != source_path.stem:
+        raise ValueError(
+            f"{source_path}: its metadata names the radar {metadata.modality_key}, not {source_path.stem}."
+        )
+    writer_config = config.log_writer_config
+    writer = ArrowRadarWriter(
+        log_dir=target_dir,
+        metadata=metadata,
+        log_metadata=log_metadata,
+        radar_store_option="binary",
+        radar_codec=writer_config.radar_codec,
+        ipc_compression=config.ipc_compression,  # type: ignore[arg-type]
+        radar_codec_config=writer_config.radar_codec_config,
+    )
+    rows = 0
+    try:
+        for _, values in _iter_rows(source_path, _RADAR_COLUMNS):
+            data = values["data"]
+            if not isinstance(data, bytes):
+                raise ValueError(f"{source_path}: radar rows must store binary blobs to be transcoded.")
+            xyz, features = decode_point_cloud(data)
+            arrival = values["arrival_us"]
+            writer.write_modality(
+                Radar(
+                    timestamp=Timestamp.from_us(int(values["timestamp_us"])),  # type: ignore[arg-type]
+                    metadata=metadata,
+                    point_cloud_3d=xyz,
+                    point_cloud_features=features,
+                    arrival_timestamp=None if arrival is None else Timestamp.from_us(int(arrival)),  # type: ignore[arg-type]
+                )
+            )
+            rows += 1
+    finally:
+        writer.close()
+    return rows
+
+
 def rewrite_sync_cameras(
     source_sync: Path, target_sync: Path, camera_timestamps: Dict[str, npt.NDArray[np.int64]]
 ) -> None:
@@ -365,8 +416,16 @@ def transcode_log(
     camera_files = [p for p in files if p.name.startswith(_CAMERA_PREFIX) and p.suffix == ".arrow"]
     camera_videos = {p for p in files if p.name.startswith(_CAMERA_PREFIX) and p.name.endswith(".mp4")}
     lidar_files = [p for p in files if p.name.startswith(_LIDAR_PREFIX) and p.suffix == ".arrow"]
+    writer_config = config.log_writer_config
+    # Radars are transcoded when the writer stores them as binary blobs of a codec, else copied.
+    recode_radar = writer_config.radar_store_option == "binary" and writer_config.radar_codec is not None
+    radar_files = (
+        [p for p in files if p.name.startswith(_RADAR_PREFIX) and p.suffix == ".arrow"] if recode_radar else []
+    )
     for path in files:
         if path in camera_videos or path in camera_files or path in lidar_files or path.name == _SYNC_FILE:
+            continue
+        if path in radar_files:
             continue
         _copy_file(path, work_dir / path.name)
 
@@ -375,14 +434,14 @@ def transcode_log(
     log_metadata = get_metadata_from_arrow_schema(_open(source_dir / _SYNC_FILE).schema, LogMetadata)
 
     # Cameras (video encoder, e.g. on the GPU) and lidars (CPU) at the same time, the largest lidar file first.
-    lidar_workers = config.lidar_threads if config.lidar_threads > 0 else len(lidar_files)
+    lidar_workers = config.lidar_threads if config.lidar_threads > 0 else len(lidar_files) + len(radar_files)
     lidar_pool = ThreadPoolExecutor(max_workers=max(1, lidar_workers))
     camera_pool = ThreadPoolExecutor(max_workers=max(1, config.camera_threads))
     try:
         lidar_futures = [
             lidar_pool.submit(transcode_lidar, path, work_dir, log_metadata, config)
             for path in sorted(lidar_files, key=lambda p: p.stat().st_size, reverse=True)
-        ]
+        ] + [lidar_pool.submit(transcode_radar, path, work_dir, log_metadata, config) for path in radar_files]
         camera_futures = {
             p.stem: camera_pool.submit(transcode_camera, p, work_dir, kept[p.stem], config) for p in camera_files
         }

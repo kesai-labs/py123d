@@ -111,7 +111,7 @@ for _codec in (
         is_kedec_binary,
         encode_point_cloud_as_kedec_binary,
         load_point_cloud_from_kedec_binary,
-        modalities=frozenset({"lidar"}),
+        modalities=frozenset({"lidar", "radar"}),
         version=KEDEC_VERSION,
     ),
 ):

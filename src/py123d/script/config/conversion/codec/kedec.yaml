@@ -20,6 +20,14 @@ dataset:
       kedec_angle_step_deg: 0.008
       kedec_side_step_m: 0.02
       kedec_zstd_level: 19
+    radar_store_option: "binary"
+    radar_codec: "kedec"
+    radar_codec_config:
+      kedec_mode: "auto"
+      kedec_range_step_m: 0.02
+      kedec_angle_step_deg: 0.008
+      kedec_side_step_m: 0.02
+      kedec_zstd_level: 19
     encode_threads: 4
 
   log_writer:

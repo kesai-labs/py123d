@@ -17,8 +17,11 @@ from py123d.api.scene.arrow.modalities.utils import (
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.io.lidar.point_cloud_codec_config import PointCloudCodecConfig
 from py123d.common.io.lidar.point_cloud_codec_registry import (
+    CODEC_METADATA_KEY,
     decode_point_cloud,
+    encode_codec_metadata,
     encode_point_cloud,
+    point_cloud_codec_metadata,
     point_cloud_codec_names,
 )
 from py123d.common.io.radar.path_radar_io import load_radar_point_cloud_data_from_path
@@ -73,6 +76,9 @@ class ArrowRadarWriter(ArrowBaseModalityWriter):
         if metadata.has_arrival_time:
             schema_list.append(get_arrival_time_field(metadata.modality_key))
         schema = add_metadata_to_arrow_schema(pa.schema(schema_list), metadata)
+        if radar_store_option == "binary" and radar_codec == "kedec":
+            description = point_cloud_codec_metadata(radar_codec, self._radar_codec_config)
+            schema = schema.with_metadata({**schema.metadata, CODEC_METADATA_KEY: encode_codec_metadata(description)})
         super().__init__(
             file_path=file_path,
             schema=schema,
