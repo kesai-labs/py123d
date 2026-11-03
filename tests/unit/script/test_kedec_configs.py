@@ -23,7 +23,7 @@ def _compose(*overrides):
         return compose(config_name="default_conversion", overrides=list(overrides))
 
 
-@pytest.mark.parametrize("dataset", ["nuplan-mini", "physical-ai-av", "nuscenes-mini", "pandaset"])
+@pytest.mark.parametrize("dataset", ["nuplan-mini", "nuplan-tar", "physical-ai-av", "nuscenes-mini", "pandaset"])
 def test_without_codec_the_dataset_config_is_unchanged(dataset):
     """Without codec=, the composed dataset configuration equals the dataset file (no codec keys added)."""
     cfg = _compose(f"dataset={dataset}")
@@ -48,6 +48,22 @@ def test_kedec_preset():
     assert config.video_codec_config.nvenc_cq == 38 and config.lidar_codec_config.kedec_angle_step_deg == 0.008
     sync = hydra.utils.instantiate(cfg.dataset.log_writer.sync_config)
     assert sync.direction_of("camera.pcam_f0") == "nearest" and sync.direction_of("lidar.lidar_top") == "forward"
+
+
+def test_kedec_preset_on_the_nuplan_tar_config():
+    """nuPlan from the sensor archives with kedec: AV1 cameras from the original JPEGs, kedec lidar, the parser
+    target and the archive folders from the dataset paths."""
+    cfg = _compose("dataset=nuplan-tar", "codec=kedec", "dataset_paths.nuplan_archive_roots=/a:/b")
+    lwc = cfg.dataset.log_writer_config
+    assert lwc.camera_store_option == "av1" and lwc.lidar_codec == "kedec" and lwc.lidar_store_option == "binary"
+    assert cfg.dataset.parser._target_ == "py123d.parser.nuplan.nuplan_tar_parser.NuplanTarParser"
+    assert cfg.dataset.parser.jpeg_quality is None
+    assert cfg.dataset.parser.nuplan_archive_roots == "/a:/b"
+    assert not cfg.async_conversion  # sync mode: lidar at 10 Hz, one image per camera and row
+    import hydra
+
+    config = hydra.utils.instantiate(lwc)
+    assert config.lidar_codec_config.kedec_range_step_m == 0.02 and config.video_codec_config.nvenc_cq == 38
 
 
 def _ray_executor(gpus: int, threads: int) -> RayExecutor:
