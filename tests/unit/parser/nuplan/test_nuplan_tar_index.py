@@ -106,3 +106,14 @@ def test_catalog_over_several_folders(camera_archive, tmp_path: Path) -> None:
     assert reader.read(*members[f"{LOG_B}/CAM_F0/cc.jpg"]) == files[f"{LOG_B}/CAM_F0/cc.jpg"]
     assert reader.read(*members[f"{LOG_B}/MergedPointCloud/ee.pcd"]) == b"pcd"
     reader.close()
+
+
+def test_prefetch_then_read(camera_archive) -> None:
+    tar_path, files = camera_archive
+    build_tar_index(tar_path)
+    members = load_log_members(LOG_A, [tar_path])
+    reader = TarMemberReader()
+    for relative_path, member in members.items():
+        reader.prefetch(*member)
+        assert reader.read(*member) == files[relative_path]
+    reader.close()

@@ -123,6 +123,10 @@ def _pcd_bytes_to_point_cloud(raw: bytes) -> Tuple[np.ndarray, Dict[str, np.ndar
 # neighboring lidar_pcs contains at most one image per channel).
 _IMAGE_MATCH_WINDOW_US = 50_000
 
+# Steps (of 100 ms) whose sensor files are announced to the kernel ahead of reading: about 9 files of ~1.5 MB per
+# step, so ~270 MB of page cache per log in flight.
+_PREFETCH_STEPS = 20
+
 
 def _open_log_db_readonly(log_file: Path) -> sqlite3.Connection:
     # immutable=1 skips POSIX locking entirely: the nuPlan .db files are static,
@@ -407,6 +411,31 @@ class NuplanTarLogParser(NuplanLogParser):
 
         return camera_data_list
 
+    def _prefetch_step(
+        self,
+        nuplan_lidar_pc: LidarPc,
+        metadatas: Dict[CameraID, PinholeCameraMetadata],
+        members: Dict[str, TarMember],
+    ) -> None:
+        """Announce the camera and lidar members of a later step to the kernel (read-ahead into the page cache)."""
+        if self._reader is None:
+            self._reader = TarMemberReader()
+        wanted: List[TarMember] = []
+        image_index = self._ensure_image_index()
+        for camera_type, camera_channel in NUPLAN_CAMERA_MAPPING.items():
+            if camera_type in metadatas:
+                match = image_index.find(str(camera_channel.value), int(nuplan_lidar_pc.timestamp))
+                if match is not None and match[1] in members:
+                    wanted.append(members[match[1]])
+        lidar_member = members.get(str(nuplan_lidar_pc.filename))
+        if lidar_member is not None:
+            wanted.append(lidar_member)
+        for member in wanted:
+            try:
+                self._reader.prefetch(*member)
+            except OSError as e:  # a read-ahead request is optional
+                logger.debug("Read-ahead of %s failed: %s", member[0], e)
+
     def _extract_lidar(
         self,
         nuplan_lidar_pc: LidarPc,
@@ -442,8 +471,15 @@ class NuplanTarLogParser(NuplanLogParser):
             step_interval: int = int(TARGET_DT / NUPLAN_DEFAULT_DT)
             offset = _get_ideal_lidar_pc_offset(self._source_log_path, nuplan_log_db)
             num_steps = len(nuplan_log_db.lidar_pc)
+            steps = range(offset, num_steps, step_interval)
+            for k in range(min(_PREFETCH_STEPS, len(steps))):
+                self._prefetch_step(nuplan_log_db.lidar_pc[steps[k]], pinhole_camera_metadatas, members)
 
-            for lidar_pc_index in range(offset, num_steps, step_interval):
+            for k, lidar_pc_index in enumerate(steps):
+                if k + _PREFETCH_STEPS < len(steps):
+                    ahead = nuplan_log_db.lidar_pc[steps[k + _PREFETCH_STEPS]]
+                    self._prefetch_step(ahead, pinhole_camera_metadatas, members)
+                    del ahead
                 nuplan_lidar_pc = nuplan_log_db.lidar_pc[lidar_pc_index]
                 lidar_pc_token: str = nuplan_lidar_pc.token
                 timestamp = Timestamp.from_us(nuplan_lidar_pc.timestamp)

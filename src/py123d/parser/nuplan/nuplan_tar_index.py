@@ -64,7 +64,11 @@ def build_tar_index(tar_path: Union[Path, str], force: bool = False) -> Path:
     offsets: List[int] = []
     sizes: List[int] = []
 
-    with tarfile.open(tar_path, "r:") as tf:
+    # Unbuffered reads without read-ahead: a buffered file object reads st_blksize bytes per call (4 MiB on CephFS),
+    # so reading the 512-byte headers, which lie about 1.4 MB apart, would read almost the whole archive.
+    with open(tar_path, "rb", buffering=0) as raw, tarfile.open(fileobj=raw, mode="r:") as tf:
+        if hasattr(os, "posix_fadvise"):
+            os.posix_fadvise(raw.fileno(), 0, 0, os.POSIX_FADV_RANDOM)
         member = tf.next()
         while member is not None:
             if member.isfile():
@@ -115,11 +119,22 @@ class TarMemberReader:
     def __init__(self) -> None:
         self._fds: Dict[Path, int] = {}
 
-    def read(self, tar_path: Path, offset: int, size: int) -> bytes:
+    def _fd(self, tar_path: Path) -> int:
         fd = self._fds.get(tar_path)
         if fd is None:
             fd = os.open(tar_path, os.O_RDONLY)
             self._fds[tar_path] = fd
+        return fd
+
+    def prefetch(self, tar_path: Path, offset: int, size: int) -> None:
+        """Ask the kernel to read a member into the page cache in the background (``POSIX_FADV_WILLNEED``), so a
+        later :meth:`read` does not wait for the storage. Announcing the members of the next steps keeps several
+        requests in flight per process instead of one synchronous read at a time."""
+        if hasattr(os, "posix_fadvise"):
+            os.posix_fadvise(self._fd(tar_path), offset, size, os.POSIX_FADV_WILLNEED)
+
+    def read(self, tar_path: Path, offset: int, size: int) -> bytes:
+        fd = self._fd(tar_path)
         data = os.pread(fd, size, offset)
         if len(data) != size:
             raise IOError(f"Short read from {tar_path} at offset {offset}: {len(data)} of {size} bytes")
