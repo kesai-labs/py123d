@@ -434,6 +434,7 @@ def keep_anchors_with_min_remaining_route(
     anchors: np.ndarray,
     min_remaining_route_m: float,
     log_dir: Path,
+    route_file: str = ROUTE_POSITION_KEY,
 ) -> np.ndarray:
     """Select the anchors with enough route left, read from the route_position modality's
     ``remaining_m`` column. Anchors without a route position (ego absent) are dropped —
@@ -446,9 +447,10 @@ def keep_anchors_with_min_remaining_route(
     :param anchors: Candidate anchor rows, int64.
     :param min_remaining_route_m: Minimum remaining route in meters.
     :param log_dir: The log directory holding ``route_position.arrow``.
+    :param route_file: The route file to read (``route_position`` or another file of its layout, e.g. ``route_map``).
     :return: Boolean array over ``anchors``, True for the scenes to keep.
     """
-    remaining_by_row = read_remaining_route_m(log_dir)
+    remaining_by_row = read_remaining_route_m(log_dir, route_file)
     if remaining_by_row is None:
         return np.zeros(len(anchors), dtype=bool)
 
@@ -491,7 +493,9 @@ def filter_scene_metadata_candidates(
     if filter.min_remaining_route_m is not None and len(result) > 0:
         assert log_dir is not None, "min_remaining_route_m filtering requires the log_dir."
         anchors = np.array([scene.initial_idx for scene in result], dtype=np.int64)
-        keep = keep_anchors_with_min_remaining_route(sync_table, anchors, filter.min_remaining_route_m, log_dir)
+        keep = keep_anchors_with_min_remaining_route(
+            sync_table, anchors, filter.min_remaining_route_m, log_dir, filter.route_file
+        )
         result = [scene for scene, kept in zip(result, keep) if kept]
 
     # 3. Custom anchor filter functions, grouped by future count: candidates

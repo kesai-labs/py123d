@@ -374,3 +374,102 @@ class TestSceneApiRoute:
         assert api.get_route() is None
         assert api.get_route_progress_at_iteration(0) is None
         assert api.get_remaining_route_m(0) is None
+
+
+# ===========================================================================
+# Alternative route file (route_map.arrow)
+# ===========================================================================
+
+
+def _write_route_map(log_dir: Path, rows: Optional[int] = None) -> None:
+    """route_map.arrow next to route_position.arrow: the polyline 1 m to the left, half the progress."""
+    import dataclasses
+
+    from py123d.api.scene.arrow.utils.route_utils import ROUTE_MAP_FILE, write_route_position_arrow
+
+    metadata, progress, _ = read_route_position(log_dir)
+    table = pa.ipc.open_file(str(log_dir / f"{ROUTE_POSITION_KEY}.arrow")).read_all()
+    timestamps = table[f"{ROUTE_POSITION_KEY}.timestamp_us"].to_numpy()
+    map_metadata = dataclasses.replace(
+        metadata,
+        total_arc_m=metadata.total_arc_m / 2,
+        polyline_y=[y + 1.0 for y in metadata.polyline_y],
+        source="provided",
+    )
+    n = len(progress) if rows is None else rows
+    write_route_position_arrow(log_dir, timestamps[:n], progress[:n] / 2, map_metadata, file_stem=ROUTE_MAP_FILE)
+
+
+class TestRouteFile:
+    def test_default_reads_route_position_and_ignores_route_map(self, tmp_path: Path, caplog):
+        log_dir, _ = _write_log(tmp_path, xs=[2.0 * i for i in range(11)])
+        _write_route_map(log_dir)
+        with caplog.at_level("WARNING"):
+            api = ArrowSceneAPI(log_dir)
+            _, _, xyz = api.get_route()
+        assert np.allclose(xyz[:, 1], 0.0)
+        assert api.get_route_progress_at_iteration(5) == pytest.approx(10.0)
+        assert "route_map.arrow" not in caplog.text
+
+    def test_route_map_selected(self, tmp_path: Path):
+        log_dir, _ = _write_log(tmp_path, xs=[2.0 * i for i in range(11)])
+        _write_route_map(log_dir)
+        api = ArrowSceneAPI(log_dir, route_file="route_map")
+        route_metadata, _, xyz = api.get_route()
+        assert route_metadata.source == "provided" and np.allclose(xyz[:, 1], 1.0)
+        assert api.get_route_progress_at_iteration(5) == pytest.approx(5.0)
+        assert api.get_remaining_route_m(5) == pytest.approx(5.0)
+        assert api.get_modality_metadata("route_position") is route_metadata
+        # the other modalities are unchanged
+        assert api.get_ego_state_se3_at_iteration(5) is not None
+
+    def test_pickling_keeps_the_route_file(self, tmp_path: Path):
+        import pickle
+
+        log_dir, _ = _write_log(tmp_path, xs=[2.0 * i for i in range(11)])
+        _write_route_map(log_dir)
+        api = pickle.loads(pickle.dumps(ArrowSceneAPI(log_dir, route_file="route_map")))
+        assert api.get_route_progress_at_iteration(5) == pytest.approx(5.0)
+
+    def test_builders_pass_the_route_file_to_scenes_and_filter(self, tmp_path: Path):
+        from py123d.api.scene.arrow.arrow_scene_builder import _extract_scenes_from_log_dir
+        from py123d.api.scene.arrow.lazy_scene_sequence import LazySceneSequence
+
+        # route_position 18 m, route_map 9 m (half the progress)
+        log_dir, _ = _write_log(tmp_path, xs=[2.0 * i for i in range(10)])
+        _write_route_map(log_dir)
+        position = build_log_scene_index(log_dir, SceneFilter(future_num_iterations=2, min_remaining_route_m=4.0))
+        mapped = build_log_scene_index(
+            log_dir, SceneFilter(future_num_iterations=2, min_remaining_route_m=4.0, route_file="route_map")
+        )
+        assert position.anchor_indices.tolist() == [0, 1, 2, 3, 4, 5, 6, 7]  # remaining 18 - 2i >= 4
+        assert mapped.anchor_indices.tolist() == [0, 1, 2, 3, 4, 5]  # remaining 9 - i >= 4 (anchors to row 7)
+        scene = LazySceneSequence([mapped])[0]
+        assert scene.get_route_progress_at_iteration(1) == pytest.approx(1.0)
+        eager = _extract_scenes_from_log_dir(
+            log_dir, SceneFilter(future_num_iterations=2, route_file="route_map"), None
+        )
+        assert eager[2].get_route_progress_at_iteration(0) == pytest.approx(2.0)
+
+    def test_log_without_route_map(self, tmp_path: Path):
+        log_dir, _ = _write_log(tmp_path, xs=[2.0 * i for i in range(5)])
+        api = ArrowSceneAPI(log_dir, route_file="route_map")
+        assert api.get_route() is None
+        assert api.get_route_progress_at_iteration(0) is None
+        assert (
+            build_log_scene_index(
+                log_dir, SceneFilter(future_num_iterations=1, min_remaining_route_m=1.0, route_file="route_map")
+            )
+            is None
+        )
+
+    def test_route_map_with_other_rows_is_refused(self, tmp_path: Path):
+        log_dir, _ = _write_log(tmp_path, xs=[2.0 * i for i in range(6)])
+        _write_route_map(log_dir, rows=3)
+        with pytest.raises(ValueError, match="one row per ego frame"):
+            ArrowSceneAPI(log_dir, route_file="route_map").get_route()
+
+    @pytest.mark.parametrize("name", ["", "route_map.arrow", "a/route_map"])
+    def test_invalid_route_file_names(self, name: str):
+        with pytest.raises(ValueError, match="route_file must be a file stem"):
+            SceneFilter(route_file=name)
