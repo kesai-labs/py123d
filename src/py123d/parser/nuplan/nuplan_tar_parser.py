@@ -583,6 +583,7 @@ class NuplanTarParser(BaseDatasetParser):
         nuplan_maps_root: Union[Path, str],
         nuplan_archive_roots: Union[Path, str, List[Union[Path, str]]],
         log_names: Optional[List[str]] = None,
+        sensor_logs: Optional[str] = None,
         jpeg_quality: Optional[int] = None,
         shard_index: int = 0,
         num_shards: int = 1,
@@ -595,6 +596,9 @@ class NuplanTarParser(BaseDatasetParser):
             ``.logs.txt`` files (:mod:`py123d.parser.nuplan.nuplan_tar_index`); a string may list several folders
             separated by ``os.pathsep``.
         :param log_names: Optional allow-list of log names to convert.
+        :param sensor_logs: ``"with"``: only the logs that appear in an indexed sensor archive; ``"without"``: only
+            the other logs (annotations only); None: all logs. Only about 1,500 of the ~17,000 nuPlan logs have
+            sensor data.
         :param jpeg_quality: cv2 quality to re-encode camera JPEGs at, or None to store
             the original nuPlan bytes untouched.
         :param shard_index: This task's shard of the log list (SLURM-array parallelism).
@@ -618,6 +622,8 @@ class NuplanTarParser(BaseDatasetParser):
             roots = list(nuplan_archive_roots)
         self._nuplan_archive_roots = [Path(root) for root in roots]
         self._log_names = set(log_names) if log_names is not None else None
+        assert sensor_logs in (None, "with", "without"), f"sensor_logs must be None, 'with' or 'without': {sensor_logs}"
+        self._sensor_logs = sensor_logs
         self._jpeg_quality = int(jpeg_quality) if jpeg_quality is not None else None
         self._shard_index = int(shard_index)
         self._num_shards = int(num_shards)
@@ -649,6 +655,10 @@ class NuplanTarParser(BaseDatasetParser):
 
             if self._log_names is not None:
                 valid_log_names = [log_name for log_name in valid_log_names if log_name in self._log_names]
+            if self._sensor_logs is not None:
+                with_sensors = self._index.log_names
+                keep = self._sensor_logs == "with"
+                valid_log_names = [log_name for log_name in valid_log_names if (log_name in with_sensors) == keep]
 
             for log_name in valid_log_names:
                 split_log_path_pairs.append((split, nuplan_split_folder / f"{log_name}.db"))

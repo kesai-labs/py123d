@@ -14,6 +14,8 @@ parser:
   # folders separated by ":").
   nuplan_archive_roots: ${dataset_paths.nuplan_archive_roots}
   log_names: null
+  # "with": only the logs in an indexed sensor archive; "without": only the other logs (annotations only); null: all.
+  sensor_logs: null
   # Re-encode the camera JPEGs at this quality (1 to 100); null stores the original nuPlan JPEGs (and, with
   # codec=kedec, their YUV planes go to the AV1 encoder unchanged).
   jpeg_quality: null
