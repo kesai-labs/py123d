@@ -39,6 +39,7 @@ from py123d.datatypes.sensors.lidar import Lidar, LidarFeature
 from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
 from py123d.parser.base_dataset_parser import ModalitiesSync, ParsedCamera
 from py123d.parser.physical_ai_av.physical_ai_av_camera_selection import (
+    FALLBACK_DELAY_US,
     FRONT_CAMERA,
     camera_azimuth_deg,
     direction_delay_us,
@@ -200,7 +201,11 @@ class PhysicalAIAVZipLogParser(PhysicalAIAVLogParser):
                     samples.append(direction_delay_us(xyz, times, int(spin_starts[k]), center_xy, azimuth))
             delay = front_delay_us(samples)
         if delay is None:
-            logger.warning("Clip %s: no front direction delay; the reference times are the spin starts.", self._clip_id)
+            logger.warning(
+                "Clip %s: no front direction delay in the sampled spins; the fixed delay of %d us is used.",
+                self._clip_id,
+                FALLBACK_DELAY_US,
+            )
         selection = select_camera_frames(camera_timestamps, reference_times(spin_starts, delay))
 
         obstacle_df = self._parquet(reader, "labels", "obstacle.offline", "parquet")

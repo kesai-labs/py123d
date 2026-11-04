@@ -132,7 +132,9 @@ def test_direction_delay():
     assert direction_delay_us(near_xyz, near_times, 1_000_000, (0.0, 0.0), 0.0) is None
     assert front_delay_us([None, 49_000.0, 51_000.0, 50_000.0]) == 50_000
     assert front_delay_us([None]) is None
-    np.testing.assert_array_equal(reference_times([0, 100_000], None), [0, 100_000])
+    # Without a measured delay: the fixed delay (the measured delay lies between 49.1 and 50.6 ms over 196 clips).
+    np.testing.assert_array_equal(reference_times([0, 100_000], None), [50_000, 150_000])
+    np.testing.assert_array_equal(reference_times([0, 100_000], 0), [0, 100_000])
 
 
 def test_two_camera_groups_keep_one_capture_time_each():

@@ -3,7 +3,10 @@
 The cameras record 30 images per second; the lidar spins at 10 Hz. Per spin, one reference time for all seven
 cameras: the time at which the lidar measures the direction of the front camera (front wide). It is the spin start
 plus a delay, the median over sampled spins of the median time stamp of the points farther than 10 m within 1 degree
-of the camera azimuth (as the KE:SAI rule of the report "camera-lidar-compression").
+of the camera azimuth (as the KE:SAI rule of the report "camera-lidar-compression"). A clip without such points in
+the sampled spins (seen for about 0.07 % of the clips: no lidar points within 1 degree of the camera azimuth, or only
+points nearer than 10 m) uses the fixed delay of 50 ms: over 196 random clips the delay lies between 49.1 and 50.6 ms
+(median 50.0 ms), because it is set by the lidar and camera mounting, not by the scene.
 
 The cameras are triggered in two groups (front wide, front tele, rear left, rear right; cross left, cross right,
 rear tele, the second group at a constant offset of up to 16.7 ms). In each group, the first camera present keeps
@@ -32,6 +35,7 @@ CONE_DEG = 1.0
 HYSTERESIS_US = 500
 LIMIT_US = 26_000
 MATCH_US = 5_000
+FALLBACK_DELAY_US = 50_000  # front direction delay of a clip without a measured value (see the module docstring)
 
 
 def camera_azimuth_deg(camera_to_imu_rotation: npt.NDArray[np.float64]) -> float:
@@ -64,8 +68,8 @@ def front_delay_us(delays: Iterable[Optional[float]]) -> Optional[int]:
 
 
 def reference_times(spin_starts_us: npt.ArrayLike, delay_us: Optional[int]) -> npt.NDArray[np.int64]:
-    """The reference time of each spin: its start plus the front direction delay (the start without a delay)."""
-    return np.asarray(spin_starts_us, dtype=np.int64) + int(delay_us or 0)
+    """The reference time of each spin: its start plus the front direction delay (FALLBACK_DELAY_US for None)."""
+    return np.asarray(spin_starts_us, dtype=np.int64) + int(FALLBACK_DELAY_US if delay_us is None else delay_us)
 
 
 def _synchronized(frame_ts: npt.NDArray[np.int64], leader_ts: npt.NDArray[np.int64]) -> bool:
