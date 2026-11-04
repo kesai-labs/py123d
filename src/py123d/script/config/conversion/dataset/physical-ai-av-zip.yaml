@@ -1,0 +1,56 @@
+# Physical AI AV from the chunk archives of the Hugging Face dataset, without extraction:
+# py123d.parser.physical_ai_av.physical_ai_av_zip_parser. Asynchronous conversion only.
+# kedec (AV1 cameras, 10 images per second selected by the lidar front direction; kedec lidar in grid mode):
+#   py123d-conversion dataset=physical-ai-av-zip codec=kedec async_conversion=true
+parser:
+  _target_: py123d.parser.physical_ai_av.physical_ai_av_zip_parser.PhysicalAIAVZipParser
+  _convert_: 'all'
+
+  splits: ["physical-ai-av_train", "physical-ai-av_val", "physical-ai-av_test"]
+  physical_ai_av_data_root: ${dataset_paths.physical_ai_av_data_root}
+  max_clips: null
+  cameras: null  # null: all seven
+  # [chunk_start, chunk_end): a range of chunks (for Slurm jobs); null: unbounded.
+  chunk_start: null
+  chunk_end: null
+  clip_ids: null
+  delay_sample_every: 10  # every n-th spin measures the front direction delay
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}  # must be true: the parser converts asynchronously
+
+  # The sensor data are stored in the logs: the store option "path" would reference an extracted tree.
+  camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4", "av1"
+  lidar_store_option: "binary"
+  lidar_codec: "laz" # "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc", "kedec"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    # The lidar spins (10 Hz) as reference.
+    reference_column: lidar.lidar_merged.timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

@@ -92,6 +92,11 @@ class PhysicalAIAVParser(BaseDatasetParser):
         (i.e. the calibration parquet for that chunk exists).
         """
         clip_index = pd.read_parquet(self._data_root / "clip_index.parquet")
+        if "split" not in clip_index.columns:
+            # Current dataset revisions store the split in splits/default.parquet (index clip_id, column split).
+            splits_path = self._data_root / "splits" / "default.parquet"
+            assert splits_path.exists(), f"clip_index.parquet has no split column, and {splits_path} does not exist."
+            clip_index = clip_index.join(pd.read_parquet(splits_path)[["split"]], how="inner")
         available_chunks = self._discover_available_chunks()
         entries: List[Tuple[str, int, str]] = []
         for split in self._splits:

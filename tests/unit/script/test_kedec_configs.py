@@ -23,7 +23,9 @@ def _compose(*overrides):
         return compose(config_name="default_conversion", overrides=list(overrides))
 
 
-@pytest.mark.parametrize("dataset", ["nuplan-mini", "nuplan-tar", "physical-ai-av", "nuscenes-mini", "pandaset"])
+@pytest.mark.parametrize(
+    "dataset", ["nuplan-mini", "nuplan-tar", "physical-ai-av", "physical-ai-av-zip", "nuscenes-mini", "pandaset"]
+)
 def test_without_codec_the_dataset_config_is_unchanged(dataset):
     """Without codec=, the composed dataset configuration equals the dataset file (no codec keys added)."""
     cfg = _compose(f"dataset={dataset}")
@@ -64,6 +66,15 @@ def test_kedec_preset_on_the_nuplan_tar_config():
 
     config = hydra.utils.instantiate(lwc)
     assert config.lidar_codec_config.kedec_range_step_m == 0.02 and config.video_codec_config.nvenc_cq == 38
+
+
+def test_kedec_preset_on_the_physical_ai_av_zip_config():
+    cfg = _compose("dataset=physical-ai-av-zip", "codec=kedec", "async_conversion=true")
+    lwc = cfg.dataset.log_writer_config
+    assert lwc.camera_store_option == "av1" and lwc.lidar_codec == "kedec" and lwc.async_conversion
+    assert cfg.dataset.parser._target_ == "py123d.parser.physical_ai_av.physical_ai_av_zip_parser.PhysicalAIAVZipParser"
+    assert cfg.dataset.log_writer.sync_config.reference_column == "lidar.lidar_merged.timestamp_us"
+    assert cfg.dataset.log_writer.sync_config.direction_overrides == {"camera": "nearest"}
 
 
 def _ray_executor(gpus: int, threads: int) -> RayExecutor:
