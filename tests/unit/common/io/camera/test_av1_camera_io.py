@@ -7,6 +7,7 @@ deselected by default (run them with ``pytest -m gpu`` on a machine with an AV1-
 from __future__ import annotations
 
 import multiprocessing
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -312,6 +313,20 @@ class TestGpuSessionReuse:
         # first 2 s of short synthetic noise clips are not representative).
         with av.open(str(tmp_path / "r0.av1.mp4")) as a, av.open(str(tmp_path / "f0.av1.mp4")) as b:
             assert [bytes(p) for p in a.demux(video=0) if p.size] == [bytes(p) for p in b.demux(video=0) if p.size]
+
+    def test_reused_videos_do_not_start_decoder_threads(self, tmp_path):
+        import threading
+
+        reuse = VideoCodecConfig(nvenc_reuse_sessions=True)
+        frames = self._smooth(12, seed=0)
+        _write(tmp_path / "a.av1.mp4", frames, reuse)
+        before = threading.active_count()
+        writer = AV1Writer(tmp_path / "b.av1.mp4", reuse, threaded=False)
+        writer.write_frame(frames[0])  # opens the mux-only stream of a reused session
+        native = len(os.listdir("/proc/self/task"))
+        writer.close()
+        assert threading.active_count() == before
+        assert native < 200  # without the thread limit, the unused decoder starts one thread per CPU core
 
     def test_a_missing_packet_raises_and_the_session_is_dropped(self, tmp_path, monkeypatch):
         reuse = VideoCodecConfig(nvenc_reuse_sessions=True)

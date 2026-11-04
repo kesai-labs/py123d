@@ -239,6 +239,9 @@ class AV1Writer:
                 stream = container.add_stream_from_template(pooled.template, opaque=True)
                 stream.time_base = Fraction(1, self.config.frame_rate)
                 _set_color_tags(stream.codec_context, frame)
+                # The mux-only stream holds the template's AV1 decoder, which opens with the file but never decodes:
+                # one thread instead of one per CPU core (about 250 threads per open video otherwise).
+                stream.codec_context.thread_count = 1
             except Exception:
                 container.close()
                 with _POOL_LOCK:
@@ -381,6 +384,7 @@ class AV1Writer:
                 if pooled.template is None:
                     pooled.template_container = av.open(str(self.output_path))
                     pooled.template = pooled.template_container.streams.video[0]
+                    pooled.template.codec_context.thread_count = 1
                 with _POOL_LOCK:
                     _pool().setdefault(key, []).append(pooled)
 
