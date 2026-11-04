@@ -16,7 +16,7 @@ from collections import OrderedDict
 from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -79,19 +79,71 @@ def resolve_av1_encoder(config: VideoCodecConfig) -> str:
     return _ENCODERS["svt"]
 
 
+# Options of a reused NVENC session: zero latency (each encode call returns the packet of its image; the bitstream is
+# the same as with the default latency) and IDR key frames, so each video starts with a key frame and its sequence
+# header.
+_REUSE_OPTIONS = {"delay": "0", "zerolatency": "1", "forced-idr": "1"}
+
+
+def _reuses_sessions(config: VideoCodecConfig, encoder: str) -> bool:
+    return encoder == _ENCODERS["nvenc"] and config.nvenc_reuse_sessions
+
+
+def _encoder_options(config: VideoCodecConfig, encoder: str) -> Dict[str, str]:
+    if encoder != _ENCODERS["nvenc"]:
+        return config.svt_options()
+    options = config.nvenc_options()
+    return {**options, **_REUSE_OPTIONS} if config.nvenc_reuse_sessions else options
+
+
 def av1_codec_metadata(config: VideoCodecConfig, encoder: str) -> Dict[str, Any]:
     """The codec description written into the schema metadata of a camera's Arrow file (key ``codec``)."""
     from py123d import __version__
 
-    options = config.nvenc_options() if encoder == _ENCODERS["nvenc"] else config.svt_options()
-    return {
+    description = {
         "codec": "av1",
         "version": AV1_FORMAT_VERSION,
         "encoder": encoder,
         "writer": f"py123d {__version__}",
         "frame_rate": config.frame_rate,
-        "options": options,
+        "options": _encoder_options(config, encoder),
     }
+    if _reuses_sessions(config, encoder):
+        description["session"] = "reused"
+    return description
+
+
+def _set_color_tags(context: Any, frame: YUV420Frame) -> None:
+    context.color_range = _COLOR_RANGE_JPEG if frame.full_range else _COLOR_RANGE_MPEG
+    context.colorspace = AV_COLORSPACE[frame.matrix]
+    if frame.matrix == "bt709":
+        context.color_primaries = 1
+        context.color_trc = 1
+
+
+class _PooledEncoder:
+    """An open NVENC session that writes one video after another (``nvenc_reuse_sessions``)."""
+
+    def __init__(self, stream: Any) -> None:
+        self.stream = stream  # the stream of the first video; its codec context is the encoder
+        self.template: Any = None  # the first video's stream, opened for reading: the template of later videos
+        self.template_container: Any = None
+        self.next_pts = 0
+        self.videos = 0  # videos started with this session
+
+
+# Idle reused encoders of this process, per (width, height, full range, matrix, options, frame rate).
+_POOL: Dict[Tuple[Any, ...], List[_PooledEncoder]] = {}
+_POOL_LOCK = threading.Lock()
+_POOL_PID = os.getpid()
+
+
+def _pool() -> Dict[Tuple[Any, ...], List[_PooledEncoder]]:
+    global _POOL_PID
+    if os.getpid() != _POOL_PID:  # a forked process: the sessions of the parent process are not usable here
+        _POOL.clear()
+        _POOL_PID = os.getpid()
+    return _POOL
 
 
 class AV1Writer:
@@ -100,6 +152,14 @@ class AV1Writer:
     The encoder opens with the first image, whose size and color tags all later images must share. :meth:`close`
     flushes the encoder and closes the file; it is safe to call more than once and releases the encoder also after
     an error.
+
+    With ``nvenc_reuse_sessions`` in the configuration, the writer takes an idle NVENC session of its process for
+    the same image size, color tags and settings (or opens one) and returns it on :meth:`close` instead of closing
+    it. The video stream then is a mux-only copy of the session's first video stream; each video starts with a key
+    frame, and :meth:`close` checks that the video received one packet per image. A session that failed is not
+    reused. The rate control keeps its state from the previous video: on PhysicalAI clips (also night after day)
+    the mean PSNR of a video differed by at most 0.05 dB from a fresh session and the size by at most 0.7 %; during
+    the first 2 s of a video the PSNR differed by up to 0.4 dB.
 
     With ``threaded`` (the default), the images are encoded by one background thread per writer through a queue of
     ``queue_size`` images: an encode call to NVENC returns only after the image is processed (about 0.1 s per image
@@ -137,6 +197,10 @@ class AV1Writer:
         self._queue: Any = queue.Queue(maxsize=max(1, int(queue_size))) if self._threaded else None
         self._thread: Optional[threading.Thread] = None
         self._error: Optional[BaseException] = None
+        self._reuse = _reuses_sessions(self.config, self.encoder)
+        self._pooled: Optional[_PooledEncoder] = None
+        self._pool_key: Optional[Tuple[Any, ...]] = None
+        self._packets = 0
 
     def __enter__(self) -> "AV1Writer":
         return self
@@ -145,6 +209,46 @@ class AV1Writer:
         self.close()
 
     def _open(self, frame: YUV420Frame) -> None:
+        if self._reuse:
+            self._open_pooled(frame)
+            return
+        self._open_fresh(frame)
+
+    def _open_pooled(self, frame: YUV420Frame) -> None:
+        import av
+
+        options = _encoder_options(self.config, self.encoder)
+        key = (
+            frame.width,
+            frame.height,
+            frame.full_range,
+            frame.matrix,
+            tuple(sorted(options.items())),
+            self.config.frame_rate,
+        )
+        with _POOL_LOCK:
+            idle = _pool().setdefault(key, [])
+            pooled = idle.pop() if idle else None
+        if pooled is None:
+            self._open_fresh(frame)  # a new session; its first video is written through its own stream
+            self._pooled = _PooledEncoder(self._stream)
+        else:
+            self.output_path.parent.mkdir(parents=True, exist_ok=True)
+            container = av.open(str(self.output_path), "w", format="mp4")
+            try:
+                stream = container.add_stream_from_template(pooled.template, opaque=True)
+                stream.time_base = Fraction(1, self.config.frame_rate)
+                _set_color_tags(stream.codec_context, frame)
+            except Exception:
+                container.close()
+                with _POOL_LOCK:
+                    _pool().setdefault(key, []).append(pooled)
+                raise
+            self._container, self._stream, self._pooled = container, stream, pooled
+            self._format = (frame.width, frame.height, frame.full_range, frame.matrix)
+        self._pool_key = key
+
+    def _open_fresh(self, frame: YUV420Frame) -> None:
         import av
 
         if self.encoder == _ENCODERS["svt"]:
@@ -155,14 +259,8 @@ class AV1Writer:
             stream = container.add_stream(self.encoder, rate=self.config.frame_rate)
             stream.width, stream.height, stream.pix_fmt = frame.width, frame.height, "yuv420p"
             stream.time_base = Fraction(1, self.config.frame_rate)
-            context = stream.codec_context
-            context.color_range = _COLOR_RANGE_JPEG if frame.full_range else _COLOR_RANGE_MPEG
-            context.colorspace = AV_COLORSPACE[frame.matrix]
-            if frame.matrix == "bt709":
-                context.color_primaries = 1
-                context.color_trc = 1
-            options = self.config.nvenc_options() if self.encoder == _ENCODERS["nvenc"] else self.config.svt_options()
-            stream.options = options
+            _set_color_tags(stream.codec_context, frame)
+            stream.options = _encoder_options(self.config, self.encoder)
         except Exception:
             container.close()
             raise
@@ -200,12 +298,30 @@ class AV1Writer:
         import av
 
         video_frame = av.VideoFrame.from_ndarray(yuv.to_i420(), format="yuv420p")
-        video_frame.pts = index
-        video_frame.time_base = Fraction(1, self.config.frame_rate)
+        time_base = Fraction(1, self.config.frame_rate)
+        video_frame.time_base = time_base
         video_frame.color_range = _COLOR_RANGE_JPEG if yuv.full_range else _COLOR_RANGE_MPEG
         video_frame.colorspace = AV_COLORSPACE[yuv.matrix]
-        for packet in self._stream.encode(video_frame):
+        if self._pooled is None:
+            video_frame.pts = index
+            for packet in self._stream.encode(video_frame):
+                self._container.mux(packet)
+            return
+        # A reused session: its own increasing time stamps, a key frame at the video start, and per video the packet
+        # time stamps 0, 1, 2, ... (one packet per image at once: zero latency, no B-frames).
+        video_frame.pts = self._pooled.next_pts
+        self._pooled.next_pts += 1
+        encoder = self._pooled.stream.codec_context
+        if index == 0:
+            video_frame.pict_type = av.video.frame.PictureType.I
+            self._pooled.videos += 1
+        for packet in encoder.encode(video_frame):
+            packet.stream = self._stream
+            packet.time_base = time_base
+            packet.pts = packet.dts = self._packets
+            packet.duration = 1
             self._container.mux(packet)
+            self._packets += 1
 
     def _run(self) -> None:
         """The background thread: encodes the queued images in order; after an error it only empties the queue."""
@@ -238,7 +354,35 @@ class AV1Writer:
             self._stop_thread()
         finally:
             if self._container is not None:
-                self._finish()
+                if self._pooled is None:
+                    self._finish()
+                else:
+                    self._finish_pooled()
+
+    def _finish_pooled(self) -> None:
+        """Close the video and return the session to the pool (not after an error or a missing packet)."""
+        import av
+
+        pooled, key = self._pooled, self._pool_key
+        reusable = False
+        try:
+            self._raise_background_error()
+            if self._packets != self.frame_count:
+                raise RuntimeError(
+                    f"{self.output_path}: {self._packets} packets for {self.frame_count} images (reused NVENC session)."
+                )
+            reusable = True
+        finally:
+            self._container.close()
+            self._container = None
+            self._stream = None
+            self._pooled = None
+            if reusable and pooled is not None:
+                if pooled.template is None:
+                    pooled.template_container = av.open(str(self.output_path))
+                    pooled.template = pooled.template_container.streams.video[0]
+                with _POOL_LOCK:
+                    _pool().setdefault(key, []).append(pooled)
 
     def _finish(self) -> None:
         try:

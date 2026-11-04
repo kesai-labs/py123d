@@ -38,6 +38,11 @@ class VideoCodecConfig:
     nvenc_b_frames: int = 0
     # GPU index, -1 for any.
     nvenc_gpu: int = -1
+    # Reuse the NVENC sessions of a process for one video after another (see AV1Writer). Opening a session took up to
+    # 10 s with about 300 sessions open on a node (the driver serializes session creation), longer than encoding the
+    # video. A reused session starts each video with a key frame; the videos have the same quality and size as with
+    # fresh sessions but are not byte-identical. Requires nvenc_b_frames 0.
+    nvenc_reuse_sessions: bool = False
 
     # --- SVT-AV1 ---
     # Constant rate factor (0 to 63) and preset (0 slowest to 13 fastest). No single CRF gives NVENC cq 38's file
@@ -57,6 +62,9 @@ class VideoCodecConfig:
         assert 0 <= self.svt_crf <= 63, f"svt_crf must be in [0, 63], got {self.svt_crf}."
         assert 0 <= self.svt_preset <= 13, f"svt_preset must be in [0, 13], got {self.svt_preset}."
         assert self.nvenc_b_frames >= 0 and self.svt_threads >= 0
+        assert not (self.nvenc_reuse_sessions and self.nvenc_b_frames), (
+            "nvenc_reuse_sessions requires nvenc_b_frames 0."
+        )
 
     def nvenc_options(self) -> Dict[str, str]:
         """The FFmpeg options of the av1_nvenc encoder."""

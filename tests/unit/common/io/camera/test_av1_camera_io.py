@@ -157,6 +157,25 @@ class TestBackgroundEncoding:
         assert writer._container is None and writer._thread is None
 
 
+class TestSessionReuseConfig:
+    def test_reuse_requires_no_b_frames(self):
+        with pytest.raises(AssertionError):
+            VideoCodecConfig(nvenc_reuse_sessions=True, nvenc_b_frames=2)
+
+    def test_metadata_marks_reused_sessions(self):
+        reuse = av1_camera_io.av1_codec_metadata(VideoCodecConfig(nvenc_reuse_sessions=True), "av1_nvenc")
+        assert reuse["session"] == "reused" and reuse["options"]["zerolatency"] == "1"
+        assert reuse["options"]["forced-idr"] == "1" and reuse["options"]["cq"] == "38"
+        fresh = av1_camera_io.av1_codec_metadata(VideoCodecConfig(), "av1_nvenc")
+        assert "session" not in fresh and "zerolatency" not in fresh["options"]
+
+    def test_svt_ignores_session_reuse(self, tmp_path):
+        config = VideoCodecConfig(backend="svt", svt_preset=12, svt_crf=30, nvenc_reuse_sessions=True)
+        _write(tmp_path / "a.av1.mp4", _frames(5), config)
+        assert av1_camera_io._pool() == {} or all(not v for v in av1_camera_io._pool().values())
+        assert AV1Reader(tmp_path / "a.av1.mp4").frame_count == 5
+
+
 class TestReader:
     def test_random_reads_equal_sequential_reads(self, svt_video):
         path, frames = svt_video
@@ -241,3 +260,67 @@ class TestGpu:
             writer.write_frame(frame)
             writer.close()
         assert Path(tmp_path / "v39.av1.mp4").exists()
+
+
+@pytest.mark.gpu
+class TestGpuSessionReuse:
+    @pytest.fixture(autouse=True)
+    def _require_nvenc(self, monkeypatch):
+        if not nvenc_av1_available():
+            pytest.skip("no NVENC AV1 encoder")
+        monkeypatch.setattr(av1_camera_io, "_POOL", {})
+
+    @staticmethod
+    def _large(frames):
+        return [YUV420Frame.from_rgb(np.repeat(np.repeat(f.to_rgb(), 2, 0), 2, 1)) for f in frames]
+
+    @staticmethod
+    def _smooth(n, seed):
+        """Images that change as video does: a texture moving by 2 pixels per image over a brightness ramp."""
+        rng = np.random.default_rng(seed)
+        texture = rng.integers(0, 256, (192, 512)).astype(np.float32)
+        ramp = np.linspace(40, 200, 256)[None, :]
+        out = []
+        for i in range(n):
+            y = 0.6 * ramp + 0.4 * texture[:, 2 * i : 2 * i + 256]
+            rgb = np.repeat(np.clip(y, 0, 255).astype(np.uint8)[:, :, None], 3, axis=2)
+            out.append(YUV420Frame.from_rgb(rgb))
+        return out
+
+    def test_videos_through_one_session(self, tmp_path):
+        reuse = VideoCodecConfig(nvenc_reuse_sessions=True)
+        clips = [self._smooth(23 - k, seed=k) for k in range(3)]
+        for k, frames in enumerate(clips):
+            _write(tmp_path / f"r{k}.av1.mp4", frames, reuse)
+            _write(tmp_path / f"f{k}.av1.mp4", frames, VideoCodecConfig())
+        pool = av1_camera_io._pool()
+        assert sum(len(v) for v in pool.values()) == 1  # one session wrote the three videos
+        import av
+
+        for k, frames in enumerate(clips):
+            reused, fresh = AV1Reader(tmp_path / f"r{k}.av1.mp4"), AV1Reader(tmp_path / f"f{k}.av1.mp4")
+            assert reused.frame_count == len(frames)
+            assert all(_identify(reused.get_yuv(i), frames) == i for i in range(len(frames)))
+            for i in (len(frames) - 1, 3, 12, 0):  # random access after sequential reads
+                assert _identify(AV1Reader(tmp_path / f"r{k}.av1.mp4").get_yuv(i), frames) == i
+            with av.open(str(tmp_path / f"r{k}.av1.mp4")) as c:
+                keys = [i for i, p in enumerate(p for p in c.demux(video=0) if p.size) if p.is_keyframe]
+            assert keys == list(range(0, len(frames), 10))
+            assert fresh.frame_count == len(frames)
+        # The first video of a session is the video of a fresh session (zero latency gives the same bitstream). Later
+        # videos start with the rate control state of the previous one; their quality is checked on real clips (the
+        # first 2 s of short synthetic noise clips are not representative).
+        with av.open(str(tmp_path / "r0.av1.mp4")) as a, av.open(str(tmp_path / "f0.av1.mp4")) as b:
+            assert [bytes(p) for p in a.demux(video=0) if p.size] == [bytes(p) for p in b.demux(video=0) if p.size]
+
+    def test_a_missing_packet_raises_and_the_session_is_dropped(self, tmp_path, monkeypatch):
+        reuse = VideoCodecConfig(nvenc_reuse_sessions=True)
+        frames = self._large(_frames(12))
+        _write(tmp_path / "a.av1.mp4", frames, reuse)
+        writer = AV1Writer(tmp_path / "b.av1.mp4", reuse, threaded=False)
+        for frame in frames:
+            writer.write_frame(frame)
+        writer._packets -= 1  # as if the encoder had not returned the packet of one image
+        with pytest.raises(RuntimeError, match="packets for 12 images"):
+            writer.close()
+        assert sum(len(v) for v in av1_camera_io._pool().values()) == 0
