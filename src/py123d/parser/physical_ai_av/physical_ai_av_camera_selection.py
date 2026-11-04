@@ -8,7 +8,9 @@ of the camera azimuth (as the KE:SAI rule of the report "camera-lidar-compressio
 The cameras are triggered in two groups (front wide, front tele, rear left, rear right; cross left, cross right,
 rear tele, the second group at a constant offset of up to 16.7 ms). In each group, the first camera present keeps
 the image nearest to each reference time with a hysteresis of 0.5 ms (at most 26 ms away), and the other cameras of
-the group keep their image of the same capture time (strictly within 5 ms), so each group keeps one capture time.
+the group keep their image of the same capture time (strictly within 5 ms), so each group keeps one capture time. A
+camera whose images lie 5 ms or more (median) from those of its group leader in a clip (seen for the rear tele
+camera) is selected on its own, with the same reference times, hysteresis and limit.
 """
 
 from __future__ import annotations
@@ -66,6 +68,16 @@ def reference_times(spin_starts_us: npt.ArrayLike, delay_us: Optional[int]) -> n
     return np.asarray(spin_starts_us, dtype=np.int64) + int(delay_us or 0)
 
 
+def _synchronized(frame_ts: npt.NDArray[np.int64], leader_ts: npt.NDArray[np.int64]) -> bool:
+    """Whether a camera captures with its group leader: the median offset of its images from the nearest leader image
+    lies within 5 ms."""
+    if len(frame_ts) == 0 or len(leader_ts) == 0:
+        return False
+    nearest = np.clip(np.searchsorted(leader_ts, frame_ts), 1, len(leader_ts) - 1)
+    offset = np.minimum(np.abs(frame_ts - leader_ts[nearest - 1]), np.abs(frame_ts - leader_ts[nearest]))
+    return float(np.median(offset)) < MATCH_US
+
+
 def select_camera_frames(
     camera_timestamps: Mapping[str, npt.ArrayLike],
     ref_ts: npt.ArrayLike,
@@ -92,8 +104,15 @@ def select_camera_frames(
         kept = leader >= 0
         capture_ts = leader_ts[np.where(kept, leader, 0)]
         for name in present[1:]:
+            member_ts = np.asarray(camera_timestamps[name], dtype=np.int64)
+            if not _synchronized(member_ts, leader_ts):
+                # Not triggered with its group in this clip (seen for the rear tele camera): its own selection.
+                selected[name] = select_nearest_frames(
+                    member_ts, ref_ts, hysteresis_us=HYSTERESIS_US, limit_us=LIMIT_US
+                )
+                continue
             member = np.full(len(ref_ts), -1, dtype=np.int64)
-            member[kept] = match_frames(camera_timestamps[name], capture_ts[kept], MATCH_US)
+            member[kept] = match_frames(member_ts, capture_ts[kept], MATCH_US)
             selected[name] = member
     for name, timestamps in camera_timestamps.items():
         if name not in grouped:

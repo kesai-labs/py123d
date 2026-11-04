@@ -205,3 +205,16 @@ def test_clip_collection(data_root):
     assert PhysicalAIAVZipParser(["physical-ai-av_val"], data_root).get_log_parsers() == []
     assert PhysicalAIAVZipParser(["physical-ai-av_train"], data_root, chunk_start=1).get_log_parsers() == []
     assert PhysicalAIAVZipParser(["physical-ai-av_train"], data_root, clip_ids=["c"]).get_log_parsers() == []
+
+
+def test_a_camera_not_synchronized_with_its_group_is_selected_on_its_own():
+    ref = reference_times(100_000 * np.arange(30), 50_000)
+    base = np.arange(-3, 95) * 33_333
+    stamps = {name: base + 10_200 for name in CAMERA_GROUPS[1]}
+    stamps["camera_rear_tele_30fov"] = base - 12_400  # its own trigger phase in this clip
+    selected = select_camera_frames(stamps, ref)
+    tele = stamps["camera_rear_tele_30fov"][selected["camera_rear_tele_30fov"]]
+    assert (selected["camera_rear_tele_30fov"] >= 0).all()
+    assert np.abs(tele - ref).max() <= 33_333 // 2 + 600
+    lead = stamps["camera_cross_left_120fov"][selected["camera_cross_left_120fov"]]
+    np.testing.assert_array_equal(stamps["camera_cross_right_120fov"][selected["camera_cross_right_120fov"]], lead)
