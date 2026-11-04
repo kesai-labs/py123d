@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import threading
 from collections import OrderedDict
 from fractions import Fraction
@@ -99,6 +100,12 @@ class AV1Writer:
     The encoder opens with the first image, whose size and color tags all later images must share. :meth:`close`
     flushes the encoder and closes the file; it is safe to call more than once and releases the encoder also after
     an error.
+
+    With ``threaded`` (the default), the images are encoded by one background thread per writer through a queue of
+    ``queue_size`` images: an encode call to NVENC returns only after the image is processed (about 0.1 s per image
+    with many sessions per GPU), so a parser that writes several cameras would otherwise wait for each image in turn.
+    The images of one writer keep their order, so the video is the same. An error of the background thread is raised
+    by the next :meth:`write_frame` or by :meth:`close`.
     """
 
     def __init__(
@@ -106,11 +113,15 @@ class AV1Writer:
         output_path: Union[str, Path],
         config: Optional[VideoCodecConfig] = None,
         encoder: Optional[str] = None,
+        threaded: bool = True,
+        queue_size: int = 8,
     ) -> None:
         """
         :param output_path: The path of the video file (``{key}.av1.mp4``).
         :param config: Encoder settings; defaults to :class:`VideoCodecConfig`.
         :param encoder: ``"av1_nvenc"`` or ``"libsvtav1"``; resolved from the configuration when None.
+        :param threaded: Encode in a background thread (see the class documentation).
+        :param queue_size: Images waiting for the background thread at most.
         """
         self.output_path = Path(output_path)
         self.config = config if config is not None else VideoCodecConfig()
@@ -122,6 +133,10 @@ class AV1Writer:
         self._stream: Any = None
         self._format: Optional[Tuple[int, int, bool, str]] = None
         self._closed = False
+        self._threaded = bool(threaded)
+        self._queue: Any = queue.Queue(maxsize=max(1, int(queue_size))) if self._threaded else None
+        self._thread: Optional[threading.Thread] = None
+        self._error: Optional[BaseException] = None
 
     def __enter__(self) -> "AV1Writer":
         return self
@@ -160,10 +175,9 @@ class AV1Writer:
         :param frame: A :class:`YUV420Frame`, or an (H, W, 3) uint8 RGB image (converted with the JFIF matrix).
         :return: The number of the image in the video (0, 1, 2, ...).
         """
-        import av
-
         if self._closed:
             raise RuntimeError(f"The AV1 writer of {self.output_path} is closed.")
+        self._raise_background_error()
         yuv = frame if isinstance(frame, YUV420Frame) else YUV420Frame.from_rgb(frame)
         if self._container is None:
             self._open(yuv)
@@ -171,25 +185,64 @@ class AV1Writer:
             raise ValueError(
                 f"Image {(yuv.width, yuv.height, yuv.full_range, yuv.matrix)} differs from the video {self._format}."
             )
+        index = self.frame_count
+        self.frame_count += 1
+        if not self._threaded:
+            self._encode(index, yuv)
+            return index
+        if self._thread is None:
+            self._thread = threading.Thread(target=self._run, name=f"av1-{self.output_path.name}", daemon=True)
+            self._thread.start()
+        self._queue.put((index, yuv))
+        return index
+
+    def _encode(self, index: int, yuv: YUV420Frame) -> None:
+        import av
+
         video_frame = av.VideoFrame.from_ndarray(yuv.to_i420(), format="yuv420p")
-        video_frame.pts = self.frame_count
+        video_frame.pts = index
         video_frame.time_base = Fraction(1, self.config.frame_rate)
         video_frame.color_range = _COLOR_RANGE_JPEG if yuv.full_range else _COLOR_RANGE_MPEG
         video_frame.colorspace = AV_COLORSPACE[yuv.matrix]
         for packet in self._stream.encode(video_frame):
             self._container.mux(packet)
-        index = self.frame_count
-        self.frame_count += 1
-        return index
+
+    def _run(self) -> None:
+        """The background thread: encodes the queued images in order; after an error it only empties the queue."""
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            if self._error is None:
+                try:
+                    self._encode(*item)
+                except BaseException as e:  # noqa: BLE001 - raised again by write_frame or close
+                    self._error = e
+
+    def _raise_background_error(self) -> None:
+        if self._error is not None:
+            raise RuntimeError(f"Encoding {self.output_path} failed: {self._error}") from self._error
+
+    def _stop_thread(self) -> None:
+        if self._thread is not None:
+            self._queue.put(None)
+            self._thread.join()
+            self._thread = None
 
     def close(self) -> None:
         """Flush the encoder and close the file (no effect when already closed)."""
         if self._closed:
             return
         self._closed = True
-        if self._container is None:
-            return
         try:
+            self._stop_thread()
+        finally:
+            if self._container is not None:
+                self._finish()
+
+    def _finish(self) -> None:
+        try:
+            self._raise_background_error()
             for packet in self._stream.encode(None):
                 self._container.mux(packet)
         finally:

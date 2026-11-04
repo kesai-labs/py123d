@@ -126,6 +126,37 @@ class TestWriter:
         assert VideoCodecConfig(svt_threads=4).svt_options()["svtav1-params"] == "lp=4"
 
 
+class TestBackgroundEncoding:
+    def test_threaded_and_unthreaded_videos_decode_the_same(self, tmp_path):
+        frames = _frames()
+        for threaded in (True, False):
+            with AV1Writer(tmp_path / f"v{int(threaded)}.av1.mp4", SVT, threaded=threaded, queue_size=2) as writer:
+                assert [writer.write_frame(f) for f in frames] == list(range(len(frames)))
+        a, b = AV1Reader(tmp_path / "v1.av1.mp4"), AV1Reader(tmp_path / "v0.av1.mp4")
+        assert a.frame_count == b.frame_count == len(frames)
+        for i in range(len(frames)):
+            np.testing.assert_array_equal(a.get_yuv(i).y, b.get_yuv(i).y)
+            assert _identify(a.get_yuv(i), frames) == i
+
+    def test_an_encoder_error_is_raised_and_the_file_closed(self, tmp_path, monkeypatch):
+        writer = AV1Writer(tmp_path / "e.av1.mp4", SVT, queue_size=1)
+        original = AV1Writer._encode
+
+        def failing(self, index, yuv):
+            if index == 3:
+                raise ValueError("encoder failure")
+            original(self, index, yuv)
+
+        monkeypatch.setattr(AV1Writer, "_encode", failing)
+        with pytest.raises(RuntimeError, match="encoder failure"):  # raised by a later write_frame
+            for frame in _frames(40):
+                writer.write_frame(frame)
+        with pytest.raises(RuntimeError, match="encoder failure"):  # and by close, which releases the encoder
+            writer.close()
+        writer.close()  # no effect when already closed
+        assert writer._container is None and writer._thread is None
+
+
 class TestReader:
     def test_random_reads_equal_sequential_reads(self, svt_video):
         path, frames = svt_video
