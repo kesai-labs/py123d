@@ -24,7 +24,8 @@ def _compose(*overrides):
 
 
 @pytest.mark.parametrize(
-    "dataset", ["nuplan-mini", "nuplan-tar", "physical-ai-av", "physical-ai-av-zip", "nuscenes-mini", "pandaset"]
+    "dataset",
+    ["nuplan-mini", "nuplan-tar", "physical-ai-av", "physical-ai-av-zip", "opendv", "nuscenes-mini", "pandaset"],
 )
 def test_without_codec_the_dataset_config_is_unchanged(dataset):
     """Without codec=, the composed dataset configuration equals the dataset file (no codec keys added)."""
@@ -74,6 +75,18 @@ def test_kedec_preset_on_the_physical_ai_av_zip_config():
     assert lwc.camera_store_option == "av1" and lwc.lidar_codec == "kedec" and lwc.async_conversion
     assert cfg.dataset.parser._target_ == "py123d.parser.physical_ai_av.physical_ai_av_zip_parser.PhysicalAIAVZipParser"
     assert cfg.dataset.log_writer.sync_config.reference_column == "lidar.lidar_merged.timestamp_us"
+    assert cfg.dataset.log_writer.sync_config.direction_overrides == {"camera": "nearest"}
+
+
+def test_kedec_preset_on_the_opendv_config():
+    """OpenDV: AV1 cameras, the kept images as sync reference, the data folder from the dataset paths."""
+    cfg = _compose("dataset=opendv", "codec=kedec", "async_conversion=true", "dataset_paths.opendv_data_root=/d")
+    lwc = cfg.dataset.log_writer_config
+    assert lwc.camera_store_option == "av1" and lwc.async_conversion
+    assert not lwc.infer_ego_dynamics and not lwc.infer_box_dynamics
+    assert cfg.dataset.parser._target_ == "py123d.parser.opendv.opendv_parser.OpenDVParser"
+    assert cfg.dataset.parser.opendv_data_root == "/d"
+    assert cfg.dataset.log_writer.sync_config.reference_column == "camera.pcam_f0.timestamp_us"
     assert cfg.dataset.log_writer.sync_config.direction_overrides == {"camera": "nearest"}
 
 

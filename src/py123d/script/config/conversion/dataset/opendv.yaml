@@ -1,0 +1,52 @@
+# OpenDV-YouTube from the downloaded videos: py123d.parser.opendv.opendv_parser. One camera-only log per video,
+# 10 images per second on the toolkit's grid (start_discard + k x 100 ms, nearest frame). Asynchronous conversion only.
+# kedec (AV1 cameras):
+#   py123d-conversion dataset=opendv codec=kedec async_conversion=true
+parser:
+  _target_: py123d.parser.opendv.opendv_parser.OpenDVParser
+  _convert_: 'all'
+
+  splits: ["opendv_train", "opendv_val"]
+  opendv_data_root: ${dataset_paths.opendv_data_root}
+  video_ids: null
+  max_videos: null
+  decode_threads: 4  # decoder threads per video
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}  # must be true: the parser converts asynchronously
+
+  # The sensor data are stored in the logs: the store option "path" would reference an extracted tree.
+  camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4", "av1"
+  lidar_store_option: "binary"
+  lidar_codec: "laz" # "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc", "kedec"
+
+  infer_ego_dynamics: false  # no ego states
+  infer_box_dynamics: false  # no boxes
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    # The kept images (10 per second) as reference.
+    reference_column: camera.pcam_f0.timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}
