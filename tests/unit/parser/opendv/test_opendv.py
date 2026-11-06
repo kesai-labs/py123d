@@ -134,6 +134,16 @@ def test_parse_a_video(data_root):
         assert abs(y - expected_y) < 3
 
 
+def test_one_decoder_thread_gives_the_same_images(data_root):
+    """decode_threads=1 decodes without frame threading (a fallback for videos that fail with it)."""
+    threaded = OpenDVParser(splits=["opendv_train"], opendv_data_root=data_root).get_log_parsers()[0]
+    single = OpenDVParser(splits=["opendv_train"], opendv_data_root=data_root, decode_threads=1).get_log_parsers()[0]
+    a = list(threaded.iter_modalities_async())
+    b = list(single.iter_modalities_async())
+    assert [c.timestamp.time_us for c in a] == [c.timestamp.time_us for c in b]
+    assert all(np.array_equal(x.frame.y, y.frame.y) for x, y in zip(a, b))
+
+
 def test_video_selection(data_root):
     assert len(OpenDVParser(splits=["opendv_train", "opendv_val"], opendv_data_root=data_root).get_log_parsers()) == 1
     assert OpenDVParser(splits=["opendv_train"], opendv_data_root=data_root, video_ids=["x"]).get_log_parsers() == []

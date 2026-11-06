@@ -167,8 +167,11 @@ class OpenDVLogParser(BaseLogParser):
         container = av.open(str(self._video_path))
         try:
             stream = container.streams.video[0]
-            stream.thread_type = "AUTO"
-            stream.codec_context.thread_count = self._decode_threads
+            if self._decode_threads > 1:
+                # Frame threading; one decoder thread keeps the default mode (video izhGt1GnGFk failed with
+                # "Invalid data" only in frame-threaded decoding).
+                stream.thread_type = "AUTO"
+                stream.codec_context.thread_count = self._decode_threads
             count = grid_frame_count(_duration_s(container, stream), self._start_discard_s, self._end_discard_s)
             if count == 0:
                 logger.warning("Video %s: no grid time after the discarded parts.", self._video_id)
@@ -214,7 +217,7 @@ class OpenDVParser(BaseDatasetParser):
         :param opendv_data_root: The folder with ``meta/OpenDV-YouTube.json`` and ``videos``.
         :param video_ids: Only these videos, or None.
         :param max_videos: At most this many videos (in list order), or None.
-        :param decode_threads: Decoder threads per video.
+        :param decode_threads: Decoder threads per video (frame threading); 1 decodes without frame threading.
         """
         unknown = set(splits) - set(OPENDV_SPLITS)
         assert not unknown, f"Unknown splits {sorted(unknown)}; valid: {list(OPENDV_SPLITS)}"
