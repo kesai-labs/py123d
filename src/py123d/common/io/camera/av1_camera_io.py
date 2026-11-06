@@ -535,6 +535,10 @@ class AV1Reader:
 _READERS: "OrderedDict[Tuple[int, str, str], AV1Reader]" = OrderedDict()
 _READERS_LOCK = threading.Lock()
 _MAX_READERS = 64
+# Decoder threads of the cached readers. Their callers read many videos in many processes (data loader workers), so
+# the processes already use the CPUs; the decoder's default of one thread per CPU per reader only multiplies the
+# memory (about 90 MB per reader with 18 CPUs) and oversubscribes the CPUs.
+_READER_THREADS = 1
 
 
 def get_av1_reader(video_path: Union[str, Path], decoder: str = "libdav1d") -> AV1Reader:
@@ -549,7 +553,7 @@ def get_av1_reader(video_path: Union[str, Path], decoder: str = "libdav1d") -> A
         if reader is not None:
             _READERS.move_to_end(key)
             return reader
-    reader = AV1Reader(video_path, decoder=decoder)
+    reader = AV1Reader(video_path, decoder=decoder, threads=_READER_THREADS)
     dropped: List[AV1Reader] = []
     with _READERS_LOCK:
         existing = _READERS.get(key)
