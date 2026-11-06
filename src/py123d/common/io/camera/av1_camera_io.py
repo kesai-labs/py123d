@@ -442,13 +442,18 @@ class AV1Reader:
         self._next_index: Optional[int] = None
         self._cached: Optional[Tuple[int, YUV420Frame]] = None
 
-    def _decode(self):
-        """Decoded frames from the current position of the demuxer."""
-        if self._decoder is None:
-            yield from self._container.decode(self._stream)
+    @staticmethod
+    def _decode(container: Any, stream: Any, decoder: Any):
+        """Decoded frames from the current position of the demuxer.
+
+        Static, so the generator holds no reference to the reader: a reader in a reference cycle outlives its drop
+        from the reader cache until the cyclic garbage collector runs, and its decoder's memory with it.
+        """
+        if decoder is None:
+            yield from container.decode(stream)
             return
-        for packet in self._container.demux(self._stream):
-            for frame in self._decoder.decode(packet if packet.size else None):
+        for packet in container.demux(stream):
+            for frame in decoder.decode(packet if packet.size else None):
                 yield frame
 
     def _seek(self, index: int) -> None:
@@ -459,7 +464,7 @@ class AV1Reader:
             extradata = self._decoder.extradata
             self._decoder = av.CodecContext.create(self._decoder_name, "r")
             self._decoder.extradata = extradata
-        self._frames = self._decode()
+        self._frames = self._decode(self._container, self._stream, self._decoder)
         self._next_index = None
 
     def _to_yuv(self, frame) -> YUV420Frame:
@@ -512,7 +517,16 @@ class AV1Reader:
             image = cv2.resize(image, (self.width // scale, self.height // scale), interpolation=cv2.INTER_AREA)
         return image
 
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`close` ran; a closed reader reads nothing."""
+        return self._container is None
+
     def close(self) -> None:
+        """Frees the demuxer and the decoder now, instead of whenever garbage collection gets to them."""
+        self._frames = None
+        self._cached = None
+        self._decoder = None
         if self._container is not None:
             self._container.close()
             self._container = None
@@ -536,13 +550,22 @@ def get_av1_reader(video_path: Union[str, Path], decoder: str = "libdav1d") -> A
             _READERS.move_to_end(key)
             return reader
     reader = AV1Reader(video_path, decoder=decoder)
+    dropped: List[AV1Reader] = []
     with _READERS_LOCK:
         existing = _READERS.get(key)
-        if existing is not None:
-            return existing
-        _READERS[key] = reader
-        while len(_READERS) > _MAX_READERS:
-            _READERS.popitem(last=False)  # closed by garbage collection, after any running read
+        if existing is None:
+            _READERS[key] = reader
+            while len(_READERS) > _MAX_READERS:
+                dropped.append(_READERS.popitem(last=False)[1])
+    if existing is not None:
+        reader.close()
+        return existing
+    # Close the dropped readers now: left to garbage collection, each one's decoder memory outlives it by far (about
+    # 90 MB per reader, so a loader worker that reads many videos runs out of memory). A read that got a reader just
+    # before its drop finds it closed and asks for a new one (read_av1_frame).
+    for old in dropped:
+        with old.lock:
+            old.close()
     return reader
 
 
@@ -550,9 +573,13 @@ def read_av1_frame(
     video_path: Union[str, Path], frame_index: int, scale: Optional[int] = None, decoder: str = "libdav1d"
 ) -> npt.NDArray[np.uint8]:
     """One RGB image of an AV1 video, through the cached reader of this process (thread-safe)."""
-    reader = get_av1_reader(video_path, decoder=decoder)
-    with reader.lock:
-        yuv = reader.get_yuv(frame_index)
+    while True:
+        reader = get_av1_reader(video_path, decoder=decoder)
+        with reader.lock:
+            if reader.closed:  # dropped from the cache by another thread since get_av1_reader returned it
+                continue
+            yuv = reader.get_yuv(frame_index)
+        break
     image = yuv.to_rgb()
     if scale is not None and scale > 1:
         image = cv2.resize(image, (reader.width // scale, reader.height // scale), interpolation=cv2.INTER_AREA)
