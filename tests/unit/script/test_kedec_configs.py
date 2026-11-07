@@ -44,13 +44,13 @@ def test_kedec_preset():
     assert lwc.camera_store_option == "av1" and lwc.lidar_codec == "kedec" and lwc.lidar_store_option == "binary"
     assert lwc.radar_codec == "kedec" and lwc.radar_store_option == "binary"
     assert lwc.radar_codec_config.kedec_range_step_m == lwc.lidar_codec_config.kedec_range_step_m
-    assert cfg.dataset.log_writer.sync_config.direction_overrides == {"camera": "nearest"}
     import hydra
 
     config = hydra.utils.instantiate(lwc)  # no GPU access: the encoder is resolved by the camera writer
     assert config.video_codec_config.nvenc_cq == 38 and config.lidar_codec_config.kedec_angle_step_deg == 0.008
+    # The sync directions stay the dataset's: where the kept images lie depends on its frame selection.
     sync = hydra.utils.instantiate(cfg.dataset.log_writer.sync_config)
-    assert sync.direction_of("camera.pcam_f0") == "nearest" and sync.direction_of("lidar.lidar_top") == "forward"
+    assert sync.direction_overrides is None and sync.direction_of("camera.pcam_f0") == "forward"
 
 
 def test_kedec_preset_on_the_nuplan_tar_config():
@@ -75,7 +75,11 @@ def test_kedec_preset_on_the_physical_ai_av_zip_config():
     assert lwc.camera_store_option == "av1" and lwc.lidar_codec == "kedec" and lwc.async_conversion
     assert cfg.dataset.parser._target_ == "py123d.parser.physical_ai_av.physical_ai_av_zip_parser.PhysicalAIAVZipParser"
     assert cfg.dataset.log_writer.sync_config.reference_column == "lidar.lidar_merged.timestamp_us"
-    assert cfg.dataset.log_writer.sync_config.direction_overrides == {"camera": "nearest"}
+    import hydra
+
+    # The images kept for a spin lie 32 to 68 ms after its start: "forward" puts them in their spin's row.
+    sync = hydra.utils.instantiate(cfg.dataset.log_writer.sync_config)
+    assert sync.direction_of("camera.ftcam_f0") == "forward" and sync.extend_with == "ego_state_se3"
 
 
 def test_kedec_preset_on_the_opendv_config():
@@ -87,7 +91,8 @@ def test_kedec_preset_on_the_opendv_config():
     assert cfg.dataset.parser._target_ == "py123d.parser.opendv.opendv_parser.OpenDVParser"
     assert cfg.dataset.parser.opendv_data_root == "/d"
     assert cfg.dataset.log_writer.sync_config.reference_column == "camera.pcam_f0.timestamp_us"
-    assert cfg.dataset.log_writer.sync_config.direction_overrides == {"camera": "nearest"}
+    # The reference camera's rows are its own images in every direction.
+    assert "direction_overrides" not in cfg.dataset.log_writer.sync_config
 
 
 def _ray_executor(gpus: int, threads: int) -> RayExecutor:

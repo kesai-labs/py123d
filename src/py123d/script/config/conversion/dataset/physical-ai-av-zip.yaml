@@ -46,7 +46,13 @@ log_writer:
     _convert_: 'all'
     # The lidar spins (10 Hz) as reference.
     reference_column: lidar.lidar_merged.timestamp_us
+    # The images kept for a spin lie 32 to 68 ms after its start (the lidar front direction, plus up to 17 ms for the
+    # second camera group): "forward" references them in their spin's row, "nearest" in the next row for about half
+    # of the clips.
     direction: "forward" # "forward" or "backward"
+    # The egomotion runs past the sensors (to about 140 s against 20 s): rows along it give the scenes near the end
+    # of the sensor clip their future.
+    extend_with: ego_state_se3
 
 map_writer:
   _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter

@@ -108,6 +108,10 @@ class SyncConfig:
         strictly within half the period of the sync table, else none; a tie goes to the earlier observation. For
         cameras stored at the rate of the sync table (one kept image per reference time), ``"nearest"`` also
         references an image captured shortly before the reference time.
+    :param extend_with: Optional modality key (e.g. ``"ego_state_se3"``) that continues the deferred sync table past
+        the last reference time: one row per period of the kept reference times (rounded to whole milliseconds) as
+        long as the modality has an observation within one period of the row, referenced as the nearest one. The
+        route position follows the ego rows; every other modality is empty in these rows.
     """
 
     reference_column: str
@@ -115,6 +119,7 @@ class SyncConfig:
     target_iteration_stride: Optional[int] = None
     target_iteration_duration_s: Optional[float] = None
     direction_overrides: Optional[Dict[str, str]] = None
+    extend_with: Optional[str] = None
 
     def __post_init__(self):
         # Validate reference_column format: must contain at least one dot
@@ -797,5 +802,30 @@ class ArrowLogWriter(BaseLogWriter):
             for modality_key, best_index in sync_addon_data.items():
                 sync_row[modality_key] = [best_index]
             sync_rows.append(sync_row)
+
+        extend_key = self._sync_config.extend_with
+        if extend_key is not None and extend_key in modality_timestamps and len(kept_ref_ts) > 1:
+            period_us = int(round(float(np.median(np.diff(kept_ref_ts))) / 1000.0)) * 1000
+            extend_ts_array = modality_timestamps[extend_key].astype(np.int64)
+            num_extra_rows = max(0, int(extend_ts_array[-1] - kept_ref_ts[-1]) // period_us)
+            extra_ts = kept_ref_ts[-1] + period_us * np.arange(1, num_extra_rows + 1, dtype=np.int64)
+            extra_rows = match_frames(extend_ts_array, extra_ts, period_us + 1)
+            # The table ends before the first row without an observation within one period.
+            gaps = np.flatnonzero(extra_rows < 0)
+            if len(gaps):
+                extra_ts, extra_rows = extra_ts[: gaps[0]], extra_rows[: gaps[0]]
+            linked_keys = {extend_key}
+            if extend_key == ModalityType.EGO_STATE_SE3.serialize():
+                linked_keys.add(ROUTE_POSITION_KEY)
+            for row_ts, row_idx in zip(extra_ts.tolist(), extra_rows.tolist()):
+                sync_uuid = create_deterministic_uuid(
+                    split=self._state.log_metadata.split,
+                    log_name=self._state.log_metadata.log_name,
+                    timestamp_us=row_ts,
+                )
+                sync_row = {_SYNC_COL_UUID: [sync_uuid.bytes], _SYNC_COL_TIMESTAMP_US: [row_ts]}
+                for modality_key in sync_modality_keys:
+                    sync_row[modality_key] = [row_idx if modality_key in linked_keys else None]
+                sync_rows.append(sync_row)
 
         self._write_sync_arrow_file(schema, sync_rows)

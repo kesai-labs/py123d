@@ -60,8 +60,7 @@ Converting and transcoding
 --------------------------
 
 The preset ``codec=kedec`` switches a conversion to the kedec codecs (AV1 cameras with NVENC at cq 38, kedec
-lidars, cameras referenced by their nearest image in the sync table); without it, every dataset keeps its own
-settings:
+lidars); without it, every dataset keeps its own settings:
 
 .. code-block:: bash
 
@@ -142,7 +141,20 @@ reference time, with ``direction_overrides`` of the
       camera: "nearest"   # the image nearest to each row, strictly within half the row period
 
 With one kept image per row, ``"nearest"`` also references an image captured shortly before the row's reference
-time, which ``"forward"`` would assign to no row.
+time, which ``"forward"`` would assign to no row. The right direction depends on where the frame selection puts the
+kept images relative to the rows, so each dataset configuration sets it. PhysicalAI keeps the images nearest to the
+lidar front direction, 32 to 68 ms after the spin start that is the row's time: ``"forward"`` references them in
+their spin's row, while ``"nearest"`` (within 50 ms) would reference them in the next row for about half of the
+clips and leave the first row without images.
+
+``extend_with`` continues the deferred sync table past the reference with the rows of one modality, for a log whose
+ego motion outlasts its sensors (PhysicalAI: egomotion to about 140 s, sensors to 20 s):
+
+.. code-block:: yaml
+
+  sync_config:
+    reference_column: lidar.lidar_merged.timestamp_us
+    extend_with: ego_state_se3   # a row every period while an ego state lies within one period
 
 
 Lidars: enabling kedec
