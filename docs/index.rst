@@ -44,3 +44,4 @@ Features include:
    notes/conventions
    notes/contributing
    notes/adding_datasets
+   notes/kedec

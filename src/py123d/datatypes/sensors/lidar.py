@@ -77,6 +77,10 @@ class LidarFeature(SerialIntEnum):
     INSTANCE = 7
     """Per-point instance id feature index, for panoptic segmentation. 0 means no instance."""
 
+    COLUMN = 8
+    """Column (firing) index of the point within its beam, for lidars that report one (e.g. the PhysicalAI
+    ``model_element``). Together with :attr:`CHANNEL` it places the point on the sensor's beam-column grid."""
+
 
 LIDAR_FEATURE_DTYPES: Dict[LidarFeature, Type] = {
     LidarFeature.IDS: np.uint8,
@@ -87,6 +91,7 @@ LIDAR_FEATURE_DTYPES: Dict[LidarFeature, Type] = {
     LidarFeature.ELONGATION: np.float32,
     LidarFeature.SEMANTIC: np.uint8,
     LidarFeature.INSTANCE: np.uint16,
+    LidarFeature.COLUMN: np.uint16,
 }
 
 

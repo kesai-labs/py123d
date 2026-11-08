@@ -26,6 +26,11 @@ ROUTE_POSITION_KEY = ModalityType.ROUTE_POSITION.serialize()
 """Modality key of the per-frame route positions (``route_position.arrow``); also the
 sync-table column holding each frame's row index into that file."""
 
+ROUTE_MAP_FILE = "route_map"
+"""Stem of an alternative route file with the layout of ``route_position.arrow`` (same columns, one row per ego
+frame, so the sync table's ``route_position`` index column applies to it as well): a route planned on a map, next to
+the driven route. Scenes read it instead of ``route_position.arrow`` when ``SceneFilter.route_file`` names it."""
+
 ROUTE_PRODUCER = "py123d:route_from_ego_state_se3@1"
 """``computed_by`` recorded in the route's ``CacheSourceInfo``. Bump the version suffix
 whenever the route computation changes in a way that makes existing routes wrong."""
@@ -205,9 +210,14 @@ def write_route_position_arrow(
     route_metadata: RouteMetadata,
     ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
     ipc_compression_level: Optional[int] = None,
+    file_stem: str = ROUTE_POSITION_KEY,
 ) -> None:
     """Write the ``route_position`` modality file: per-frame progress and remaining route,
-    with the polyline in the schema metadata."""
+    with the polyline in the schema metadata.
+
+    :param file_stem: The file name without ``.arrow``: ``route_position`` (the log's route) or another route file
+        with the same layout, e.g. ``ROUTE_MAP_FILE``. The columns keep the ``route_position.`` prefix either way.
+    """
     progress_m = np.asarray(progress_m, dtype=np.float64)
     schema = pa.schema(
         [
@@ -229,19 +239,20 @@ def write_route_position_arrow(
     options = None
     if ipc_compression is not None:
         options = pa.ipc.IpcWriteOptions(compression=pa.Codec(ipc_compression, compression_level=ipc_compression_level))
-    with pa.OSFile(str(log_dir / f"{ROUTE_POSITION_KEY}.arrow"), "wb") as source:
+    with pa.OSFile(str(log_dir / f"{file_stem}.arrow"), "wb") as source:
         with pa.ipc.new_file(source, schema=schema, options=options) as writer:
             writer.write_table(table)
 
 
 def read_route_position(
     log_dir: Path,
+    file_stem: str = ROUTE_POSITION_KEY,
 ) -> Optional[Tuple[RouteMetadata, npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
     """Read (route metadata, progress per row (N,), remaining per row (N,)) from
-    ``route_position.arrow``, or None when the log has no route positions."""
+    ``route_position.arrow`` (or the route file ``file_stem``), or None when the log has no such file."""
     from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 
-    path = Path(log_dir) / f"{ROUTE_POSITION_KEY}.arrow"
+    path = Path(log_dir) / f"{file_stem}.arrow"
     if not path.exists():
         return None
 
@@ -254,15 +265,16 @@ def read_route_position(
     )
 
 
-def read_remaining_route_m(log_dir: Path) -> Optional[npt.NDArray[np.float64]]:
-    """Read only the per-row remaining route (N,) from ``route_position.arrow``, or None.
+def read_remaining_route_m(log_dir: Path, file_stem: str = ROUTE_POSITION_KEY) -> Optional[npt.NDArray[np.float64]]:
+    """Read only the per-row remaining route (N,) from ``route_position.arrow`` (or the route file
+    ``file_stem``), or None.
 
     Filtering uses this to stay off the metadata: the polyline blob is never decoded
     during scene enumeration.
     """
     from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 
-    path = Path(log_dir) / f"{ROUTE_POSITION_KEY}.arrow"
+    path = Path(log_dir) / f"{file_stem}.arrow"
     if not path.exists():
         return None
     table = get_lru_cached_arrow_table(str(path))

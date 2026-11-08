@@ -1,3 +1,4 @@
+import os
 import threading
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -100,11 +101,17 @@ def open_arrow_table(arrow_file_path: Union[str, Path]) -> pa.Table:
 def open_arrow_schema(arrow_file_path: Union[str, Path]) -> pa.Schema:
     """Loads an `.arrow` file schema.
 
+    The schema sits in the file's footer. A plain read of the footer with the kernel's readahead off fetches a few
+    kilobytes; the memory map used before faulted the footer's pages in, which network file systems answered with
+    megabytes around them (2-8 MB per 123D log on CephFS, 0.15 MB this way).
+
     :param arrow_file_path: The file path, defined as string or Path.
     :return: The arrow schema.
     """
-    with pa.memory_map(str(arrow_file_path), "rb") as source:
-        schema: pa.Schema = pa.ipc.open_file(source).schema
+    with open(str(arrow_file_path), "rb", buffering=0) as file:
+        if hasattr(os, "posix_fadvise"):
+            os.posix_fadvise(file.fileno(), 0, 0, os.POSIX_FADV_RANDOM)
+        schema: pa.Schema = pa.ipc.open_file(pa.PythonFile(file, mode="r")).schema
     return schema
 
 

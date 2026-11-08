@@ -1,7 +1,10 @@
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Type, Union
 
 import numpy as np
+import numpy.typing as npt
+import pyarrow as pa
 
 from py123d.api.map.arrow.arrow_map_api import get_map_api_for_log
 from py123d.api.map.map_api import MapAPI
@@ -27,9 +30,15 @@ from py123d.api.scene.arrow.modalities.sync_utils import (
     get_sync_table,
     get_timestamp_array,
 )
+from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema
 from py123d.api.scene.arrow.utils.arrow_scene_caches import _get_complete_log_scene_metadata
+from py123d.api.scene.arrow.utils.route_utils import ROUTE_POSITION_KEY
 from py123d.api.scene.scene_api import SceneAPI
-from py123d.api.utils.arrow_metadata_utils import LogDirectoryMetadata, parse_log_directory_metadata
+from py123d.api.utils.arrow_metadata_utils import (
+    LogDirectoryMetadata,
+    get_metadata_from_arrow_schema,
+    parse_log_directory_metadata,
+)
 from py123d.common.utils.enums import SerialIntEnum
 from py123d.datatypes import (
     BaseModality,
@@ -42,6 +51,17 @@ from py123d.datatypes import (
     get_modality_key,
 )
 from py123d.datatypes.metadata import SceneMetadata
+from py123d.geometry.geometry_index import PoseSE3Index
+
+# NOTE @DanielDauner:
+# searchsorted(side="left") gives an inclusive bound,
+# side="right" gives an exclusive bound.
+_SEARCHSORTED_SIDES: Dict[str, Tuple[Literal["left", "right"], Literal["left", "right"]]] = {
+    "left": ("left", "left"),
+    "right": ("right", "right"),
+    "both": ("left", "right"),
+    "neither": ("right", "left"),
+}
 
 MODALITY_READERS: Dict[ModalityType, Type[ArrowBaseModalityReader]] = {
     ModalityType.EGO_STATE_SE3: ArrowEgoStateSE3Reader,
@@ -65,13 +85,14 @@ MODALITY_READERS: Dict[ModalityType, Type[ArrowBaseModalityReader]] = {
 class ArrowSceneAPI(SceneAPI):
     """Scene API for Arrow-based scenes. Loads each modality from a separate Arrow file in a log directory."""
 
-    __slots__ = ("_log_dir", "_scene_metadata", "_maps_root")
+    __slots__ = ("_log_dir", "_scene_metadata", "_maps_root", "_route_file")
 
     def __init__(
         self,
         log_dir: Union[Path, str],
         scene_metadata: Optional[SceneMetadata] = None,
         maps_root: Optional[Union[Path, str]] = None,
+        route_file: str = ROUTE_POSITION_KEY,
     ) -> None:
         """Initializes the :class:`ArrowSceneAPI`.
 
@@ -79,14 +100,23 @@ class ArrowSceneAPI(SceneAPI):
         :param scene_metadata: Scene metadata, defaults to None
         :param maps_root: Root directory the scene's map is resolved under before the
             global dataset paths, defaults to None
+        :param route_file: The file the route modality is read from, without ``.arrow``:
+            ``route_position`` (default) or a file of the same layout such as ``route_map``.
         """
         self._log_dir: Path = Path(log_dir)
         self._scene_metadata: Optional[SceneMetadata] = scene_metadata
         self._maps_root: Optional[Path] = Path(maps_root) if maps_root is not None else None
+        self._route_file: str = route_file
 
     def __reduce__(self):
         """Helper for pickling the object."""
-        return (self.__class__, (self._log_dir, self._scene_metadata, self._maps_root))
+        return (self.__class__, (self._log_dir, self._scene_metadata, self._maps_root, self._route_file))
+
+    def _modality_table(self, modality_key: str) -> Optional[pa.Table]:
+        """The Arrow table of a modality; the route modality comes from the selected route file."""
+        return get_modality_table(
+            self._log_dir, self._route_file if modality_key == ROUTE_POSITION_KEY else modality_key
+        )
 
     # ------------------------------------------------------------------------------------------------------------------
     # Internal Helpers
@@ -99,8 +129,11 @@ class ArrowSceneAPI(SceneAPI):
         return metadata.initial_idx + iteration * metadata.target_iteration_stride
 
     def _get_log_dir_metadatas(self) -> LogDirectoryMetadata:
-        """Helper to get modality metadata for a given modality type and optional id."""
-        return parse_log_directory_metadata(self._log_dir)
+        """Helper to get modality metadata for a given modality type and optional id. With another route file than
+        ``route_position``, the route modality's metadata come from that file (absent when the log lacks it)."""
+        if self._route_file == ROUTE_POSITION_KEY:
+            return parse_log_directory_metadata(self._log_dir)
+        return _with_route_file(self._log_dir, self._route_file)
 
     def _get_modality_timestamp_boundaries(self, modality_key: str) -> Optional[Tuple[Timestamp, Timestamp]]:
         """Helper to get the first and last timestamps for a modality in the log directory."""
@@ -227,7 +260,7 @@ class ArrowSceneAPI(SceneAPI):
         _modality_type = ModalityType.from_arbitrary(modality_type)
         _modality_key = get_modality_key(_modality_type, modality_id)
         sync_table = get_sync_table(self._log_dir)
-        modality_table = get_modality_table(self._log_dir, _modality_key)
+        modality_table = self._modality_table(_modality_key)
         if modality_table is None:
             return []
 
@@ -273,7 +306,7 @@ class ArrowSceneAPI(SceneAPI):
 
         modality: Optional[BaseModality] = None
         if _modality_key in sync_table.column_names:
-            modality_table = get_modality_table(self._log_dir, _modality_key)
+            modality_table = self._modality_table(_modality_key)
             modality_index = get_modality_index_from_sync_index(sync_table, _modality_key, sync_index)
             modality_metadata = self.get_modality_metadata(_modality_type, modality_id)
             if modality_table is not None and modality_index is not None and modality_metadata is not None:
@@ -300,7 +333,7 @@ class ArrowSceneAPI(SceneAPI):
         _modality_key = get_modality_key(_modality_type, modality_id)
 
         modality: Optional[BaseModality] = None
-        modality_table = get_modality_table(self._log_dir, _modality_key)
+        modality_table = self._modality_table(_modality_key)
         modality_metadata = self.get_modality_metadata(_modality_type, modality_id)
         if modality_table is not None and modality_metadata is not None:
             modality = MODALITY_READERS[_modality_type].read_at_timestamp(
@@ -330,19 +363,10 @@ class ArrowSceneAPI(SceneAPI):
         _modality_type = ModalityType.from_arbitrary(modality_type)
         _modality_key = get_modality_key(_modality_type, modality_id)
 
-        modality_table = get_modality_table(self._log_dir, _modality_key)
+        modality_table = self._modality_table(_modality_key)
         modality_metadata = self.get_modality_metadata(_modality_type, modality_id)
         if modality_table is not None and modality_metadata is not None:
-            # NOTE @DanielDauner:
-            # searchsorted(side="left") gives an inclusive bound,
-            # side="right" gives an exclusive bound.
-            sides: Dict[str, Tuple[Literal["left", "right"], Literal["left", "right"]]] = {
-                "left": ("left", "left"),
-                "right": ("right", "right"),
-                "both": ("left", "right"),
-                "neither": ("right", "left"),
-            }
-            start_side, end_side = sides[inclusive]
+            start_side, end_side = _SEARCHSORTED_SIDES[inclusive]
 
             ts_array, _ = get_timestamp_array(modality_table, f"{_modality_key}.timestamp_us")
             lo = int(np.searchsorted(ts_array, start_us, side=start_side))
@@ -360,6 +384,33 @@ class ArrowSceneAPI(SceneAPI):
                 )
                 if modality is not None:
                     yield modality
+
+    def get_ego_imu_se3_between_timestamps(
+        self,
+        start_timestamp: Union[Timestamp, int],
+        end_timestamp: Union[Timestamp, int],
+        inclusive: Literal["left", "right", "both", "neither"] = "left",
+    ) -> Tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+        """Inherited, see superclass; reads the two columns whole instead of one ego state per row."""
+        start_us = start_timestamp.time_us if isinstance(start_timestamp, Timestamp) else int(start_timestamp)
+        end_us = end_timestamp.time_us if isinstance(end_timestamp, Timestamp) else int(end_timestamp)
+        ego_key = get_modality_key(ModalityType.EGO_STATE_SE3)
+        imu_column_name = f"{ego_key}.imu_se3"
+        timestamp_column_name = f"{ego_key}.timestamp_us"
+
+        modality_table = self._modality_table(ego_key)
+        if modality_table is None or not all_columns_in_schema(
+            modality_table, [imu_column_name, timestamp_column_name]
+        ):
+            return np.zeros(0, dtype=np.int64), np.zeros((0, len(PoseSE3Index)), dtype=np.float64)
+
+        start_side, end_side = _SEARCHSORTED_SIDES[inclusive]
+        ts_array, _ = get_timestamp_array(modality_table, timestamp_column_name)
+        lo = int(np.searchsorted(ts_array, start_us, side=start_side))
+        hi = max(int(np.searchsorted(ts_array, end_us, side=end_side)), lo)
+        imu_column = modality_table[imu_column_name].slice(lo, hi - lo).combine_chunks()
+        imu_se3_array = imu_column.flatten().to_numpy(zero_copy_only=False).astype(np.float64)
+        return ts_array[lo:hi].astype(np.int64), imu_se3_array.reshape(hi - lo, len(PoseSE3Index))
 
     def get_modality_column_at_iteration(
         self,
@@ -386,7 +437,7 @@ class ArrowSceneAPI(SceneAPI):
 
         modality: Optional[BaseModality] = None
         if _modality_key in sync_table.column_names:
-            modality_table = get_modality_table(self._log_dir, _modality_key)
+            modality_table = self._modality_table(_modality_key)
             modality_index = get_modality_index_from_sync_index(sync_table, _modality_key, sync_index)
             modality_metadata = self.get_modality_metadata(_modality_type, modality_id)
             if modality_table is not None and modality_index is not None and modality_metadata is not None:
@@ -401,3 +452,27 @@ class ArrowSceneAPI(SceneAPI):
                 )
 
         return modality
+
+
+@lru_cache(maxsize=1000)
+def _with_route_file(log_dir: Path, route_file: str) -> LogDirectoryMetadata:
+    """The log's metadata with the route modality's metadata taken from another route file of the same layout.
+
+    :raises ValueError: If the route file and ``route_position.arrow`` have different row counts: the sync table's
+        ``route_position`` column indexes both, so both must hold one row per ego frame.
+    """
+    from py123d.api.utils.arrow_helper import open_arrow_schema
+
+    metadatas = parse_log_directory_metadata(log_dir)
+    modality_metadatas = {k: v for k, v in metadatas.modality_metadatas.items() if k != ROUTE_POSITION_KEY}
+    path = log_dir / f"{route_file}.arrow"
+    if path.exists():
+        default = get_modality_table(log_dir, ROUTE_POSITION_KEY)
+        alternative = get_modality_table(log_dir, route_file)
+        if default is not None and alternative is not None and default.num_rows != alternative.num_rows:
+            raise ValueError(
+                f"{path}: {alternative.num_rows} rows, route_position.arrow {default.num_rows}; a route file must hold "
+                "one row per ego frame, as route_position.arrow does."
+            )
+        modality_metadatas[ROUTE_POSITION_KEY] = get_metadata_from_arrow_schema(open_arrow_schema(path), RouteMetadata)
+    return LogDirectoryMetadata(log_metadata=metadatas.log_metadata, modality_metadatas=modality_metadatas)

@@ -12,6 +12,7 @@ dataset_paths:
   nuplan_data_root: ${oc.env:NUPLAN_DATA_ROOT,null}
   nuplan_maps_root: ${oc.env:NUPLAN_MAPS_ROOT,null}
   nuplan_sensor_root: ${oc.env:NUPLAN_SENSOR_ROOT,null}
+  nuplan_archive_roots: ${oc.env:NUPLAN_ARCHIVE_ROOTS,null}  # folders of the indexed sensor archives, separated by ":"
 
   # AV2 defaults
   av2_data_root: ${oc.env:AV2_DATA_ROOT,null}
@@ -42,6 +43,9 @@ dataset_paths:
 
   # Physical AI AV defaults
   physical_ai_av_data_root: ${oc.env:PHYSICAL_AI_AV_DATA_ROOT,null}
+
+  # OpenDV-YouTube defaults (meta/OpenDV-YouTube.json and videos/ of the OpenDV toolkit)
+  opendv_data_root: ${oc.env:OPENDV_DATA_ROOT,null}
 
   # NCore defaults
   ncore_data_root: ${oc.env:NCORE_DATA_ROOT,null}

@@ -127,6 +127,26 @@ class TestRadarBinaryRoundtrip:
         assert result is not None
         assert result.point_cloud_3d.shape[1] == 3
 
+    def test_kedec_roundtrip(self, tmp_path: Path):
+        """kedec codes the positions to 2 cm (spherical, per radar in the ids feature) and keeps every other feature;
+        it stores the detections in its own order, so they are matched by their RCS value."""
+        from py123d.common.io.codec_metadata import CODEC_METADATA_KEY, decode_codec_metadata
+
+        radar = _make_radar(1000)
+        table = _write_and_read(tmp_path, [radar], codec="kedec")
+        assert decode_codec_metadata(table.schema.metadata[CODEC_METADATA_KEY])["codec"] == "kedec"
+        metadata = _make_merged_metadata()
+        result = ArrowRadarReader.read_at_index(0, table, metadata, "test-dataset")
+        rcs = RadarFeature.RCS.serialize()
+        a = np.argsort(radar.point_cloud_features[rcs])
+        b = np.argsort(result.point_cloud_features[rcs])
+        for name, values in radar.point_cloud_features.items():
+            np.testing.assert_array_equal(result.point_cloud_features[name][b], values[a])
+        errors = np.linalg.norm(result.point_cloud_3d[b].astype(float) - radar.point_cloud_3d[a].astype(float), axis=1)
+        assert errors.max() < 0.02
+        front = ArrowRadarReader.read_at_index(0, table, metadata, "test-dataset", radar_id=RadarID.RADAR_FRONT)
+        assert front.point_cloud_3d.shape == (50, 3) and np.all(front.ids == int(RadarID.RADAR_FRONT))
+
     def test_multiple_frames(self, tmp_path: Path):
         radars = [_make_radar(i * 100_000) for i in range(5)]
         table = _write_and_read(tmp_path, radars, codec="ipc")

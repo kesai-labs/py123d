@@ -1,0 +1,67 @@
+# nuPlan with the sensor files read directly from the sensor archives (tar archives named .zip), without extraction:
+# py123d.parser.nuplan.nuplan_tar_parser. Index the archives first:
+#   python -m py123d.parser.nuplan.nuplan_tar_index <archive> [<archive> ...]
+# kedec (AV1 cameras with all 10 images per second, kedec lidar at 10 Hz):
+#   py123d-conversion dataset=nuplan-tar codec=kedec
+parser:
+  _target_: py123d.parser.nuplan.nuplan_tar_parser.NuplanTarParser
+  _convert_: 'all'
+
+  splits: ["nuplan_train", "nuplan_val", "nuplan_test"]
+  nuplan_data_root: ${dataset_paths.nuplan_data_root}
+  nuplan_maps_root: ${dataset_paths.nuplan_maps_root}
+  # The folders of the sensor archives and their .index.parquet / .logs.txt files (a list, or one string with the
+  # folders separated by ":").
+  nuplan_archive_roots: ${dataset_paths.nuplan_archive_roots}
+  log_names: null
+  # "with": only the logs in an indexed sensor archive; "without": only the other logs (annotations only); null: all.
+  sensor_logs: null
+  # Re-encode the camera JPEGs at this quality (1 to 100); null stores the original nuPlan JPEGs (and, with
+  # codec=kedec, their YUV planes go to the AV1 encoder unchanged).
+  jpeg_quality: null
+  # A disjoint share of the sorted log list (shard_index of num_shards), for Slurm arrays.
+  shard_index: 0
+  num_shards: 1
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+  async_conversion: ${async_conversion}
+
+  # The sensor data are stored in the logs: the store option "path" would reference an extracted tree.
+  camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4", "av1"
+  lidar_store_option: "binary"
+  lidar_codec: "laz" # "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc", "kedec"
+
+  infer_ego_dynamics: false
+  infer_box_dynamics: false
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+
+    # NOTE: the box detections as reference: their time stamps equal the lidar time stamps, and they exist also
+    # without sensor data.
+    reference_column: box_detections_se3.timestamp_us
+    direction: "forward" # "forward" or "backward"
+    # NOTE: 10 Hz for indexing; native 20 Hz modalities are still included.
+    target_iteration_duration_s: 0.1
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

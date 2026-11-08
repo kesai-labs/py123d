@@ -1,6 +1,8 @@
 import json
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Deque, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -15,23 +17,16 @@ from py123d.api.scene.arrow.modalities.utils import (
     read_arrival_timestamp,
 )
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
-from py123d.common.io.lidar.draco_lidar_io import (
-    encode_point_cloud_as_draco_binary,
-    is_draco_binary,
-    load_point_cloud_from_draco_binary,
-)
-from py123d.common.io.lidar.ipc_lidar_io import (
-    encode_point_cloud_as_ipc_binary,
-    is_ipc_binary,
-    load_point_cloud_from_ipc_binary,
-)
-from py123d.common.io.lidar.laz_lidar_io import (
-    encode_point_cloud_as_laz_binary,
-    is_laz_binary,
-    load_point_cloud_from_laz_binary,
-)
 from py123d.common.io.lidar.path_lidar_io import load_point_cloud_data_from_path
 from py123d.common.io.lidar.point_cloud_codec_config import PointCloudCodecConfig
+from py123d.common.io.lidar.point_cloud_codec_registry import (
+    CODEC_METADATA_KEY,
+    decode_point_cloud,
+    encode_codec_metadata,
+    encode_point_cloud,
+    point_cloud_codec_metadata,
+    point_cloud_codec_names,
+)
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.sensors.lidar import Lidar, LidarFeature, LidarID, LidarMergedMetadata, LidarMetadata
@@ -46,15 +41,24 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
         metadata: Union[LidarMetadata, LidarMergedMetadata],
         log_metadata: LogMetadata,
         lidar_store_option: Literal["path", "binary"],
-        lidar_codec: Optional[Literal["laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"]],
+        lidar_codec: Optional[str],
         ipc_compression: Optional[Literal["lz4", "zstd"]] = None,
         ipc_compression_level: Optional[int] = None,
         lidar_codec_config: Optional[PointCloudCodecConfig] = None,
+        encode_threads: int = 1,
     ) -> None:
+        """Initializes the lidar writer.
+
+        :param encode_threads: Number of threads that encode binary blobs in parallel; the rows are written in
+            their original order. 1 encodes in the calling thread.
+        """
         assert isinstance(metadata, (LidarMetadata, LidarMergedMetadata)), (
             f"Expected LidarMetadata or LidarMergedMetadata, got {type(metadata)}"
         )
         assert lidar_store_option in {"path", "binary"}, f"Unsupported lidar store option: {lidar_store_option}"
+        if lidar_store_option == "binary":
+            assert lidar_codec in point_cloud_codec_names("lidar"), f"Unsupported lidar codec: {lidar_codec}"
+        assert encode_threads >= 1, f"encode_threads must be >= 1, got {encode_threads}."
 
         self._modality_metadata = metadata
         self._modality_key = metadata.modality_key
@@ -63,6 +67,16 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
         self._lidar_store_option = lidar_store_option
         self._lidar_codec = lidar_codec
         self._lidar_codec_config = lidar_codec_config if lidar_codec_config is not None else PointCloudCodecConfig()
+        lidar_metadatas = dict(metadata) if isinstance(metadata, LidarMergedMetadata) else {metadata.lidar_id: metadata}
+        self._sensor_poses = {
+            int(lidar_id.value): lidar_metadata.lidar_to_imu_se3.tolist()
+            for lidar_id, lidar_metadata in lidar_metadatas.items()
+        }
+        self._executor: Optional[ThreadPoolExecutor] = None
+        self._pending: Deque[Tuple["Future[Optional[bytes]]", Dict[str, Any]]] = deque()
+        self._max_pending = 2 * encode_threads
+        if lidar_store_option == "binary" and encode_threads > 1:
+            self._executor = ThreadPoolExecutor(max_workers=encode_threads, thread_name_prefix="lidar-encode")
 
         file_path = log_dir / f"{metadata.modality_key}.arrow"
 
@@ -84,6 +98,9 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
         if metadata.has_arrival_time:
             schema_list.append(get_arrival_time_field(metadata.modality_key))
         schema = add_metadata_to_arrow_schema(pa.schema(schema_list), metadata)
+        if lidar_store_option == "binary" and lidar_codec == "kedec":
+            description = point_cloud_codec_metadata(lidar_codec, self._lidar_codec_config)
+            schema = schema.with_metadata({**schema.metadata, CODEC_METADATA_KEY: encode_codec_metadata(description)})
         super().__init__(
             file_path=file_path,
             schema=schema,
@@ -91,6 +108,11 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
             ipc_compression_level=ipc_compression_level,
             max_batch_size=1000,
         )
+
+    @property
+    def row_count(self) -> int:
+        """Returns the total number of rows written, including buffered rows and rows still being encoded."""
+        return self._row_count + len(self._pending)
 
     def write_modality(self, modality: BaseModality) -> None:
         assert isinstance(modality, (ParsedLidar, Lidar)), f"Expected ParsedLidar or Lidar, got {type(modality)}"
@@ -115,11 +137,43 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
             batch[f"{self._modality_key}.kwargs"] = [json.dumps(load_kwargs) if load_kwargs else None]
 
         elif self._lidar_store_option == "binary":
-            data_binary = self._prepare_lidar_data(modality)
-            batch[f"{self._modality_key}.data"] = [data_binary]
+            add_arrival_time_to_row(batch, self._modality_metadata, modality)
+            if self._executor is not None:
+                self._pending.append((self._executor.submit(self._prepare_lidar_data, modality), batch))
+                while len(self._pending) >= self._max_pending:
+                    self._write_oldest_pending()
+                return
+            batch[f"{self._modality_key}.data"] = [self._prepare_lidar_data(modality)]
+            self.write_batch(batch)
+            return
 
         add_arrival_time_to_row(batch, self._modality_metadata, modality)
         self.write_batch(batch)
+
+    def _write_oldest_pending(self) -> None:
+        """Wait for the oldest blob that is being encoded and write its row."""
+        future, batch = self._pending[0]
+        data_binary = future.result()
+        self._pending.popleft()
+        batch[f"{self._modality_key}.data"] = [data_binary]
+        self.write_batch(batch)
+
+    def close(self) -> None:
+        """Write the rows still being encoded, stop the encoding threads and close the file.
+
+        If an encoding failed, the rows before it are written, the file is closed and the error is raised.
+        """
+        try:
+            while self._pending:
+                self._write_oldest_pending()
+        finally:
+            if self._executor is not None:
+                for future, _ in self._pending:
+                    future.cancel()
+                self._executor.shutdown(wait=True)
+                self._executor = None
+            self._pending.clear()
+            super().close()
 
     def _prepare_lidar_data(self, modality: Union[ParsedLidar, Lidar]) -> Optional[bytes]:
         """Load and encode the lidar data (xyz + features) into a single binary blob.
@@ -157,20 +211,14 @@ class ArrowLidarWriter(ArrowBaseModalityWriter):
         if point_cloud_3d is None:
             return None
 
-        codec = self._lidar_codec
-        config = self._lidar_codec_config
-        if codec == "draco":
-            return encode_point_cloud_as_draco_binary(point_cloud_3d, point_cloud_features, config=config)
-        elif codec == "laz":
-            return encode_point_cloud_as_laz_binary(point_cloud_3d, point_cloud_features, config=config)
-        elif codec == "ipc":
-            return encode_point_cloud_as_ipc_binary(point_cloud_3d, point_cloud_features, codec=None)
-        elif codec == "ipc_zstd":
-            return encode_point_cloud_as_ipc_binary(point_cloud_3d, point_cloud_features, codec="zstd")
-        elif codec == "ipc_lz4":
-            return encode_point_cloud_as_ipc_binary(point_cloud_3d, point_cloud_features, codec="lz4")
-        else:
-            raise NotImplementedError(f"Unsupported lidar codec: {codec}")
+        assert self._lidar_codec is not None, "The binary store option requires a lidar codec."
+        return encode_point_cloud(
+            self._lidar_codec,
+            point_cloud_3d,
+            point_cloud_features,
+            config=self._lidar_codec_config,
+            sensor_poses=self._sensor_poses,
+        )
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -345,11 +393,4 @@ def _deserialize_pcs(
 
 def _decode_lidar_binary(blob: bytes) -> Tuple[npt.NDArray[np.float32], Optional[Dict[str, npt.NDArray]]]:
     """Auto-detect codec and decode a lidar binary blob into xyz + features."""
-    if is_draco_binary(blob):
-        return load_point_cloud_from_draco_binary(blob)
-    elif is_laz_binary(blob):
-        return load_point_cloud_from_laz_binary(blob)
-    elif is_ipc_binary(blob):
-        return load_point_cloud_from_ipc_binary(blob)
-    else:
-        raise ValueError("Unknown lidar binary format (not Draco, LAZ, or IPC).")
+    return decode_point_cloud(blob)
