@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Type, Union
 
 import numpy as np
+import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.map.arrow.arrow_map_api import get_map_api_for_log
@@ -29,6 +30,7 @@ from py123d.api.scene.arrow.modalities.sync_utils import (
     get_sync_table,
     get_timestamp_array,
 )
+from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema
 from py123d.api.scene.arrow.utils.arrow_scene_caches import _get_complete_log_scene_metadata
 from py123d.api.scene.arrow.utils.route_utils import ROUTE_POSITION_KEY
 from py123d.api.scene.scene_api import SceneAPI
@@ -49,6 +51,17 @@ from py123d.datatypes import (
     get_modality_key,
 )
 from py123d.datatypes.metadata import SceneMetadata
+from py123d.geometry.geometry_index import PoseSE3Index
+
+# NOTE @DanielDauner:
+# searchsorted(side="left") gives an inclusive bound,
+# side="right" gives an exclusive bound.
+_SEARCHSORTED_SIDES: Dict[str, Tuple[Literal["left", "right"], Literal["left", "right"]]] = {
+    "left": ("left", "left"),
+    "right": ("right", "right"),
+    "both": ("left", "right"),
+    "neither": ("right", "left"),
+}
 
 MODALITY_READERS: Dict[ModalityType, Type[ArrowBaseModalityReader]] = {
     ModalityType.EGO_STATE_SE3: ArrowEgoStateSE3Reader,
@@ -353,16 +366,7 @@ class ArrowSceneAPI(SceneAPI):
         modality_table = self._modality_table(_modality_key)
         modality_metadata = self.get_modality_metadata(_modality_type, modality_id)
         if modality_table is not None and modality_metadata is not None:
-            # NOTE @DanielDauner:
-            # searchsorted(side="left") gives an inclusive bound,
-            # side="right" gives an exclusive bound.
-            sides: Dict[str, Tuple[Literal["left", "right"], Literal["left", "right"]]] = {
-                "left": ("left", "left"),
-                "right": ("right", "right"),
-                "both": ("left", "right"),
-                "neither": ("right", "left"),
-            }
-            start_side, end_side = sides[inclusive]
+            start_side, end_side = _SEARCHSORTED_SIDES[inclusive]
 
             ts_array, _ = get_timestamp_array(modality_table, f"{_modality_key}.timestamp_us")
             lo = int(np.searchsorted(ts_array, start_us, side=start_side))
@@ -380,6 +384,33 @@ class ArrowSceneAPI(SceneAPI):
                 )
                 if modality is not None:
                     yield modality
+
+    def get_ego_imu_se3_between_timestamps(
+        self,
+        start_timestamp: Union[Timestamp, int],
+        end_timestamp: Union[Timestamp, int],
+        inclusive: Literal["left", "right", "both", "neither"] = "left",
+    ) -> Tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+        """Inherited, see superclass; reads the two columns whole instead of one ego state per row."""
+        start_us = start_timestamp.time_us if isinstance(start_timestamp, Timestamp) else int(start_timestamp)
+        end_us = end_timestamp.time_us if isinstance(end_timestamp, Timestamp) else int(end_timestamp)
+        ego_key = get_modality_key(ModalityType.EGO_STATE_SE3)
+        imu_column_name = f"{ego_key}.imu_se3"
+        timestamp_column_name = f"{ego_key}.timestamp_us"
+
+        modality_table = self._modality_table(ego_key)
+        if modality_table is None or not all_columns_in_schema(
+            modality_table, [imu_column_name, timestamp_column_name]
+        ):
+            return np.zeros(0, dtype=np.int64), np.zeros((0, len(PoseSE3Index)), dtype=np.float64)
+
+        start_side, end_side = _SEARCHSORTED_SIDES[inclusive]
+        ts_array, _ = get_timestamp_array(modality_table, timestamp_column_name)
+        lo = int(np.searchsorted(ts_array, start_us, side=start_side))
+        hi = max(int(np.searchsorted(ts_array, end_us, side=end_side)), lo)
+        imu_column = modality_table[imu_column_name].slice(lo, hi - lo).combine_chunks()
+        imu_se3_array = imu_column.flatten().to_numpy(zero_copy_only=False).astype(np.float64)
+        return ts_array[lo:hi].astype(np.int64), imu_se3_array.reshape(hi - lo, len(PoseSE3Index))
 
     def get_modality_column_at_iteration(
         self,

@@ -39,6 +39,7 @@ from py123d.datatypes import (
 )
 from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.metadata.route_metadata import RouteMetadata
+from py123d.geometry.geometry_index import PoseSE3Index
 
 T = TypeVar("T")
 
@@ -298,6 +299,33 @@ class SceneAPI(abc.ABC):
             timestamp, modality_type=ModalityType.EGO_STATE_SE3, criteria=criteria
         )
         return checked_optional_cast(ego_state_se3, EgoStateSE3)
+
+    def get_ego_imu_se3_between_timestamps(
+        self,
+        start_timestamp: Union[Timestamp, int],
+        end_timestamp: Union[Timestamp, int],
+        inclusive: Literal["left", "right", "both", "neither"] = "left",
+    ) -> Tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+        """Returns the timestamps and IMU poses of the ego states between two timestamps, as arrays.
+
+        Subclasses that store the poses as columns can override this with a whole-column read; the default
+        builds each :class:`~py123d.datatypes.EgoStateSE3` through :meth:`get_modality_between_timestamps`.
+
+        :param start_timestamp: Lower bound of the range, as a Timestamp object or integer microseconds.
+        :param end_timestamp: Upper bound of the range, as a Timestamp object or integer microseconds.
+        :param inclusive: Which bounds are inclusive, see :meth:`get_modality_between_timestamps`.
+        :return: Tuple of (timestamps in microseconds (N,), IMU poses (N, 7) indexed by
+            :class:`~py123d.geometry.PoseSE3Index`), in chronological order. Empty if no ego state falls in the range.
+        """
+        ego_states = [
+            checked_optional_cast(ego_state_se3, EgoStateSE3)
+            for ego_state_se3 in self.get_modality_between_timestamps(
+                start_timestamp, end_timestamp, modality_type=ModalityType.EGO_STATE_SE3, inclusive=inclusive
+            )
+        ]
+        timestamps_us = np.array([state.timestamp.time_us for state in ego_states if state is not None], np.int64)
+        imu_se3_array = np.array([state.imu_se3.array for state in ego_states if state is not None], np.float64)
+        return timestamps_us, imu_se3_array.reshape(len(timestamps_us), len(PoseSE3Index))
 
     # 2.2 Box Detections SE3
     # ------------------------------------------------------------------------------------------------------------------
