@@ -43,13 +43,20 @@ def load_physical_ai_av_point_cloud_data_from_path(
     lidar_to_ego = lidar_metadatas[LidarID.LIDAR_TOP].lidar_to_imu_se3
     points = rel_to_abs_points_3d_array(origin=lidar_to_ego, points_3d_array=points).astype(np.float32)
 
-    # Extract per-point features from Draco color channels.
-    # Physical AI AV encodes: Red = intensity (uint8), Green+Blue = 16-bit relative timestamp.
-    # Formula: raw = (Blue << 8) | Green, relative_us = 105000 - raw * 210000 / 65535
-    # Absolute timestamp = reference_timestamp + relative_us
     lidar_features: Dict[str, npt.NDArray] = {}
+    named = {attribute["name"]: np.asarray(attribute["data"]) for attribute in mesh.attributes if attribute["name"]}
     colors = mesh.colors
-    if colors is not None:
+    if named:
+        # Current dataset revisions store named attributes: intensity (uint8), timestamp (absolute point time in
+        # us, same clock as spin_start_timestamp) and model_element (beam index, column index).
+        lidar_features[LidarFeature.INTENSITY.serialize()] = named["intensity"].reshape(-1).astype(np.uint8)
+        lidar_features[LidarFeature.TIMESTAMPS.serialize()] = named["timestamp"].reshape(-1).astype(np.int64)
+        lidar_features[LidarFeature.CHANNEL.serialize()] = named["model_element"].reshape(-1, 2)[:, 0].astype(np.uint8)
+    elif colors is not None:
+        # Older revisions encode the features in the Draco colors:
+        # Red = intensity (uint8), Green+Blue = 16-bit relative timestamp.
+        # Formula: raw = (Blue << 8) | Green, relative_us = 105000 - raw * 210000 / 65535
+        # Absolute timestamp = reference_timestamp + relative_us
         colors_arr = np.array(colors, dtype=np.uint8)
         lidar_features[LidarFeature.INTENSITY.serialize()] = colors_arr[:, 0]
 
