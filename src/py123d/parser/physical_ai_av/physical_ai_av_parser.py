@@ -727,8 +727,8 @@ def _build_box_detections(
 ) -> BoxDetectionsSE3:
     """Build BoxDetectionsSE3 from a group of obstacle detections at one timestamp.
 
-    Each detection is transformed from the ego frame at the detection's own timestamp
-    to the global frame, using the ego pose at that detection's timestamp.
+    Each detection is transformed from the ego frame at the timestamp of its reference frame
+    to the global frame, using the ego pose at that timestamp.
     """
     timestamp = Timestamp.from_us(timestamp_us)
     num_dets = len(group_df)
@@ -767,12 +767,12 @@ def _build_box_detections(
         det_labels.append(label)
         det_tokens.append(str(det_row["track_id"]))
 
-    # Each detection is given in the rig frame of its own timestamp (the time the lidar scanned the object): with
-    # the ego pose of the sweep end instead, the boxes are shifted by the ego motion in between, and fewer lidar
-    # points lie inside them.
-    for det_idx, det_timestamp_us in enumerate(group_df["timestamp_us"].to_numpy(dtype=np.int64)):
+    # Each detection is given in the rig frame at its ``reference_frame_timestamp_us`` (the same convention as
+    # ncore.data.CuboidTrackObservation): the time the lidar scanned the object. With the ego pose of the sweep end
+    # instead, every box is shifted by the ego motion in between, and fewer lidar points lie inside it.
+    for det_idx, reference_timestamp_us in enumerate(group_df["reference_frame_timestamp_us"].to_numpy(dtype=np.int64)):
         det_state[det_idx, BoundingBoxSE3Index.SE3] = rel_to_abs_se3_array(
-            origin=_ego_pose_at(ego_df, ego_timestamps, int(det_timestamp_us)),
+            origin=_ego_pose_at(ego_df, ego_timestamps, int(reference_timestamp_us)),
             pose_se3_array=det_state[det_idx : det_idx + 1, BoundingBoxSE3Index.SE3],
         )
 

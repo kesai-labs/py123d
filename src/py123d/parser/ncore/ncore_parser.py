@@ -649,8 +649,10 @@ def _build_box_detections_in_window(
         ref_to_rig = reference_to_rig.get(obs.reference_frame_id, PoseSE3.identity())
         bbox_in_rig = cuboid_bbox_to_rig_se3_array(obs, ref_to_rig)
 
-        # The cuboid is given in the rig frame of its own timestamp: the time the LiDAR scanned the object.
-        rig_to_world_at_obs = _rig_pose_at(rig_poses_se3, rig_poses_ts, int(obs.timestamp_us))
+        # NCore gives a cuboid "relative to the reference frame's coordinate system" at
+        # ``reference_frame_timestamp_us`` (ncore.data.CuboidTrackObservation, whose ``transform`` evaluates the pose
+        # at that time). PAI-AV sets it to the time the lidar scanned the object, not to the end of the sweep.
+        rig_to_world_at_obs = _rig_pose_at(rig_poses_se3, rig_poses_ts, int(obs.reference_frame_timestamp_us))
         bbox_in_rig[BoundingBoxSE3Index.SE3] = rel_to_abs_se3_array(
             origin=rig_to_world_at_obs,
             pose_se3_array=bbox_in_rig[BoundingBoxSE3Index.SE3].reshape(1, -1),
