@@ -962,7 +962,9 @@ class NuRecMapParser(BaseMapParser):
             if map_id is not None and map_id in relations.intersection_lanes:
                 continue
             left_neighbours = (set(relations.left.get(map_id, ())) | lanes_left_of.get(map_id, set())) & driving_map_ids
-            right_neighbours = (set(relations.right.get(map_id, ())) | lanes_right_of.get(map_id, set())) & driving_map_ids
+            right_neighbours = (
+                set(relations.right.get(map_id, ())) | lanes_right_of.get(map_id, set())
+            ) & driving_map_ids
             for rail in _shoulder_inner_rails(left_d, right_d, left_neighbours, right_neighbours, boundary_xy):
                 yield RoadEdge(
                     object_id=next_id,
