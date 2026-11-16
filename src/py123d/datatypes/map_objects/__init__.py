@@ -1,4 +1,9 @@
-from py123d.datatypes.map_objects.base_map_objects import BaseMapLineObject, BaseMapObject, BaseMapSurfaceObject
+from py123d.datatypes.map_objects.base_map_objects import (
+    BaseMapLineObject,
+    BaseMapObject,
+    BaseMapPointObject,
+    BaseMapSurfaceObject,
+)
 from py123d.datatypes.map_objects.map_layer_types import (
     IntersectionType,
     LaneType,
@@ -19,6 +24,7 @@ from py123d.datatypes.map_objects.map_objects import (
     RoadLine,
     SpeedBump,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 
@@ -26,6 +32,7 @@ __all__ = [
     # Base classes
     "BaseMapLineObject",
     "BaseMapObject",
+    "BaseMapPointObject",
     "BaseMapSurfaceObject",
     # Layer types
     "IntersectionType",
@@ -46,5 +53,6 @@ __all__ = [
     "RoadLine",
     "SpeedBump",
     "StopZone",
+    "TrafficLight",
     "Walkway",
 ]

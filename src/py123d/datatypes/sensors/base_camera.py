@@ -59,6 +59,9 @@ class CameraID(SerialIntEnum):
     PCAM_F0 = 0
     """Front pinhole camera."""
 
+    PCAM_F1 = 23
+    """Second front pinhole camera, e.g. a high-resolution camera next to a surround-view ring."""
+
     PCAM_B0 = 1
     """Back pinhole camera."""
 
@@ -134,6 +137,7 @@ class CameraID(SerialIntEnum):
 
 ALL_PINHOLE_CAMERA_IDS = [
     CameraID.PCAM_F0,
+    CameraID.PCAM_F1,
     CameraID.PCAM_B0,
     CameraID.PCAM_L0,
     CameraID.PCAM_L1,
@@ -302,7 +306,7 @@ class BaseCameraMetadata(BaseModalityMetadata, abc.ABC):
 class Camera(BaseModality):
     """A camera observation: image, extrinsic pose, timestamp, and model-specific metadata."""
 
-    __slots__ = ("_metadata", "_image", "_camera_to_global_se3", "_timestamp", "_exposure_factor")
+    __slots__ = ("_metadata", "_image", "_camera_to_global_se3", "_timestamp", "_exposure_factor", "_arrival_timestamp")
 
     def __init__(
         self,
@@ -311,6 +315,7 @@ class Camera(BaseModality):
         camera_to_global_se3: PoseSE3,
         timestamp: Timestamp,
         exposure_factor: Optional[float] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         """Initialize a Camera instance.
 
@@ -320,12 +325,15 @@ class Camera(BaseModality):
         :param timestamp: The timestamp of the image capture.
         :param exposure_factor: Per-frame exposure normalization gain applied upstream of
             the stored image, if known (see :attr:`exposure_factor`).
+        :param arrival_timestamp: Optional time the recording system received the measurement
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`).
         """
         self._metadata = metadata
         self._image = image
         self._camera_to_global_se3 = camera_to_global_se3
         self._timestamp = timestamp
         self._exposure_factor = exposure_factor
+        self._arrival_timestamp = arrival_timestamp
 
     @property
     def timestamp(self) -> Timestamp:
@@ -346,6 +354,11 @@ class Camera(BaseModality):
     def metadata(self) -> BaseCameraMetadata:
         """The :class:`BaseCameraMetadata` associated with the camera."""
         return self._metadata
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this measurement, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def image(self) -> npt.NDArray[np.uint8]:

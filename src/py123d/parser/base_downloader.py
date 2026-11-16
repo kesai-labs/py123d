@@ -8,13 +8,13 @@ so that two different entry points can share the same implementation:
    calls :meth:`BaseDownloader.download`.
 
 2. Streaming-during-conversion: a dataset parser receives a downloader instance via
-   its ``downloader`` constructor argument, optionally redirects
-   :attr:`BaseDownloader.output_dir` to a managed temp directory, and calls
-   :meth:`BaseDownloader.download` before reading the materialized files.
+   its ``downloader`` constructor argument and calls :meth:`BaseDownloader.download`
+   before reading the materialized files. The ``-stream`` configs set
+   :attr:`BaseDownloader.output_dir` to ``<py123d_download_root>/<dataset>``, which
+   ``py123d-conversion`` deletes when the conversion ends, unless ``keep_downloads`` is set.
 
 Subclasses set :attr:`output_dir` and :attr:`dry_run` in their ``__init__`` and
-implement :meth:`download`. When ``output_dir`` is ``None`` the parser assigns a
-``tempfile.TemporaryDirectory`` before invoking :meth:`download`.
+implement :meth:`download`.
 """
 
 from __future__ import annotations
@@ -27,9 +27,7 @@ from typing import Optional
 class BaseDownloader(ABC):
     """Common contract for dataset downloaders shared by the CLI and parser streaming paths.
 
-    :ivar output_dir: Destination for downloaded files. ``None`` means "assign a temp dir
-        at download time" — streaming parsers use this to point the downloader at a
-        :class:`tempfile.TemporaryDirectory` they manage.
+    :ivar output_dir: Destination for downloaded files. Must be set before :meth:`download`.
     :ivar dry_run: When ``True``, :meth:`download` logs the plan (source, selection, size
         estimates if available) without writing any files.
     """

@@ -1,6 +1,5 @@
 """Unit tests for the IMU and GNSS modalities: datatypes, arrow round-trip, registration."""
 
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -78,8 +77,8 @@ class TestImuArrowRoundTrip:
         assert imu.orientation is None
         assert imu.orientation_covariance is None
 
-    def test_full_imu_round_trip(self):
-        log_dir = Path(tempfile.mkdtemp())
+    def test_full_imu_round_trip(self, tmp_path: Path):
+        log_dir = tmp_path
         metadata = ImuMetadata(imu_name="fused", has_orientation=True, has_covariances=True)
         writer = ArrowImuWriter(log_dir, metadata)
         covariance = np.arange(9, dtype=np.float64)
@@ -109,8 +108,8 @@ class TestImuArrowRoundTrip:
 
 
 class TestGnssArrowRoundTrip:
-    def test_gnss_round_trip_with_datum(self):
-        log_dir = Path(tempfile.mkdtemp())
+    def test_gnss_round_trip_with_datum(self, tmp_path: Path):
+        log_dir = tmp_path
         metadata = GnssMetadata(gnss_name="ublox", datum_lla=(49.0203, 8.4376, 162.4))
         writer = ArrowGnssWriter(log_dir, metadata)
         writer.write_modality(
@@ -158,8 +157,8 @@ class TestGnssArrowRoundTrip:
         assert full_fix.num_satellites is None
         assert full_fix.ground_speed is None
 
-    def test_gnss_round_trip_with_solution_quality(self):
-        log_dir = Path(tempfile.mkdtemp())
+    def test_gnss_round_trip_with_solution_quality(self, tmp_path: Path):
+        log_dir = tmp_path
         metadata = GnssMetadata(gnss_name="ublox", has_solution_quality=True)
         writer = ArrowGnssWriter(log_dir, metadata)
         writer.write_modality(
@@ -202,9 +201,9 @@ class TestGnssArrowRoundTrip:
         assert unmatched.velocity_ned is None
         assert unmatched.ground_speed is None
 
-    def test_gnss_solution_quality_dropped_without_flag(self):
+    def test_gnss_solution_quality_dropped_without_flag(self, tmp_path: Path):
         """A fix carrying quality fields must not be written silently when the flag is off."""
-        log_dir = Path(tempfile.mkdtemp())
+        log_dir = tmp_path
         metadata = GnssMetadata(gnss_name="ublox")
         writer = ArrowGnssWriter(log_dir, metadata)
         with pytest.raises(AssertionError, match="has_solution_quality"):
@@ -243,11 +242,11 @@ class TestBarometerMagnetometerRoundTrip:
         assert resolve_metadata_class("barometer") is BarometerMetadata
         assert resolve_metadata_class("magnetometer") is MagnetometerMetadata
 
-    def test_barometer_round_trip(self):
+    def test_barometer_round_trip(self, tmp_path: Path):
         from py123d.api.scene.arrow.modalities.arrow_barometer import ArrowBarometerReader, ArrowBarometerWriter
         from py123d.datatypes import Barometer, BarometerMetadata
 
-        log_dir = Path(tempfile.mkdtemp())
+        log_dir = tmp_path
         metadata = BarometerMetadata(barometer_name="imx5")
         writer = ArrowBarometerWriter(log_dir, metadata)
         writer.write_modality(
@@ -273,14 +272,14 @@ class TestBarometerMagnetometerRoundTrip:
         bare = ArrowBarometerReader.read_at_index(1, table, restored_metadata, dataset="test")
         assert bare.msl_altitude is None and bare.temperature is None
 
-    def test_magnetometer_round_trip(self):
+    def test_magnetometer_round_trip(self, tmp_path: Path):
         from py123d.api.scene.arrow.modalities.arrow_magnetometer import (
             ArrowMagnetometerReader,
             ArrowMagnetometerWriter,
         )
         from py123d.datatypes import Magnetometer, MagnetometerMetadata
 
-        log_dir = Path(tempfile.mkdtemp())
+        log_dir = tmp_path
         metadata = MagnetometerMetadata(magnetometer_name="imx5")
         writer = ArrowMagnetometerWriter(log_dir, metadata)
         writer.write_modality(

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import gzip
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import IO, List, Optional, Union
 from xml.etree.ElementTree import Element, parse
 
 from py123d.parser.opendrive.xodr_parser.road import XODRRoad
@@ -51,8 +51,9 @@ class XODR:
         return XODR(**args)
 
     @classmethod
-    def parse_from_file(cls, file_path: Path) -> XODR:
-        if file_path.suffix == ".gz":
+    def parse_from_file(cls, file_path: Union[Path, IO[bytes]]) -> XODR:
+        """Parses an OpenDRIVE file, given as a path (optionally gzipped) or as an open binary file."""
+        if isinstance(file_path, Path) and file_path.suffix == ".gz":
             with gzip.open(file_path, "rb") as f:
                 tree = parse(f)
         else:
@@ -91,10 +92,10 @@ class Header:
             args["name"] = header_element.get("name")
             args["version"] = header_element.get("version")
             args["data"] = header_element.get("data")
-            args["north"] = float(header_element.get("north"))
-            args["south"] = float(header_element.get("south"))
-            args["east"] = float(header_element.get("east"))
-            args["west"] = float(header_element.get("west"))
+            # north/south/east/west are optional per the OpenDRIVE spec and stay None when omitted.
+            for bound in ("north", "south", "east", "west"):
+                value = header_element.get(bound)
+                args[bound] = float(value) if value is not None else None
             args["vendor"] = header_element.get("vendor")
             if header_element.find("geoReference") is not None:
                 args["geo_reference"] = header_element.find("geoReference").text
@@ -110,7 +111,7 @@ class Controller:
 
     name: str
     id: int
-    sequence: int
+    sequence: Optional[int]
     controls: List[Control]
 
     @classmethod
@@ -118,7 +119,9 @@ class Controller:
         args = {}
         args["name"] = controller_element.get("name")
         args["id"] = float(controller_element.get("id"))
-        args["sequence"] = float(controller_element.get("sequence"))
+        # Per the ASAM spec, `sequence` is optional (unlike `id`).
+        sequence = controller_element.get("sequence")
+        args["sequence"] = float(sequence) if sequence is not None else None
 
         controls: List[Control] = []
         for control_element in controller_element.findall("control"):
@@ -154,6 +157,7 @@ class Junction:
     id: int
     name: str
     connections: List[Connection]
+    controllers: List[JunctionController] = field(default_factory=list)
 
     @classmethod
     def parse(cls, junction_element: Optional[Element]) -> Junction:
@@ -167,7 +171,32 @@ class Junction:
             connections.append(Connection.parse(connection_element))
         args["connections"] = connections
 
+        controllers: List[JunctionController] = []
+        for controller_element in junction_element.findall("controller"):
+            controllers.append(JunctionController.parse(controller_element))
+        args["controllers"] = controllers
+
         return Junction(**args)
+
+
+@dataclass
+class JunctionController:
+    """
+    Controller reference inside a junction; sequence is the signal phase index of the junction's cycle.
+    https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/latest/specification/12_junctions/12_02_common_junctions.html
+    """
+
+    id: int
+    type: Optional[str]
+    sequence: int
+
+    @classmethod
+    def parse(cls, controller_element: Element) -> JunctionController:
+        return JunctionController(
+            id=int(controller_element.get("id")),
+            type=controller_element.get("type"),
+            sequence=int(controller_element.get("sequence", 0)),
+        )
 
 
 @dataclass
@@ -179,11 +208,11 @@ class Connection:
     id: int
     incoming_road: int
     connecting_road: int
-    contact_point: Literal["start", "end"]
+    contact_point: Optional[str]
     lane_links: List[LaneLink]
 
-    def __post_init__(self):
-        assert self.contact_point in ["start", "end"]
+    # NOTE: `contact_point` is validated where it is used (see `_update_connection_from_junctions`),
+    # not at parse time, so connections that are skipped there do not fail the whole map.
 
     @classmethod
     def parse(cls, connection_element: Optional[Element]) -> Connection:

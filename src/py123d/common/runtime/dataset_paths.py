@@ -32,6 +32,9 @@ _ENV_VAR_MAP: Dict[str, str] = {
     "nureasoning_data_root": "NUREASONING_DATA_ROOT",
     "griffin_data_root": "GRIFFIN_DATA_ROOT",
     "truckdrive_data_root": "TRUCKDRIVE_DATA_ROOT",
+    "kitscenes_data_root": "KITSCENES_DATA_ROOT",
+    "once_data_root": "ONCE_DATA_ROOT",
+    "shifts_data_root": "SHIFTS_DATA_ROOT",
 }
 
 
@@ -63,6 +66,9 @@ class DatasetPaths:
     nureasoning_data_root: Optional[Path] = None
     griffin_data_root: Optional[Path] = None
     truckdrive_data_root: Optional[Path] = None
+    kitscenes_data_root: Optional[Path] = None
+    once_data_root: Optional[Path] = None
+    shifts_data_root: Optional[Path] = None
 
     # 2. Derived paths (if not explicitly set, will be derived from primary roots in __post_init__)
     py123d_logs_root: Optional[Path] = field(default=None, repr=False)
@@ -151,6 +157,8 @@ class DatasetPaths:
             "nureasoning": self.nureasoning_data_root,
             "griffin": self.griffin_data_root,
             "truckdrive": self.truckdrive_data_root,
+            "kitscenes": self.kitscenes_data_root,
+            "once": self.once_data_root,
         }
         return mapping.get(dataset)
 

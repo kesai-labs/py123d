@@ -18,13 +18,16 @@
 #   py123d-conversion dataset=nuscenes-interpolated-stream \
 #     'dataset.parser.splits=[nuscenes-interpolated_val]'
 
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
 parser:
   _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
   _convert_: 'all'
 
   splits: ["nuscenes-interpolated_train", "nuscenes-interpolated_val", "nuscenes-interpolated_test"]
 
-  # Ignored when `downloader` is set — the parser materializes archives into a temp dir.
+  # Ignored when `downloader` is set — the parser materializes archives into the downloader's output_dir.
   nuscenes_data_root: null
 
   # Auto-detected in streaming mode: if `nuScenes-map-expansion-v1.3.zip` is in the
@@ -40,8 +43,8 @@ parser:
     _target_: py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader
     _convert_: 'all'
 
-    # Ignored in streaming mode — archives land in the parser's tempfile.TemporaryDirectory.
-    output_dir: null
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/nuscenes-interpolated
 
     email: null                  # falls back to $NUSCENES_EMAIL
     password: null               # falls back to $NUSCENES_PASSWORD

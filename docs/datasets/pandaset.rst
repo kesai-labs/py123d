@@ -206,14 +206,14 @@ section above):
   converter configuration.
 
 **Streaming mode** — extract each log from a shared ``pandaset.zip`` (community
-HuggingFace mirror) to a per-log temp directory at parse time and delete it afterwards.
+HuggingFace mirror) to a per-log directory at parse time and delete it afterwards.
 The ~44.5 GB zip is downloaded on first access into
-``<system_temp>/py123d-pandaset-cache/`` (shared across workers) and reused for
-the remaining logs of the run:
+``$PY123D_DATA_ROOT/.download/pandaset/_zip`` (shared across workers), reused for
+the remaining logs of the run, and deleted when the conversion ends:
 
 .. code-block:: bash
 
-  # First run: downloads pandaset.zip (~44.5 GB) into <system_temp>, then streams 3 logs.
+  # Downloads pandaset.zip (~44.5 GB) into $PY123D_DATA_ROOT/.download/pandaset, then streams 3 logs.
   py123d-conversion dataset=pandaset-stream \
       dataset.parser.downloader.num_logs=3
 
@@ -221,31 +221,30 @@ the remaining logs of the run:
   py123d-conversion dataset=pandaset-stream \
       'dataset.parser.downloader.log_names=[001, 002, 005]'
 
-  # Park the 44.5 GB zip somewhere with room (system temp is often too small):
+  # Keep the 44.5 GB zip in a directory of your choice, to reuse it across runs:
   py123d-conversion dataset=pandaset-stream \
       dataset.parser.downloader.num_logs=3 \
       dataset.parser.downloader.zip_cache_dir=/mnt/scratch/pandaset_zip_cache
 
 .. warning::
-  Even small values of ``num_logs`` trigger the full ~44.5 GB download on first use —
+  Even small values of ``num_logs`` trigger the full ~44.5 GB download —
   the HuggingFace mirror is a single monolithic zip, not per-log archives. The zip
-  is written to a shared temp location (not ``$HF_HOME``), so subsequent runs on the
-  same machine reuse it until the system temp dir is cleared.
+  is deleted when the conversion ends, so set ``keep_downloads=true`` or
+  ``zip_cache_dir`` if you plan to stream more than once.
 
 .. note::
   Streaming mode forces ``camera_store_option: "jpeg_binary"`` and
-  ``lidar_store_option: "binary"`` — the per-log temp directory is deleted immediately
+  ``lidar_store_option: "binary"`` — the per-log directory is deleted immediately
   after conversion, so any ``"path"`` references would point at vanished sources.
 
 To pre-stage data outside the conversion pipeline (download the zip and extract logs
 into a persistent ``$PANDASET_DATA_ROOT`` for later local-mode runs), use the
-standalone downloader. The zip itself is fetched into a session-scoped temp directory
+standalone downloader. The zip itself is fetched into ``$PANDASET_DATA_ROOT/_zip``
 and removed once extraction completes — only the unpacked log folders survive:
 
 .. code-block:: bash
 
-  # Download the zip to a temp dir, extract all 103 logs to $PANDASET_DATA_ROOT,
-  # and delete the zip.
+  # Download the zip, extract all 103 logs to $PANDASET_DATA_ROOT, and delete the zip.
   py123d-download dataset=pandaset
 
   # Or a handful of logs:

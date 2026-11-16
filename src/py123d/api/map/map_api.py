@@ -20,6 +20,7 @@ from py123d.datatypes.map_objects import (
     RoadLine,
     SpeedBump,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.map_objects.base_map_objects import MapObjectIDType
@@ -303,6 +304,11 @@ class MapAPI(abc.ABC):
     def get_layer_objects_in_radius(
         self, point: Union[Point2D, Point3D], radius: float, layer: Literal[MapLayer.SPEED_BUMP]
     ) -> Sequence[SpeedBump]: ...
+
+    @overload
+    def get_layer_objects_in_radius(
+        self, point: Union[Point2D, Point3D], radius: float, layer: Literal[MapLayer.TRAFFIC_LIGHT]
+    ) -> Sequence[TrafficLight]: ...
 
     def get_layer_objects_in_radius(
         self, point: Union[Point2D, Point3D], radius: float, layer: MapLayer

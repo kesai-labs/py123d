@@ -3,9 +3,13 @@
 These functions resolve the mapping from sync-table iterations to per-modality row indices.
 """
 
+import threading
+import weakref
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Literal, Optional, Tuple
 
+import numpy as np
+import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
@@ -25,6 +29,107 @@ def get_modality_table(log_dir: Path, modality_key: str) -> Optional[pa.Table]:
     if file_path.exists():
         table = get_lru_cached_arrow_table(file_path)
     return table
+
+
+# Timestamp columns as NumPy arrays, cached per table object and column, with whether they never
+# decrease. A lookup by timestamp runs once per frame when a log is replayed; converting the whole
+# column on every call (a copy across all record batches) made each lookup cost grow with the log's
+# length, so replaying a log took time quadratic in its length. pyarrow tables are not hashable, so
+# entries are keyed by id() and removed when their table is garbage-collected.
+_TIMESTAMP_ARRAYS: Dict[int, Dict[str, Tuple[npt.NDArray, bool]]] = {}
+_TIMESTAMP_ARRAYS_LOCK = threading.Lock()
+
+
+def get_timestamp_array(table: pa.Table, column: str) -> Tuple[npt.NDArray, bool]:
+    """Returns the values of a timestamp column as a read-only NumPy array, and whether they never decrease.
+
+    Computed once per table object and column, and cached until the table is garbage-collected.
+
+    :param table: The Arrow table.
+    :param column: The timestamp column name (e.g. ``"lidar.lidar_top.timestamp_us"``).
+    :return: Tuple of (values, sorted), where sorted is True when no value is smaller than its predecessor.
+    """
+    key = id(table)
+    with _TIMESTAMP_ARRAYS_LOCK:
+        cached = _TIMESTAMP_ARRAYS.get(key, {}).get(column)
+    if cached is None:
+        values = table[column].to_numpy()
+        # A column with nulls converts to floats with NaN; NaN compares False, so it counts as unsorted.
+        is_sorted = bool(len(values) < 2 or np.all(values[1:] >= values[:-1]))
+        values.setflags(write=False)
+        cached = (values, is_sorted)
+        with _TIMESTAMP_ARRAYS_LOCK:
+            if key not in _TIMESTAMP_ARRAYS:
+                _TIMESTAMP_ARRAYS[key] = {}
+                weakref.finalize(table, _TIMESTAMP_ARRAYS.pop, key, None)
+            _TIMESTAMP_ARRAYS[key][column] = cached
+    return cached
+
+
+def find_timestamp_index(
+    ts_array: npt.NDArray,
+    target_us: int,
+    criteria: Literal["exact", "nearest", "forward", "backward"],
+    is_sorted: bool,
+) -> Optional[int]:
+    """Returns the row index matching a timestamp.
+
+    ``"exact"`` is the first row equal to the target, ``"nearest"`` the first row with the smallest absolute
+    difference, ``"forward"`` the first row at or after the target and ``"backward"`` the last row at or before
+    it, all in row order. On sorted values a binary search finds them (O(log n)); otherwise the values are
+    scanned in full, which gives the same results.
+
+    :param ts_array: The timestamps in microseconds, e.g. from :func:`get_timestamp_array`.
+    :param target_us: The target timestamp in microseconds.
+    :param criteria: The matching strategy.
+    :param is_sorted: Whether the values never decrease.
+    :return: The row index, or None if no row matches.
+    """
+    n = len(ts_array)
+    index: Optional[int] = None
+    if not is_sorted:
+        if criteria == "exact":
+            indices = np.where(ts_array == target_us)[0]
+            if len(indices) > 0:
+                index = int(indices[0])
+        elif criteria == "nearest":
+            if n > 0:
+                index = int(np.argmin(np.abs(ts_array - target_us)))
+        elif criteria == "forward":
+            indices = np.where(ts_array >= target_us)[0]
+            if len(indices) > 0:
+                index = int(indices[0])
+        elif criteria == "backward":
+            indices = np.where(ts_array <= target_us)[0]
+            if len(indices) > 0:
+                index = int(indices[-1])
+        return index
+
+    first_at_or_after = int(np.searchsorted(ts_array, target_us, side="left"))
+    if criteria == "exact":
+        if first_at_or_after < n and ts_array[first_at_or_after] == target_us:
+            index = first_at_or_after
+    elif criteria == "forward":
+        if first_at_or_after < n:
+            index = first_at_or_after
+    elif criteria == "backward":
+        last_at_or_before = int(np.searchsorted(ts_array, target_us, side="right")) - 1
+        if last_at_or_before >= 0:
+            index = last_at_or_before
+    elif criteria == "nearest" and n > 0:
+        # Candidates: the first row at or after the target and the first row holding the value just before
+        # it. On equal distance the earlier row wins, as with argmin over all rows.
+        if first_at_or_after == n:
+            index = int(np.searchsorted(ts_array, ts_array[n - 1], side="left"))
+        elif first_at_or_after == 0:
+            index = 0
+        else:
+            before = ts_array[first_at_or_after - 1]
+            if target_us - before <= ts_array[first_at_or_after] - target_us:
+                index = int(np.searchsorted(ts_array, before, side="left"))
+            else:
+                index = first_at_or_after
+    return index
 
 
 def get_sync_table(log_dir: Path) -> pa.Table:

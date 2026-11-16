@@ -275,7 +275,7 @@ def lane_section_to_lane_helpers(
 
 
 def _get_speed_limit_mps(s: float, road_types: List[XODRRoadType]) -> Optional[float]:
-    # NOTE: Likely not correct way to extract speed limit from CARLA maps, but serves as a placeholder
+    # Road-type design speed; fallback for lanes not governed by a speed-sign zone
     speed_limit_mps: Optional[float] = None
     s_road_types = [road_type.s for road_type in road_types] + [float("inf")]
 

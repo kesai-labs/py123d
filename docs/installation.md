@@ -22,6 +22,12 @@ export PY123D_DATA_ROOT="$HOME/py123d_workspace/data"
 ```
 which can be added to your `~/.bashrc` or to your bash scripts. Optionally, you can adjust all dataset paths in the hydra config: `py123d/script/config/common/default_dataset_paths.yaml`.
 
+Streaming conversions (`dataset=<name>-stream`) download the source data into `$PY123D_DATA_ROOT/.download/<name>` and delete that folder when the conversion ends (and `.download` itself once it is empty); pass `keep_downloads=true` to keep it. The system temp directory is not used. To download onto another disk, set
+```bash
+export PY123D_DOWNLOAD_ROOT="/path/to/scratch"
+```
+Each streaming config has its own folder, so conversions of different datasets can run in parallel. Two conversions of the *same* streaming config share one folder and must not run at the same time, unless each gets its own download root (e.g. `export PY123D_DOWNLOAD_ROOT="$PY123D_DATA_ROOT/.download/$SLURM_JOB_ID"`).
+
 The 123D conversion includes:
 - **Logs:** Each log is a directory containing per-modality `.arrow` files (e.g. ego state, cameras, lidar, bounding boxes, traffic lights) and a `sync.arrow` synchronization table. Each modality is stored at its native capture rate. When using MP4 camera compression, the `.mp4` files are also stored in the log directory.
 - **Maps:** The maps are static and store our unified HD-Map API. Maps can either be defined per-log (e.g. in AV2, Waymo) or globally for a certain location (e.g. nuPlan, nuScenes, CARLA). We use `.arrow` files to store maps.
@@ -57,3 +63,5 @@ For example, when converting `nuplan-mini` with MP4 compression and using `PY123
 └── py123d/ (repository)
     └── ...
 ```
+
+During a conversion, logs are first written to `$PY123D_DATA_ROOT/logs/.incomplete` (maps to `$PY123D_DATA_ROOT/maps/.incomplete`) and only moved to the structure above once they are complete, so a conversion that fails or is interrupted does not leave half-written logs behind. At the end, the conversion reports whether everything completed and lists all maps and logs that did not. Maps and logs that did not complete are still closed, so that what was written can be inspected, and stay in `.incomplete` until they are converted again. Pass `keep_incomplete=false` to delete them when the conversion ends.

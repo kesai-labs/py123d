@@ -37,10 +37,11 @@ class XODRObject:
         args["name"] = object_element.get("name")
         args["s"] = float(object_element.get("s"))
         args["t"] = float(object_element.get("t"))
-        args["z_offset"] = float(object_element.get("zOffset"))
-        args["hdg"] = float(object_element.get("hdg"))
-        args["roll"] = float(object_element.get("roll"))
-        args["pitch"] = float(object_element.get("pitch"))
+        # zOffset/hdg/roll/pitch are optional per the OpenDRIVE spec and default to 0 when omitted.
+        args["z_offset"] = float(object_element.get("zOffset", 0.0))
+        args["hdg"] = float(object_element.get("hdg", 0.0))
+        args["roll"] = float(object_element.get("roll", 0.0))
+        args["pitch"] = float(object_element.get("pitch", 0.0))
         args["orientation"] = object_element.get("orientation")
         args["type"] = object_element.get("type")
         args["width"] = float(object_element.get("width")) if object_element.get("width") is not None else None

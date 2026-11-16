@@ -1,0 +1,54 @@
+syntax = "proto3";
+import "geom.proto";
+import "map.proto";
+import "tags.proto";
+
+package neurips_dataset;
+
+enum ActorType {
+    kVehicle = 0;
+    kPedestrian = 1;
+}
+
+message PedestrianTrack {
+    uint64 track_id = 1;
+    Vector3 position = 2;
+    Vector3 dimensions = 3;
+    Vector3 linear_velocity = 4;
+}
+
+message VehicleTrack {
+    uint64 track_id = 1;
+    Vector3 position = 2;
+    Vector3 dimensions = 3;
+    Vector3 linear_velocity = 4;
+    Vector3 linear_acceleration = 5;
+    double yaw = 6;
+}
+
+message VehicleTracks {
+    repeated VehicleTrack tracks = 1;
+}
+
+message PedestrianTracks {
+    repeated PedestrianTrack tracks = 1;
+}
+
+message PredictionRequest {
+    uint64 track_id = 1;
+    repeated TrajectoryTag trajectory_tags = 2;
+}
+
+message Scene {
+    string id = 1;
+    repeated VehicleTracks past_vehicle_tracks = 2;
+    repeated PedestrianTracks past_pedestrian_tracks = 3;
+    repeated VehicleTrack past_ego_track = 4;
+    repeated VehicleTracks future_vehicle_tracks = 5;
+    repeated PedestrianTracks future_pedestrian_tracks = 10;
+    repeated VehicleTrack future_ego_track = 11;
+    repeated PredictionRequest prediction_requests = 6;
+    PathGraph path_graph = 7;
+    repeated TrafficLightSections traffic_lights = 8;
+    SceneTags scene_tags = 9;
+}

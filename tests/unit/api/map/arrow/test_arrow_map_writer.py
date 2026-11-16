@@ -100,6 +100,39 @@ class TestArrowMapWriterReset:
         expected_file = tmp_path / "maps" / "test" / "test_boston.arrow"
         assert expected_file.exists()
 
+    @pytest.mark.parametrize("per_log", [True, False])
+    def test_written_to_incomplete_dir_first(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, per_log: bool
+    ) -> None:
+        """The map is written to maps_root/.incomplete, and only moved to its location once complete."""
+        from py123d.api.map.arrow import arrow_map_writer
+
+        written_to = []
+        write_arrow_table = arrow_map_writer.write_arrow_table
+        monkeypatch.setattr(
+            arrow_map_writer,
+            "write_arrow_table",
+            lambda table, path: (written_to.append(path), write_arrow_table(table, path)),
+        )
+        metadata = _per_log_metadata() if per_log else _global_metadata()
+        map_file = tmp_path / ("logs/test_train/log_001/map.arrow" if per_log else "maps/test/test_boston.arrow")
+        incomplete_map_file = (
+            tmp_path / "maps" / ".incomplete" / ("test_train/log_001.arrow" if per_log else "test/boston.arrow")
+        )
+
+        # An incomplete map is closed in the incomplete directory, but not moved.
+        writer = _make_writer(tmp_path)
+        writer.reset(metadata)
+        writer.write_map_object(make_crosswalk(object_id="cw_1"))
+        writer.close(incomplete=True)
+        assert incomplete_map_file.exists() and not map_file.exists()
+
+        writer.reset(metadata)
+        writer.write_map_object(make_crosswalk(object_id="cw_1"))
+        writer.close()
+        assert written_to == [incomplete_map_file, incomplete_map_file]
+        assert map_file.exists() and not incomplete_map_file.exists()
+
     def test_returns_true_if_file_does_not_exist(self, tmp_path: Path) -> None:
         """reset() returns True when the target file does not yet exist."""
         writer = _make_writer(tmp_path, force=False)

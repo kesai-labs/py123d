@@ -164,8 +164,9 @@ Conversion
   To change the default behavior, you need to adapt the ``wod-perception.yaml`` converter configuration.
 
 **Streaming mode** — ``dataset=wod-perception-stream`` attaches a ``WODPerceptionDownloader``
-to the parser; it fetches selected segments from GCS into a temp directory at parser
-construction time and cleans up on parser GC. Useful when the full ~1 TB dataset is too
+to the parser; it fetches selected segments from GCS into
+``$PY123D_DATA_ROOT/.download/wod-perception`` at parser construction time and deletes
+them when the conversion ends. Useful when the full ~1 TB dataset is too
 large for local disk and you only need a handful of segments for iteration:
 
 .. code-block:: bash
@@ -182,10 +183,10 @@ large for local disk and you only need a handful of segments for iteration:
   py123d-conversion dataset=wod-perception-stream \
       'dataset.parser.downloader.shard_indices={wod-perception_val: [0, 1, 2]}'
 
-  # Persist downloads under a dedicated cache dir instead of a tempdir:
+  # Keep the downloaded files instead of deleting them (a later run reuses them):
   py123d-conversion dataset=wod-perception-stream \
       dataset.parser.downloader.num_shards=1 \
-      dataset.parser.downloader.output_dir=/mnt/scratch/wod_perception_cache
+      keep_downloads=true
 
 .. warning::
   Perception segments are ~1 GB each — even small values of ``num_shards``

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import Dict, Iterator, List, Literal, Optional, Tuple, Union
 
@@ -77,17 +76,13 @@ class Av2SensorParser(BaseDatasetParser):
         :param downloader: Optional :class:`Av2Downloader` to run at construction time.
             When provided, the parser uses ``downloader.output_dir / "sensor"`` as the
             sensor root (the downloader preserves the S3 ``sensor/`` prefix on disk).
-            A managed :class:`tempfile.TemporaryDirectory` is assigned to
-            ``downloader.output_dir`` if it is ``None``, and ``av2_sensor_root`` is
-            ignored. The temp dir, if any, is cleaned up when the parser is garbage
-            collected.
+            ``av2_sensor_root`` is ignored.
         """
         for split in splits:
             assert split in AV2_SENSOR_SPLITS, f"Split {split} is not available. Available splits: {AV2_SENSOR_SPLITS}"
 
         self._splits = splits
         self._lidar_camera_matching: Literal["nearest", "sweep"] = lidar_camera_matching
-        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
 
         if downloader is not None:
             self._av2_sensor_root = self._run_downloader(downloader)
@@ -101,8 +96,7 @@ class Av2SensorParser(BaseDatasetParser):
         self._log_paths_and_split: List[Tuple[Path, str]] = self._collect_log_paths()
 
     def _run_downloader(self, downloader: Av2Downloader) -> Path:
-        """Resolve ``downloader.output_dir`` (assigning a temp dir if needed), run the
-        download, and return the sensor-rooted directory.
+        """Run the download and return the sensor-rooted directory.
 
         The downloader writes ``<output_dir>/sensor/{train,val,test}/<log_uuid>/...``
         (the S3 ``sensor/`` prefix is preserved by ``_key_to_local_path``). The
@@ -111,25 +105,9 @@ class Av2SensorParser(BaseDatasetParser):
         """
         downloader._splits = list(self._splits)  # type: ignore[attr-defined]
 
-        if downloader.output_dir is None:
-            self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-av2-sensor-")
-            downloader.output_dir = Path(self._stream_temp_dir_handle.name)
-            logger.info("AV2 Sensor streaming temp dir: %s", downloader.output_dir)
-
         downloader.download()
+        assert downloader.output_dir is not None
         return downloader.output_dir / "sensor"
-
-    def __del__(self) -> None:
-        """Clean up the streaming temp directory when the parser is garbage collected."""
-        # TODO(av2): move to explicit context manager — __del__ semantics are unreliable
-        # (GC ordering, exception swallowing) and this pattern is flagged in the project
-        # weaknesses analysis. Mirrors the same TODO on WOD*Parser.
-        handle = getattr(self, "_stream_temp_dir_handle", None)
-        if handle is not None:
-            try:
-                handle.cleanup()
-            except Exception:
-                pass
 
     def _collect_log_paths(self) -> List[Tuple[Path, str]]:
         """Collects source log folder paths for the specified splits."""

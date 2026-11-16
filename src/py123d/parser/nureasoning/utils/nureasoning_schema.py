@@ -208,22 +208,54 @@ class nuReasoningClip:
 # ---- Pickle loading --------------------------------------------------------
 
 # The nuReasoning pickles were serialized by an upstream pipeline whose schema lived in a
-# top-level module named ``data_schema``. The classes are now vendored here, so we remap the
-# legacy module name to this module at unpickle time instead of requiring ``data_schema`` to
-# be importable.
-_LEGACY_SCHEMA_MODULES = {"data_schema": __name__}
+# top-level module named ``data_schema`` (the devkit also aliases ``data_schema_v0`` and ships
+# the classes as ``nureasoning.common.schema``). The classes are vendored here, so we resolve
+# these module names to this module at unpickle time instead of requiring them to be importable.
+_SCHEMA_MODULES = {"data_schema", "data_schema_v0", "nureasoning.common.schema", __name__}
+
+_SCHEMA_CLASSES: Dict[str, type] = {
+    schema_class.__name__: schema_class
+    for schema_class in (
+        Lane,
+        MapBoundary,
+        Crosswalk,
+        Intersection,
+        StopPolygon,
+        RoadBlock,
+        TrafficLight,
+        LaneConnector,
+        BaselinePath,
+        nuReasoningStaticMap,
+        TrafficLightState,
+        ObjectAnnotation,
+        EgoState,
+        CameraCalibration,
+        CameraPaths,
+        LidarData,
+        Sensors,
+        MissionGoal,
+        Annotations,
+        nuReasoningFrame,
+        nuReasoningClip,
+    )
+}
 
 
 class _NuReasoningUnpickler(pickle.Unpickler):
-    """Resolves pickles whose classes were serialized under a legacy module path."""
+    """Resolves the schema classes of a nuReasoning pickle, and nothing else.
+
+    The pickles are downloaded data. Unpickling can import and call arbitrary objects, so only the
+    vendored schema dataclasses are allowed (the released pickles reference no other globals).
+    """
 
     def find_class(self, module: str, name: str) -> Any:
-        module = _LEGACY_SCHEMA_MODULES.get(module, module)
-        return super().find_class(module, name)
+        if module in _SCHEMA_MODULES and name in _SCHEMA_CLASSES:
+            return _SCHEMA_CLASSES[name]
+        raise pickle.UnpicklingError(f"Unexpected global in nuReasoning pickle: {module}.{name}")
 
 
 def load_schema_pickle(path: Union[str, Path]) -> Any:
-    """Load a nuReasoning schema pickle, remapping legacy ``data_schema`` references."""
+    """Load a nuReasoning schema pickle, resolving its classes to the ones vendored in this module."""
     with open(Path(path), "rb") as f:
         result = _NuReasoningUnpickler(f).load()
     return result

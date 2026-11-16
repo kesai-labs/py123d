@@ -12,3 +12,7 @@ Base Map Objects
 .. autoclass:: py123d.datatypes.BaseMapLineObject
    :exclude-members: __init__
    :autoclasstoc:
+
+.. autoclass:: py123d.datatypes.BaseMapPointObject
+   :exclude-members: __init__
+   :autoclasstoc:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import pickle
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Final, Iterator, List, Optional, Tuple, Union
 
@@ -131,9 +130,8 @@ class NuplanParser(BaseDatasetParser):
         :param downloader: Optional
             :class:`~py123d.parser.nuplan.nuplan_download.NuplanDownloader` used for
             streaming mode. When provided, the parser materializes the configured
-            archives into a session-scoped :class:`tempfile.TemporaryDirectory` at
-            construction time, populates the three roots from it, and cleans the
-            temp directory up when the parser is garbage collected.
+            archives into ``downloader.output_dir`` at construction time and populates
+            the three roots from it.
         """
         for split in splits:
             assert split in NUPLAN_DATA_SPLITS, (
@@ -143,7 +141,6 @@ class NuplanParser(BaseDatasetParser):
         self._splits = splits
         self._log_names = log_names
         self._downloader: Optional["NuplanDownloader"] = downloader
-        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
 
         if downloader is not None:
             streaming_root = self._materialize_streaming_root(downloader)
@@ -178,27 +175,12 @@ class NuplanParser(BaseDatasetParser):
         self._split_log_path_pairs: List[Tuple[str, Path]] = self._collect_split_log_path_pairs()
 
     def _materialize_streaming_root(self, downloader: "NuplanDownloader") -> Path:
-        """Download and extract the configured archive subset into a managed temp dir.
+        """Download and extract the configured archive subset into ``downloader.output_dir``.
 
-        Mirrors the nuScenes streaming pattern: one shared data root for the parser's
-        lifetime. The temp directory is cleaned up in :meth:`__del__`.
+        Mirrors the nuScenes streaming pattern: one shared data root for the parser's lifetime.
         """
-        self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-nuplan-")
-        tmp_root = Path(self._stream_temp_dir_handle.name)
-        logger.info("nuPlan streaming temp dir: %s", tmp_root)
-        downloader.materialize_archives(output_dir=tmp_root)
-        return tmp_root
-
-    def __del__(self) -> None:
-        """Clean up the streaming temp directory when the parser is garbage collected."""
-        # TODO(nuplan): move to explicit context manager — __del__ semantics are unreliable
-        # (GC ordering, exception swallowing). Mirrors the same TODO on nuScenes / pandaset parsers.
-        handle = getattr(self, "_stream_temp_dir_handle", None)
-        if handle is not None:
-            try:
-                handle.cleanup()
-            except Exception:
-                pass
+        assert downloader.output_dir is not None, "`downloader.output_dir` must be set for streaming."
+        return downloader.materialize_archives(output_dir=downloader.output_dir)
 
     def _collect_split_log_path_pairs(self) -> List[Tuple[str, Path]]:
         """Collects the (split, log_path) pairs for the specified splits."""

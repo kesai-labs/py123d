@@ -182,6 +182,37 @@ access to the original dataset files for loading.
   store option. nuScenes uses it to carry the keyframe's panoptic-label path
   alongside the lidar file.
 
+Arrival times (optional)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every sensor row stores its measurement time in the column ``<modality_key>.timestamp_us``. A
+recorded dataset can also store the time at which the recording system received each measurement,
+for example the publish time of the message that carried it. A replay of the log in the order and at
+the times in which the data arrived needs this second time.
+
+To store it, set ``has_arrival_time=True`` in the sensor's metadata and pass ``arrival_timestamp`` to
+each row. This is supported by :class:`~py123d.datatypes.Imu`, :class:`~py123d.datatypes.Gnss`,
+:class:`~py123d.datatypes.Barometer`, :class:`~py123d.datatypes.Magnetometer`,
+:class:`~py123d.datatypes.Camera`, :class:`~py123d.datatypes.Lidar` and
+:class:`~py123d.datatypes.Radar`, by the parsed helpers
+:class:`~py123d.parser.base_dataset_parser.ParsedCamera`,
+:class:`~py123d.parser.base_dataset_parser.ParsedLidar` and
+:class:`~py123d.parser.base_dataset_parser.ParsedRadar`, and by the metadata classes of these
+sensors (pinhole, fisheye MEI and f-theta cameras).
+
+* The writer adds the column ``<modality_key>.arrival_us`` (int64, microseconds) as the last
+  column of the file. A row without an arrival time stores null.
+* On read, :attr:`~py123d.datatypes.BaseModality.arrival_timestamp` returns the stored time, or
+  ``None`` if the row or the file has none.
+* With the flag unset (the default) the file has no such column, and its schema and metadata are
+  those of a file written before the column existed. A row that carries an arrival time while the
+  flag is unset is rejected by the writer, so the value cannot be lost without notice.
+* Synchronization does not use the arrival time. The sync table, timestamp lookups, scene
+  construction and scene UUIDs use ``timestamp_us`` only, and arrival times do not need to be
+  monotonic.
+* A merged lidar or radar stores arrival times when all of its sensors do. A merged row carries the
+  latest arrival time of its parts.
+
 Where to add sensor I/O
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -293,9 +324,14 @@ Each object is one of the supported element types (the
    * - ``SpeedBump``
      - surface
      - Speed-reduction area.
+   * - ``TrafficLight``
+     - point
+     - Traffic light housing: a 3D bounding box plus the lanes it controls. Its state over time
+       is a modality (``TrafficLightDetections``), not part of the map.
 
-Surface elements derive from ``BaseMapSurfaceObject`` (a polygon ``outline``), and
-line elements derive from ``BaseMapLineObject`` (a ``polyline``).
+Surface elements derive from ``BaseMapSurfaceObject`` (a polygon ``outline``),
+line elements derive from ``BaseMapLineObject`` (a ``polyline``), and point elements
+derive from ``BaseMapPointObject`` (a ``point``).
 
 .. note::
   If a map element type isn't listed above, then new layers can be added. Please
@@ -325,16 +361,22 @@ Subclass :class:`~py123d.parser.base_downloader.BaseDownloader`, placing it at
           """Fetch the selected data into ``self.output_dir``."""
           ...
 
-The base class provides ``output_dir`` (destination; ``None`` means a temp
-directory is assigned at runtime) and ``dry_run`` (log the plan without writing).
+The base class provides ``output_dir`` (destination) and ``dry_run`` (log the plan
+without writing).
 
 Integration follows two paths:
 
 * **Standalone CLI**: ``py123d-download dataset=mydataset`` instantiates the
   downloader and calls ``download()``.
 * **Streaming during conversion**: the parser accepts an optional ``downloader=``
-  argument, redirects its ``output_dir`` to a session-scoped temp directory,
-  downloads before reading, and cleans up on destruction.
+  argument and downloads into the downloader's ``output_dir`` before reading. The
+  ``-stream`` config sets it to ``${dataset_paths.py123d_download_root}/mydataset``,
+  i.e. ``$PY123D_DATA_ROOT/.download/mydataset`` (or ``$PY123D_DOWNLOAD_ROOT/mydataset``),
+  and declares ``keep_downloads: ${keep_downloads}``. ``py123d-conversion`` deletes
+  that directory when the conversion ends, unless ``keep_downloads`` is true. Give
+  every ``-stream`` config its own folder, named after the config, so parallel jobs
+  never share one. Do not use ``tempfile`` for downloads: the system temp directory
+  is often small or RAM-backed on clusters.
 
 
 .. _adding-datasets-hydra:
@@ -402,11 +444,13 @@ config. Keep them as distinct files as they differ in data roots and storage:
 
   .. tab-item:: Stream (``mydataset-stream.yaml``)
 
-    Roots are ``null`` (auto-detected in a temp dir); a ``downloader`` block is
-    added and sensors are stored as **binary** (temp files vanish after
+    Roots are ``null`` (auto-detected in the download dir); a ``downloader`` block is
+    added and sensors are stored as **binary** (downloaded files vanish after
     conversion).
 
     .. code-block:: yaml
+
+      keep_downloads: ${keep_downloads}   # false: delete downloader.output_dir afterwards
 
       parser:
         _target_: py123d.parser.mydataset.mydataset_parser.MyDatasetParser
@@ -416,7 +460,7 @@ config. Keep them as distinct files as they differ in data roots and storage:
         downloader:
           _target_: py123d.parser.mydataset.mydataset_download.MyDatasetDownloader
           _convert_: 'all'
-          output_dir: null            # temp dir assigned at runtime
+          output_dir: ${dataset_paths.py123d_download_root}/mydataset
           splits: ${dataset.parser.splits}
           dry_run: false
 

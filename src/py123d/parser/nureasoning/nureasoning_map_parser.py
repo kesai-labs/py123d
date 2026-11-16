@@ -24,8 +24,9 @@ from py123d.datatypes import (
     RoadLineType,
     StopZone,
     StopZoneType,
+    TrafficLight,
 )
-from py123d.geometry import OccupancyMap2D, Point2D, Polyline2D
+from py123d.geometry import OccupancyMap2D, Point2D, Polyline2D, PoseSE3
 from py123d.geometry.utils.polyline_utils import offset_points_perpendicular
 from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.nureasoning.utils.nureasoning_constants import (
@@ -85,9 +86,18 @@ class NureasoningMapParser(BaseMapParser):
         road_lines = _extract_nureasoning_road_lines(static_map)
         crosswalks = _extract_nureasoning_crosswalks(static_map)
         stop_zones = _extract_nureasoning_stop_zones(static_map)
+        traffic_lights = _extract_nureasoning_traffic_lights(static_map)
 
         yield from (
-            lanes + lane_connectors + lane_groups + intersections + road_edges + road_lines + crosswalks + stop_zones
+            lanes
+            + lane_connectors
+            + lane_groups
+            + intersections
+            + road_edges
+            + road_lines
+            + crosswalks
+            + stop_zones
+            + traffic_lights
         )
 
     def _get_clip_location(self) -> Optional[str]:
@@ -374,3 +384,24 @@ def _extract_nureasoning_stop_zones(static_map: nuReasoningStaticMap) -> List[St
             )
 
     return stop_zones
+
+
+def _extract_nureasoning_traffic_lights(static_map: nuReasoningStaticMap) -> List[TrafficLight]:
+    """Extract traffic lights from the map.
+
+    The source provides a single 3D point per light (the height is above ground, or 0 in some clips) and no
+    orientation, extent or lane association, so the default housing dimensions are used and ``lane_ids`` is empty.
+    """
+    traffic_lights: List[TrafficLight] = []
+    for traffic_light in static_map.traffic_lights:
+        geometry = np.asarray(traffic_light.geometry, dtype=np.float64)
+        if geometry.ndim != 2 or geometry.shape[0] == 0:
+            continue
+        x, y, z = geometry[0, :3] if geometry.shape[1] >= 3 else (*geometry[0, :2], 0.0)
+        traffic_lights.append(
+            TrafficLight.from_pose(
+                object_id=int(traffic_light.id),
+                pose_se3=PoseSE3(float(x), float(y), float(z), 1.0, 0.0, 0.0, 0.0),
+            )
+        )
+    return traffic_lights

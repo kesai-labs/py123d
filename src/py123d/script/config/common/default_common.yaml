@@ -10,6 +10,7 @@ defaults:
   - execution: ray_executor
   - scene_filter: all
   - scene_builder: default_scene_builder
-  - override hydra/job_logging: disabled
+  # NOTE: "none" leaves logging to build_logger. "disabled" would also mute every logger created at import time.
+  - override hydra/job_logging: none
   - override hydra/hydra_logging: colorlog
   - _self_

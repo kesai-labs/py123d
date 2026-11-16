@@ -13,6 +13,9 @@
 # Usage:
 #   py123d-conversion dataset=nuscenes-interpolated-mini-stream
 
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
 parser:
   _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
   _convert_: 'all'
@@ -27,7 +30,7 @@ parser:
     _target_: py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader
     _convert_: 'all'
 
-    output_dir: null
+    output_dir: ${dataset_paths.py123d_download_root}/nuscenes-interpolated-mini
 
     email: null                     # falls back to $NUSCENES_EMAIL
     password: null                  # falls back to $NUSCENES_PASSWORD
@@ -51,7 +54,7 @@ log_writer_config:
   force_map_conversion: ${force_map_conversion}
   async_conversion: ${async_conversion}
 
-  # Temp dir is deleted on parser destruction — "path" references would dangle.
+  # Download dir is deleted when the conversion ends — "path" references would dangle.
   camera_store_option: "jpeg_binary"
   lidar_store_option: "binary"
   lidar_codec: "laz"

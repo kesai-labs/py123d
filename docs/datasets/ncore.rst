@@ -151,8 +151,9 @@ Conversion
 
 
 **Streaming mode** — ``dataset=ncore-stream`` attaches an ``NCoreDownloader`` to each
-log parser. Each Ray worker downloads its assigned clip to a per-clip temp directory,
-runs the conversion, and deletes the temp directory before moving on. Useful when disk
+log parser. Each Ray worker downloads its assigned clip to
+``$PY123D_DATA_ROOT/.download/ncore/clips/<clip_id>``, runs the conversion, and deletes that
+directory before moving on. Useful when disk
 is tight or you want to convert a one-off subset without committing ~2.4 TB to permanent
 storage:
 

@@ -12,13 +12,17 @@ Each dataset entry includes installation instructions, available data types, kno
    av2
    carla
    griffin
+   kitscenes
    kitti-360
    ncore
    nuplan
+   nurec
    nureasoning
    nuscenes
+   once
    pandaset
    physical-ai-av
+   shifts
    truckdrive
    wod_motion
    wod_perception

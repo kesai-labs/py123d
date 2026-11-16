@@ -5,6 +5,13 @@ import numpy as np
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
+from py123d.api.scene.arrow.modalities.utils import (
+    ARRIVAL_TIME_FIELD,
+    add_arrival_time_to_row,
+    get_arrival_time_field,
+    read_arrival_time_column,
+    read_arrival_timestamp,
+)
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
 from py123d.datatypes.sensors.magnetometer import Magnetometer, MagnetometerMetadata
@@ -45,6 +52,8 @@ class ArrowMagnetometerWriter(ArrowBaseModalityWriter):
                 (f"{self._key}.magnetic_field_covariance", pa.list_(pa.float64(), _COVARIANCE_SIZE)),
             ]
         )
+        if metadata.has_arrival_time:
+            schema = schema.append(pa.field(*get_arrival_time_field(self._key)))
         schema = add_metadata_to_arrow_schema(schema, metadata)
         super().__init__(
             file_path=log_dir / f"{self._key}.arrow",
@@ -57,13 +66,13 @@ class ArrowMagnetometerWriter(ArrowBaseModalityWriter):
     def write_modality(self, modality: BaseModality) -> None:
         assert isinstance(modality, Magnetometer), f"Expected Magnetometer, got {type(modality)}"
         covariance = modality.magnetic_field_covariance
-        self.write_batch(
-            {
-                f"{self._key}.timestamp_us": [modality.timestamp.time_us],
-                f"{self._key}.magnetic_field": [modality.magnetic_field.array],
-                f"{self._key}.magnetic_field_covariance": [covariance if covariance is not None else None],
-            }
-        )
+        row: dict = {
+            f"{self._key}.timestamp_us": [modality.timestamp.time_us],
+            f"{self._key}.magnetic_field": [modality.magnetic_field.array],
+            f"{self._key}.magnetic_field_covariance": [covariance if covariance is not None else None],
+        }
+        add_arrival_time_to_row(row, self._metadata, modality)
+        self.write_batch(row)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -90,6 +99,7 @@ class ArrowMagnetometerReader(ArrowBaseModalityReader):
             metadata=metadata,
             magnetic_field=Vector3D(*table[f"{key}.magnetic_field"][index].as_py()),
             magnetic_field_covariance=np.asarray(covariance, dtype=np.float64) if covariance is not None else None,
+            arrival_timestamp=read_arrival_timestamp(table, index, key),
         )
 
     @staticmethod
@@ -102,6 +112,8 @@ class ArrowMagnetometerReader(ArrowBaseModalityReader):
         deserialize: bool = False,
         **kwargs,
     ) -> Optional[Any]:
+        if column == ARRIVAL_TIME_FIELD:
+            return read_arrival_time_column(table, index, metadata.modality_key, deserialize)
         full_column_name = f"{metadata.modality_key}.{column}"
         if full_column_name not in table.column_names:
             raise ValueError(

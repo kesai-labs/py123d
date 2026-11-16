@@ -16,5 +16,9 @@ class BaseMapWriter(abc.ABC):
         """Writes a map objects."""
 
     @abstractmethod
-    def close(self) -> None:
-        """Close the writer and finalize any resources."""
+    def close(self, incomplete: bool = False) -> None:
+        """Close the writer and finalize any resources.
+
+        :param incomplete: Whether the map did not complete, e.g. due to an error. It is closed
+            to inspect what was written, but must not count as converted. Defaults to False.
+        """

@@ -1,10 +1,13 @@
 # Streaming variant of dataset=truckdrive — downloads selected scenes from the gated
-# Hugging Face release into a managed temp directory at parser construction time, converts,
-# and cleans up on parser GC.
+# Hugging Face release into $PY123D_DATA_ROOT/.download/truckdrive at parser construction time,
+# converts, and deletes that directory when the conversion ends.
 #
 # Usage:
 #   py123d-conversion dataset=truckdrive-stream \
 #     'dataset.parser.scene_names=[scene_28_1]'
+
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
 
 parser:
   _target_: py123d.parser.truckdrive.truckdrive_parser.TruckDriveDatasetParser
@@ -19,8 +22,8 @@ parser:
     _target_: py123d.parser.truckdrive.truckdrive_download.TruckDriveDownloader
     _convert_: 'all'
 
-    # null → parser assigns a tempfile.TemporaryDirectory for the duration of the run.
-    output_dir: null
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/truckdrive
     dry_run: false
     scenes: ${dataset.parser.scene_names}
     modalities:

@@ -3,7 +3,6 @@ downloader:
   _convert_: 'all'
 
   # Destination. Defaults to $AV2_DATA_ROOT (set via default_dataset_paths.yaml).
-  # Override to null to let a streaming parser manage a temp directory.
   output_dir: ${dataset_paths.av2_data_root}
 
   variant: sensor             # currently the only supported AV2 variant

@@ -22,6 +22,8 @@ class TestLidarID:
         assert LidarID.LIDAR_SIDE_RIGHT.value == 5
         assert LidarID.LIDAR_BACK.value == 6
         assert LidarID.LIDAR_DOWN.value == 7
+        assert LidarID.LIDAR_FRONT_LEFT.value == 8
+        assert LidarID.LIDAR_FRONT_RIGHT.value == 9
 
     def test_lidar_id_enum_names(self):
         """Test that LidarID enum members have correct names."""
@@ -33,6 +35,8 @@ class TestLidarID:
         assert LidarID.LIDAR_SIDE_RIGHT.name == "LIDAR_SIDE_RIGHT"
         assert LidarID.LIDAR_BACK.name == "LIDAR_BACK"
         assert LidarID.LIDAR_DOWN.name == "LIDAR_DOWN"
+        assert LidarID.LIDAR_FRONT_LEFT.name == "LIDAR_FRONT_LEFT"
+        assert LidarID.LIDAR_FRONT_RIGHT.name == "LIDAR_FRONT_RIGHT"
 
     def test_lidar_id_from_value(self):
         """Test that LidarID can be created from integer values."""
@@ -44,6 +48,8 @@ class TestLidarID:
         assert LidarID(5) == LidarID.LIDAR_SIDE_RIGHT
         assert LidarID(6) == LidarID.LIDAR_BACK
         assert LidarID(7) == LidarID.LIDAR_DOWN
+        assert LidarID(8) == LidarID.LIDAR_FRONT_LEFT
+        assert LidarID(9) == LidarID.LIDAR_FRONT_RIGHT
 
     def test_lidar_id_unique_values(self):
         """Test that all LidarID enum values are unique."""
@@ -52,7 +58,7 @@ class TestLidarID:
 
     def test_lidar_id_count(self):
         """Test that LidarID has expected number of members."""
-        assert len(LidarID) == 8
+        assert len(LidarID) == 10
 
 
 class TestLidarMetadata:

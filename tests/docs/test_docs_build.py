@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -16,25 +15,24 @@ def _check_sphinx():
     pytest.importorskip("sphinx")
 
 
-def test_docs_build():
+def test_docs_build(tmp_path: Path):
     """Verify that sphinx-build completes without errors."""
-    with tempfile.TemporaryDirectory() as build_dir:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "sphinx",
-                "-b",
-                "html",
-                "-W",
-                "--keep-going",
-                str(DOCS_DIR),
-                build_dir,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "sphinx",
+            "-b",
+            "html",
+            "-W",
+            "--keep-going",
+            str(DOCS_DIR),
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode == 0, (
         f"sphinx-build failed (exit code {result.returncode}).\n"
         f"--- stdout ---\n{result.stdout[-3000:]}\n"

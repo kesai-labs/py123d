@@ -4,15 +4,15 @@ Any contributions to 123D are welcome! This guide both serves as internal tutori
 
 ## Table of contents
 
-1. [Ways to contribute](#ways-to-contribute)
-2. [Installation](#installation)
-3. [Conventions](#conventions)
-4. [Dependencies](#dependencies)
-5. [Testing](#testing)
-6. [Submitting a pull-request](#submitting-a-pull-request)
+1. [Ways to contribute](#1-ways-to-contribute)
+2. [Installation](#2-installation)
+3. [Conventions](#3-conventions)
+4. [Dependencies](#4-dependencies)
+5. [Testing](#5-testing)
+6. [Submitting a pull-request](#6-submitting-a-pull-request)
 
 
-## Ways to contribute
+## 1. Ways to contribute
 
 If you want to get involved and improve 123D, there are several ways to contribute, that include but are not limited to:
 
@@ -23,7 +23,7 @@ If you want to get involved and improve 123D, there are several ways to contribu
 - **Adding or extend features:** Features and tools may need to be improved in terms of performance, coverage, or scope.
 
 
-## Installation
+## 2. Installation
 
 You can get started by
 ```sh
@@ -47,10 +47,10 @@ ruff format .
 ```
 Type checking is not strictly enforced, but ideally added with [`pyright`](https://github.com/microsoft/pyright).
 
-## Conventions
+## 3. Conventions
 
 ### Code style
-We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, enforced via `pre-commit` and CI (see [Installation](#installation)). The rules live in `pyproject.toml`:
+We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, enforced via `pre-commit` and CI (see [Installation](#2-installation)). The rules live in `pyproject.toml`:
 - **Line length** is 120 characters.
 - **Imports** are sorted automatically (isort, `black` profile): standard library, third-party, then `py123d`.
 
@@ -86,8 +86,38 @@ pip install -e .[docs]
 sphinx-autobuild docs docs/_build/html
 ```
 
+### Commit messages
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): the subject line starts with a type, an optional scope, and a short summary.
 
-## Dependencies
+```text
+<type>(<scope>): <summary>
+```
+
+- **Type** is one of:
+  - `feat`: a new feature.
+  - `fix`: a bug fix.
+  - `docs`: documentation only.
+  - `refactor`: restructuring without changing behavior.
+  - `perf`: a performance improvement.
+  - `test`: adding or updating tests.
+  - `chore`: maintenance such as dependencies, CI, or releases.
+- **Scope** is optional and names the affected area, e.g. a subpackage (`parser`, `geometry`) or a dataset (`nuplan`).
+- **Summary** is written in the imperative mood ("add", not "added") and kept short, ideally under 72 characters.
+- **Breaking changes** are marked with a `!` before the colon and described in the body.
+
+For example:
+
+```text
+feat(parser): add radar support for nuScenes
+fix(parser): rotate physical-ai-av ego dynamics into the ego frame
+docs: describe the commit message convention
+refactor(api)!: rename the scene filter arguments
+```
+
+A body is optional. Use it to explain *why* a change was made, and to reference related issues (e.g. `Closes #123`).
+
+
+## 4. Dependencies
 
 We try to keep dependencies minimal to ensure quick and easy installations.
 However, dataset specific code may require dependencies in order to load or preprocess the dataset.
@@ -128,7 +158,7 @@ def load_camera_from_file(file_path: str, dataset: str) -> ...:
     ...
 ```
 
-## Testing
+## 5. Testing
 
 We use [`pytest`](https://docs.pytest.org/). Tests live in `tests/`, mirroring the package layout:
 - `tests/unit/`: unit tests for `src/py123d/` (e.g. `tests/unit/geometry/test_pose.py`).
@@ -147,15 +177,15 @@ pytest tests/unit/geometry/test_pose.py::TestPoseSE2   # a single file/class/tes
 
 CI runs `pytest tests/unit` on Python 3.9–3.13 and `pytest tests/docs` (Python 3.11) for every pull request and push to `main`. Please add tests for new features and bug fixes.
 
-Tests for dataset-specific code in `src/py123d/parser/<...>` require optional dependencies and access to the dataset files, so they are **not** run in CI. Mark long-running tests with `@pytest.mark.slow`, and skip cleanly when an optional dependency is missing (see [`check_dependencies`](#dependencies)).
+Tests for dataset-specific code in `src/py123d/parser/<...>` require optional dependencies and access to the dataset files, so they are **not** run in CI. Mark long-running tests with `@pytest.mark.slow`, and skip cleanly when an optional dependency is missing (see [`check_dependencies`](#4-dependencies)).
 
 
-## Submitting a pull-request
+## 6. Submitting a pull-request
 
 Development happens on a versioned branch named `dev_vX.Y.Z`. The latest one is merged into `main` at each release. Please target the **current development branch**, not `main`.
 
 1. Branch off the current `dev_v*` branch (external contributors: fork first). Name the branch by type, e.g. `feat/radar-support`, `fix/msgpack-keys`, or `docs/update-docs`.
-2. Make focused commits following [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `chore:`, `docs:`, or `refactor:`.
+2. Make focused commits that follow our [commit message convention](#commit-messages).
 3. Before opening the PR, make sure the checks pass locally:
    ```sh
    pre-commit run --all-files     # ruff lint + format and file checks

@@ -1,0 +1,9 @@
+defaults:
+  - nurec-curated
+  - _self_
+
+# Downloads every scene of release 26.04, together with its sidecar camera MP4s.
+# All other options are those of dataset=nurec-curated.
+downloader:
+  splits: [nurec-2604_train]
+  include_sidecars: true

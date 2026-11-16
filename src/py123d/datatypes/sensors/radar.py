@@ -169,23 +169,29 @@ RADAR_FEATURE_DTYPES: Dict[RadarFeature, Type] = {
 class RadarMetadata(BaseModalityMetadata):
     """Metadata for Radar sensor, static for a given sensor."""
 
-    __slots__ = ("_radar_name", "_radar_id", "_radar_to_imu_se3")
+    __slots__ = ("_radar_name", "_radar_id", "_radar_to_imu_se3", "_has_arrival_time")
 
     def __init__(
         self,
         radar_name: str,
         radar_id: RadarID,
         radar_to_imu_se3: PoseSE3 = PoseSE3.identity(),
+        has_arrival_time: bool = False,
     ):
         """Initialize Radar metadata.
 
         :param radar_name: The name of the Radar sensor from the dataset.
         :param radar_id: The ID of the Radar sensor.
         :param radar_to_imu_se3: The extrinsic pose of the Radar sensor relative to the IMU.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._radar_name = radar_name
         self._radar_id = radar_id
         self._radar_to_imu_se3 = radar_to_imu_se3
+        self._has_arrival_time = has_arrival_time
 
     @property
     def radar_name(self) -> str:
@@ -201,6 +207,11 @@ class RadarMetadata(BaseModalityMetadata):
     def radar_to_imu_se3(self) -> PoseSE3:
         """The extrinsic :class:`~py123d.geometry.PoseSE3` of the Radar sensor, relative to the IMU frame."""
         return self._radar_to_imu_se3
+
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
 
     @property
     def modality_type(self) -> ModalityType:
@@ -221,6 +232,7 @@ class RadarMetadata(BaseModalityMetadata):
             radar_name=data_dict["radar_name"],
             radar_id=RadarID(data_dict["radar_id"]),
             radar_to_imu_se3=PoseSE3.from_list(data_dict["radar_to_imu_se3"]),
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -228,11 +240,15 @@ class RadarMetadata(BaseModalityMetadata):
 
         :return: A dictionary representation of the Radar metadata.
         """
-        return {
+        data_dict = {
             "radar_name": self.radar_name,
             "radar_id": int(self.radar_id),
             "radar_to_imu_se3": self.radar_to_imu_se3.tolist(),
         }
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
+        return data_dict
 
 
 class RadarMergedMetadata(BaseModalityMetadata, Mapping[RadarID, RadarMetadata]):
@@ -263,6 +279,14 @@ class RadarMergedMetadata(BaseModalityMetadata, Mapping[RadarID, RadarMetadata])
         """Returns the dictionary of per-radar metadata contained in this merged metadata."""
         return self._radar_metadata_dict
 
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether every contained radar stores arrival times. A merged row then carries the latest
+        of them, the time at which the whole merged scan had been received."""
+        return len(self._radar_metadata_dict) > 0 and all(
+            metadata.has_arrival_time for metadata in self._radar_metadata_dict.values()
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the metadata instance to a plain Python dictionary.
 
@@ -290,6 +314,7 @@ class Radar(BaseModality):
         "_metadata",
         "_point_cloud_3d",
         "_point_cloud_features",
+        "_arrival_timestamp",
     )
 
     def __init__(
@@ -298,6 +323,7 @@ class Radar(BaseModality):
         metadata: Union[RadarMetadata, RadarMergedMetadata],
         point_cloud_3d: npt.NDArray[np.float32],
         point_cloud_features: Optional[Dict[str, npt.NDArray]] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         """Initialize Radar data structure.
 
@@ -308,11 +334,14 @@ class Radar(BaseModality):
         :param point_cloud_3d: Radar point cloud as an Nx3 numpy array, where N is the number of points, \
             and the (x, y, z), indexed by :class:`~py123d.geometry.Point3DIndex`.
         :param point_cloud_features: Optional dictionary of point cloud features.
+        :param arrival_timestamp: Optional time the recording system received the measurement
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`).
         """
         self._timestamp = timestamp
         self._metadata = metadata
         self._point_cloud_3d = point_cloud_3d
         self._point_cloud_features = point_cloud_features
+        self._arrival_timestamp = arrival_timestamp
 
     @property
     def radar_metadatas(self) -> Dict[RadarID, RadarMetadata]:
@@ -337,6 +366,11 @@ class Radar(BaseModality):
     def metadata(self) -> Union[RadarMetadata, RadarMergedMetadata]:
         """The :class:`RadarMetadata` associated with this Radar recording."""
         return self._metadata
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this measurement, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def timestamp(self) -> Timestamp:
@@ -437,6 +471,10 @@ def get_merged_radar(radars: List[Radar]) -> Optional[Radar]:
         # Use the earliest timestamp among the individual radars as the merged snapshot time.
         timestamp = min(radars, key=lambda r: r.timestamp.time_us).timestamp
 
+        # The merged scan is complete when its last part has arrived; unknown if any part lacks a time.
+        known_arrivals = [radar.arrival_timestamp.time_us for radar in radars if radar.arrival_timestamp is not None]
+        arrival_timestamp = Timestamp.from_us(max(known_arrivals)) if len(known_arrivals) == len(radars) else None
+
         point_cloud_3d = np.concatenate([radar.point_cloud_3d for radar in radars], axis=0)
         point_cloud_features_list: Dict[str, List[np.ndarray]] = {}
         for radar in radars:
@@ -455,6 +493,7 @@ def get_merged_radar(radars: List[Radar]) -> Optional[Radar]:
             metadata=RadarMergedMetadata(radar_metadata_dict=radar_metadatas),
             point_cloud_3d=point_cloud_3d,
             point_cloud_features=point_cloud_features,
+            arrival_timestamp=arrival_timestamp,
         )
 
     return radar_merged
@@ -481,6 +520,7 @@ def get_individual_radar(radar_merged: Optional[Radar], radar_id: RadarID) -> Op
                 metadata=target_metadata,
                 point_cloud_3d=target_point_cloud_3d,
                 point_cloud_features=target_point_cloud_features,
+                arrival_timestamp=radar_merged.arrival_timestamp,
             )
 
     return target_radar

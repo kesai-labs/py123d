@@ -14,7 +14,7 @@
   <a href="https://github.com/kesai-labs/py123d/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green"></a>
 </p>
 
-**One library for autonomous driving datasets.** 123D converts raw data from Argoverse 2, nuScenes, nuPlan, KITTI-360, PandaSet, and Waymo into a unified [Apache Arrow](https://arrow.apache.org/) format, and then gives you a single API to read cameras, lidar, HD maps, and labels across all of them.
+**One library for autonomous driving datasets.** 123D converts raw data from Argoverse 2, nuScenes, nuPlan, KITTI-360, PandaSet, ONCE, and Waymo into a unified [Apache Arrow](https://arrow.apache.org/) format, and then gives you a single API to read cameras, lidar, HD maps, and labels across all of them.
 
 ## 📰 News
 - **2026-09-08**: We released [`py123d_garage`](https://github.com/kesai-labs/py123d_garage), a framework for multi-dataset training of driving policies, evaluation with NAVSIM metrics, and simulation interfaces for CARLA and AlpaSim.
@@ -44,7 +44,7 @@ Per-dataset extras (e.g. `py123d[av2]`, `py123d[nuscenes]`, `py123d[waymo]`) ins
 
 Demo using the Argoverse 2 Sensor dataset, which is publicly readable from S3 and requires no cloud authentication.
 
-The `av2-sensor-stream` config downloads the requested logs/maps into a managed temp directory, converts them into our self-contained Arrow format, and cleans up the source files afterwards. `PY123D_DATA_ROOT` controls where the converted logs/maps are written. The script below installs the Av2 extra, converts the first 3 validation logs (~250 MB each), and launches the Viser viewer:
+The `av2-sensor-stream` config downloads the requested logs/maps into `$PY123D_DATA_ROOT/.download/av2-sensor`, converts them into our self-contained Arrow format, and deletes the source files afterwards. `PY123D_DATA_ROOT` controls where the converted logs/maps are written. The script below installs the Av2 extra, converts the first 3 validation logs (~250 MB each), and launches the Viser viewer:
 
 ```bash
 # 1. Install
@@ -97,7 +97,7 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
   </thead>
   <tbody>
     <tr>
-      <td rowspan="5"><b>Manual</b></td>
+      <td rowspan="6"><b>Manual</b></td>
       <td align="left"><a href="https://www.nuscenes.org/">nuScenes</a></td>
       <td>2020</td><td>5.6</td><td>100.9</td><td>1,000</td>
       <td>6&nbsp;/&nbsp;12</td><td>1&nbsp;/&nbsp;20</td>
@@ -122,17 +122,29 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
       <td>✓&nbsp;/&nbsp;10</td><td>✗</td><td>✗</td>
     </tr>
     <tr>
+      <td align="left"><a href="https://once-for-auto-driving.github.io/">ONCE</a></td>
+      <td>2021</td><td>4.6</td><td>109.5</td><td>20</td>
+      <td>7&nbsp;/&nbsp;2</td><td>1&nbsp;/&nbsp;2</td>
+      <td>✓&nbsp;/&nbsp;1</td><td>✗</td><td>✗</td>
+    </tr>
+    <tr>
       <td align="left"><a href="https://www.cvlibs.net/datasets/kitti-360/">KITTI-360</a></td>
       <td>2022</td><td>2.7</td><td>73.7</td><td>9</td>
       <td>4&nbsp;/&nbsp;10</td><td>1&nbsp;/&nbsp;10</td>
       <td>✓&nbsp;/&nbsp;10</td><td>✗</td><td>✓</td>
     </tr>
     <tr>
-      <td rowspan="5"><b>Auto-labeled</b></td>
+      <td rowspan="7"><b>Auto-labeled</b></td>
       <td align="left"><a href="https://waymo.com/open/">WOD-Mot.</a></td>
       <td>2021</td><td>574.1</td><td>10,323.5*</td><td>103,354</td>
       <td>✗</td><td>✗</td>
       <td>✓&nbsp;/&nbsp;10</td><td>✓&nbsp;/&nbsp;10</td><td>✓</td>
+    </tr>
+    <tr>
+      <td align="left"><a href="https://github.com/Shifts-Project/shifts/tree/main/sdc">Shifts</a></td>
+      <td>2021</td><td>1,283.4</td><td><i>n/a</i></td><td>461,815</td>
+      <td>✗</td><td>✗</td>
+      <td>✓&nbsp;/&nbsp;5</td><td>✓&nbsp;/&nbsp;5</td><td>✓</td>
     </tr>
     <tr>
       <td align="left"><a href="https://www.nuscenes.org/nuplan">nuPlan</a></td>
@@ -159,6 +171,12 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
       <td>✓&nbsp;/&nbsp;10</td><td>✗</td><td>✗</td>
     </tr>
     <tr>
+      <td align="left">&nbsp;&nbsp;– <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles-NuRec">NuRec</a></td>
+      <td>2026</td><td>8.9</td><td><i>n/a</i></td><td>1,607</td>
+      <td>✗</td><td>✗</td>
+      <td>✓&nbsp;/&nbsp;10</td><td>✗</td><td>✓</td>
+    </tr>
+    <tr>
       <td rowspan="2"><b>Synth.</b></td>
       <td align="left"><a href="https://carla.org/">CARLA</a></td>
       <td>2017</td><td><i>var.</i></td><td><i>var.</i></td><td><i>var.</i></td>
@@ -179,6 +197,18 @@ Open `http://localhost:8080` to browse the converted scenes interactively.
 
 
 ## 📝 Changelog
+
+<details open>
+<summary><b>v0.8.0</b> (unreleased)</summary>
+
+- Added [**ONCE**](https://once-for-auto-driving.github.io/) dataset support: the labelled `once_train`, `once_val` and `once_test` splits with one roof lidar, 7 cameras and 3D boxes, converted with `dataset=once` from `$ONCE_DATA_ROOT` or streamed with `dataset=once-stream` from the official Google Drive archives (`py123d-download dataset=once`). ONCE annotates boxes at 1 Hz on 2 Hz sensor frames; the parser tracks and interpolates them to 2 Hz by default (`dataset.parser.interpolate_labels=false` disables this).
+- Updated **nuReasoning** to the full release on Hugging Face ([`nureasoning/nuReasoning`](https://huggingface.co/datasets/nureasoning/nuReasoning), gated): new `nureasoning_train`, `nureasoning_val` and `nureasoning_test` splits with `dataset=nureasoning` and `dataset=nureasoning-stream`, `.tar` clip archives, and the test split with its challenge questions as a custom modality. Breaking: the downloader selects py123d split names instead of repository folders, its `keep_zip` option is now `keep_archive`, and a clip's repeated key frame is stored once.
+- Added [**KITScenes Multimodal**](https://arxiv.org/abs/2606.02956) dataset support (experimental): ego poses, 9 cameras, 7 lidars, 3 radars and per-scene Lanelet2 HD maps, plus a Hugging Face downloader and streaming conversion. Added the `PCAM_F1`, `LIDAR_FRONT_LEFT` and `LIDAR_FRONT_RIGHT` sensor IDs. Note: the ego vehicle dimensions assume a long-wheelbase BMW 7 Series G12; only the wheelbase is confirmed by the authors' publications.
+- Added [**Shifts**](https://arxiv.org/abs/2107.07455) vehicle motion prediction dataset support: ego, vehicle and pedestrian tracks, per-scene vector maps with synthesized lane boundaries, per-lane traffic light states and scene tags for the canonical `shifts_train`, `shifts_val` and `shifts_test` partitions, with `dataset=shifts` and a `dataset=shifts-stream` variant that streams the scene archives from Yandex Object Storage by HTTP range requests (`num_scenes` truncates a split).
+- Downloads no longer use the system temp directory. Streaming conversions download into `$PY123D_DATA_ROOT/.download/<dataset>` (or `$PY123D_DOWNLOAD_ROOT/<dataset>`) and delete that folder when the conversion ends, unless `keep_downloads=true`; `py123d-download` keeps archives inside the output directory until they are extracted.
+- Conversions no longer leave half-written logs behind. Logs are written to `$PY123D_DATA_ROOT/logs/.incomplete` (maps to `maps/.incomplete`) and moved into place once complete; `py123d-conversion` reports at the end whether everything completed and lists the maps and logs that did not. Maps and logs that did not complete are closed and stay in `.incomplete` for inspection, unless `keep_incomplete=false`.
+
+</details>
 
 <details open>
 <summary><b>v0.7.0</b> (2026-09-08)</summary>

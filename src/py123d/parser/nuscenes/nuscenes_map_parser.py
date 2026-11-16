@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Final, Iterator, List, Tuple
+from typing import Dict, Final, Iterator, List, Optional, Tuple
 
 import numpy as np
 from shapely.geometry import LineString, Polygon
@@ -23,9 +23,10 @@ from py123d.datatypes import (
     RoadLineType,
     StopZone,
     StopZoneType,
+    TrafficLight,
     Walkway,
 )
-from py123d.geometry import OccupancyMap2D, Point2D, Polyline2D, Polyline3D
+from py123d.geometry import EulerAngles, OccupancyMap2D, Point2D, Polyline2D, Polyline3D, PoseSE3, Quaternion
 from py123d.geometry.utils.polyline_utils import offset_points_perpendicular
 from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.nuscenes.utils.nuscenes_constants import NUSCENES_LANE_TYPE_MAPPING, NUSCENES_MAP_LOCATIONS
@@ -96,7 +97,9 @@ class NuScenesMapParser(BaseMapParser):
         yield from _extract_nuscenes_walkways(nuscenes_map)
         yield from _extract_nuscenes_carparks(nuscenes_map)
         yield from _extract_nuscenes_generic_drivables(nuscenes_map)
-        yield from _extract_nuscenes_stop_zones(nuscenes_map)
+        stop_zones = _extract_nuscenes_stop_zones(nuscenes_map)
+        yield from stop_zones
+        yield from _extract_nuscenes_traffic_lights(nuscenes_map, lanes, lane_connectors, stop_zones)
         yield from _extract_nuscenes_road_lines(nuscenes_map)
 
 
@@ -401,6 +404,74 @@ def _extract_nuscenes_stop_zones(nuscenes_map: NuScenesMap) -> List[StopZone]:
             )
         )
     return stop_zones
+
+
+def _extract_nuscenes_traffic_lights(
+    nuscenes_map: NuScenesMap, lanes: List[Lane], lane_connectors: List[Lane], stop_zones: List[StopZone]
+) -> List[TrafficLight]:
+    """Extract traffic lights from the ``traffic_light`` layer of the nuScenes map expansion.
+
+    A record has the 6-DoF ``pose`` of the housing (``tx``, ``ty``, ``tz``, ``rx``, ``ry``, ``rz``), a ``line_token``
+    pointing from the light in the direction it faces, and the road block(s) it guides traffic from
+    (``from_road_block_tokens``). Lanes are assigned to road blocks as lane groups, so the controlled lanes are the
+    lanes of these lane groups. Stop lines name their lights through ``traffic_light_tokens``.
+    """
+    lane_ids_by_road_block: Dict[str, List[str]] = {}
+    for lane in lanes + lane_connectors:
+        if lane.lane_group_id is not None:
+            lane_ids_by_road_block.setdefault(str(lane.lane_group_id), []).append(str(lane.object_id))
+
+    stop_zone_ids = {stop_zone.object_id for stop_zone in stop_zones}
+    stop_zone_ids_by_light: Dict[str, List[str]] = {}
+    for stop_line in nuscenes_map.stop_line:
+        if stop_line["token"] not in stop_zone_ids:
+            continue
+        for traffic_light_token in stop_line.get("traffic_light_tokens", []) or []:
+            stop_zone_ids_by_light.setdefault(traffic_light_token, []).append(stop_line["token"])
+
+    traffic_lights: List[TrafficLight] = []
+    for record in getattr(nuscenes_map, "traffic_light", []):
+        pose = record.get("pose")
+        if not pose or any(key not in pose for key in ("tx", "ty", "tz")):
+            continue
+
+        # Facing direction: the arrow line points from the light towards the approaching traffic, which is the
+        # opposite of the 123D convention (driving direction of the controlled lanes).
+        yaw: Optional[float] = None
+        if record.get("line_token"):
+            line = nuscenes_map.extract_line(record["line_token"])
+            coords = np.asarray(line.coords, dtype=np.float64)
+            if len(coords) >= 2:
+                direction = coords[-1, :2] - coords[0, :2]
+                yaw = float(np.arctan2(direction[1], direction[0]) + np.pi)
+        if yaw is None:
+            yaw = float(pose.get("rz", 0.0)) + np.pi
+        quaternion = Quaternion.from_euler_angles(EulerAngles(0.0, 0.0, yaw))
+
+        road_block_tokens = record.get("from_road_block_tokens") or []
+        if isinstance(road_block_tokens, str):
+            road_block_tokens = [road_block_tokens]
+        if record.get("from_road_block_token"):
+            road_block_tokens = [*road_block_tokens, record["from_road_block_token"]]
+        lane_ids = sorted({lane_id for token in road_block_tokens for lane_id in lane_ids_by_road_block.get(token, [])})
+
+        traffic_lights.append(
+            TrafficLight.from_pose(
+                object_id=record["token"],
+                pose_se3=PoseSE3(
+                    float(pose["tx"]),
+                    float(pose["ty"]),
+                    float(pose["tz"]),
+                    quaternion.qw,
+                    quaternion.qx,
+                    quaternion.qy,
+                    quaternion.qz,
+                ),
+                lane_ids=lane_ids,
+                stop_zone_ids=stop_zone_ids_by_light.get(record["token"], []),
+            )
+        )
+    return traffic_lights
 
 
 def _extract_nuscenes_road_lines(nuscenes_map: NuScenesMap) -> List[RoadLine]:

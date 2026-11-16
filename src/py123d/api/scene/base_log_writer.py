@@ -43,5 +43,9 @@ class BaseLogWriter(abc.ABC):
         """
 
     @abc.abstractmethod
-    def close(self) -> None:
-        """Closes the log writer and finalizes the log io operations."""
+    def close(self, incomplete: bool = False) -> None:
+        """Closes the log writer and finalizes the log io operations.
+
+        :param incomplete: Whether the log did not complete, e.g. due to an error. It is closed
+            to inspect what was written, but must not count as converted. Defaults to False.
+        """

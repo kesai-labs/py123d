@@ -16,17 +16,15 @@ cached locally, and then logs are extracted from it on demand.
 This module exposes :class:`PandasetDownloader` (Hydra-instantiable) which powers
 both paths:
 
-1. ``py123d-download dataset=pandaset`` — downloads the zip to a session-scoped
-   ``tempfile.TemporaryDirectory``, extracts the selected logs into
-   :attr:`output_dir` (typically ``$PANDASET_DATA_ROOT``), then the temp dir (and
-   the zip with it) is cleaned up when ``download()`` returns.
+1. ``py123d-download dataset=pandaset`` — downloads the zip to
+   ``<output_dir>/_zip``, extracts the selected logs into :attr:`output_dir`
+   (typically ``$PANDASET_DATA_ROOT``), then deletes the zip.
 2. The ``PandasetParser`` streaming path — each log parser pulls its assigned log
-   from a shared temp-dir zip cache into a per-log ``tempfile.TemporaryDirectory``,
-   converts it, and deletes the per-log temp directory before moving on. The
-   shared zip cache itself lives at
-   ``<system_temp>/py123d-pandaset-cache/pandaset.zip`` by default so multiple Ray
-   workers (each with their own unpickled downloader instance) reuse the same
-   on-disk zip rather than each re-downloading 44 GB.
+   from a shared zip into ``<output_dir>/<log_name>``, converts it, and deletes
+   that directory before moving on. The shared zip itself lives at
+   ``<output_dir>/_zip/pandaset.zip`` by default so multiple Ray workers (each
+   with their own unpickled downloader instance) reuse the same on-disk zip
+   rather than each re-downloading 44 GB.
 
 Nothing is written to the HuggingFace hub cache — the zip is always fetched
 directly into a ``local_dir`` we control.
@@ -46,7 +44,7 @@ from __future__ import annotations
 import logging
 import os
 import random as _random_mod
-import tempfile
+import shutil
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Union
@@ -66,12 +64,8 @@ PANDASET_ZIP_FILENAME = "pandaset.zip"
 # top-level ``pandaset/`` folder — entries are ``pandaset/001/camera/...``.
 PANDASET_ZIP_ROOT = "pandaset"
 
-# Default location for the shared streaming zip cache. Lives under the system temp
-# directory so it survives across Ray workers within a single conversion run and
-# is cleaned up by the OS on reboot. Users can override via
-# :attr:`PandasetDownloader.zip_cache_dir` when they want a persistent, filesystem-
-# specific cache location.
-DEFAULT_STREAMING_ZIP_CACHE_DIR = Path(tempfile.gettempdir()) / "py123d-pandaset-cache"
+# Subdirectory of the output directory that holds ``pandaset.zip`` until it is extracted.
+_ZIP_DIR = "_zip"
 
 
 def _require_hf_hub():
@@ -200,7 +194,7 @@ class PandasetDownloader(BaseDownloader):
       all selected logs into :attr:`output_dir`. Used by ``py123d-download dataset=pandaset``.
     * :meth:`download_single_log` — extracts exactly one log from the cached zip into
       a caller-provided directory. Used by :class:`~py123d.parser.pandaset.pandaset_parser.PandasetParser`
-      in streaming mode to drop each log into a per-log temp directory.
+      in streaming mode to drop each log into a per-log directory.
 
     The zip itself is cached persistently by HuggingFace Hub (under ``$HF_HOME/hub``
     by default), so a single ~45 GB download is reused across runs and across both modes.
@@ -228,11 +222,8 @@ class PandasetDownloader(BaseDownloader):
             :meth:`download_single_log` (which takes its own ``output_dir`` arg).
         :param zip_cache_dir: Persistent location for the ~44.5 GB ``pandaset.zip``
             used by :meth:`download_single_log` (streaming mode). ``None`` (default)
-            uses :data:`DEFAULT_STREAMING_ZIP_CACHE_DIR`
-            (``<system_temp>/py123d-pandaset-cache``) so Ray workers on the same
-            machine share one on-disk zip. Set to a specific filesystem path when
-            system temp is undersized for the zip. :meth:`download` (bulk) always
-            uses a session-scoped :class:`tempfile.TemporaryDirectory` and ignores
+            uses ``<output_dir>/_zip`` so Ray workers share one on-disk zip.
+            :meth:`download` (bulk) always uses ``<output_dir>/_zip`` and ignores
             this field.
         :param revision: HuggingFace dataset branch, tag, or commit.
         :param hf_token: HF access token. Resolves through :func:`resolve_hf_token`
@@ -293,11 +284,9 @@ class PandasetDownloader(BaseDownloader):
     def download(self) -> None:
         """Inherited, see superclass.
 
-        Bulk flow: the ~44.5 GB zip is downloaded into a session-scoped
-        :class:`tempfile.TemporaryDirectory`, the selected logs are extracted into
-        :attr:`output_dir`, and the temp directory (with the zip inside it) is
-        cleaned up when the context exits. No artifact of the zip survives
-        :meth:`download`.
+        Bulk flow: the ~44.5 GB zip is downloaded into ``<output_dir>/_zip``, the
+        selected logs are extracted into :attr:`output_dir`, and the zip is deleted.
+        No artifact of the zip survives :meth:`download`.
         """
         log_names = self.resolve_log_names()
 
@@ -316,20 +305,18 @@ class PandasetDownloader(BaseDownloader):
         assert self.output_dir is not None, "PandasetDownloader.output_dir must be set before download()."
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        with tempfile.TemporaryDirectory(prefix="py123d-pandaset-bulk-") as tmp:
-            tmp_dir = Path(tmp)
-            logger.info("Downloading zip to temp dir (auto-cleaned): %s", tmp_dir)
-            zip_path = ensure_pandaset_zip_at(target_dir=tmp_dir, hf_token=self.hf_token, revision=self.revision)
+        zip_dir = self.output_dir / _ZIP_DIR
+        zip_path = ensure_pandaset_zip_at(target_dir=zip_dir, hf_token=self.hf_token, revision=self.revision)
 
-            for log_name in log_names:
-                dest = self.output_dir / log_name
-                if dest.exists() and any(dest.iterdir()):
-                    logger.debug("Skip already-extracted log %s at %s", log_name, dest)
-                    continue
-                extract_pandaset_log(zip_path=zip_path, log_name=log_name, output_dir=self.output_dir)
+        for log_name in log_names:
+            dest = self.output_dir / log_name
+            if dest.exists() and any(dest.iterdir()):
+                logger.debug("Skip already-extracted log %s at %s", log_name, dest)
+                continue
+            extract_pandaset_log(zip_path=zip_path, log_name=log_name, output_dir=self.output_dir)
 
-            logger.info("Bulk extraction complete; removing temp zip at %s", zip_path)
-            # tempfile.TemporaryDirectory context manager deletes tmp_dir (and the zip) here.
+        logger.info("Bulk extraction complete; removing zip at %s", zip_path)
+        shutil.rmtree(zip_dir, ignore_errors=True)
 
         logger.info("PandaSet download complete: %s", self.output_dir)
 
@@ -339,16 +326,15 @@ class PandasetDownloader(BaseDownloader):
         """Extract one log into ``output_dir`` and return its path.
 
         Intended for the PandaSet streaming parser — each log lands in its own per-log
-        temp directory, is converted, and that temp directory is deleted. The shared
-        zip itself lives at :attr:`zip_cache_dir` (or
-        :data:`DEFAULT_STREAMING_ZIP_CACHE_DIR` — a fixed subdirectory of the system
-        temp root) so multiple calls (and multiple Ray workers) reuse the same zip
-        rather than re-downloading 44 GB each.
+        directory, is converted, and that directory is deleted. The shared zip itself
+        lives at :attr:`zip_cache_dir` (or ``<output_dir>/_zip``) so multiple calls
+        (and multiple Ray workers) reuse the same zip rather than re-downloading
+        44 GB each.
 
         :param log_name: Log identifier (must be in :data:`PANDASET_LOG_NAMES`).
-        :param output_dir: Destination root (typically a :class:`tempfile.TemporaryDirectory`).
+        :param output_dir: Destination root.
         :return: Path to the extracted log directory ``output_dir/{log_name}``.
         """
-        target_dir = self.zip_cache_dir if self.zip_cache_dir is not None else DEFAULT_STREAMING_ZIP_CACHE_DIR
+        target_dir = self.zip_cache_dir if self.zip_cache_dir is not None else Path(output_dir) / _ZIP_DIR
         zip_path = ensure_pandaset_zip_at(target_dir=target_dir, hf_token=self.hf_token, revision=self.revision)
         return extract_pandaset_log(zip_path=zip_path, log_name=log_name, output_dir=Path(output_dir))

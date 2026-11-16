@@ -17,7 +17,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 name = "py123d"
-version = "0.7.0"
+version = "0.8.0"
 authors = [{ name = "Daniel Dauner", email = "daniel.dauner@gmail.com" }]
 description = "123D: An Open-Source Library for Multi-Modal Autonomous Driving Datasets"
 readme = "README.md"
@@ -35,6 +35,7 @@ dependencies = [
     "psutil",
     "pyarrow",
     "pyogrio",
+    "pyproj",
     "pyquaternion",
     "ray[default]",
     "scipy",
@@ -103,6 +104,10 @@ griffin = [
     "plyfile>=0.7",
     "scipy",
 ]
+nurec = [
+    "csaps>=1.2.1",
+    "py123d[hf]",
+]
 ffmpeg = [
     "imageio[ffmpeg]",
 ]
@@ -115,6 +120,9 @@ ncore = [
 ]
 examples = [
     "torch",
+]
+shifts = [
+    "protobuf>=6.31",
 ]
 
 [tool.uv]
@@ -175,6 +183,7 @@ lint.ignore = [
 exclude = [
     "__init__.py",
     "src/py123d/conversion/datasets/wod/waymo_open_dataset/protos",
+    "src/py123d/parser/shifts/protos",
 ]
 lint.fixable = ["ALL"]
 lint.unfixable = []

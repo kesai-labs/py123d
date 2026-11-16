@@ -1,0 +1,67 @@
+syntax = "proto3";
+import "geom.proto";
+
+package neurips_dataset;
+
+enum MovementType {
+    MOVEMENT_FORBIDDEN = 0;
+    MOVEMENT_ALLOWED_NO_PRIORITY = 1;
+    MOVEMENT_ALLOWED_WITH_PRIORITY = 2;
+}
+
+message TrafficLightRule {
+    repeated TrafficLightSection sections = 1;
+    uint32 movement_type = 2;
+  }
+
+message Crosswalk {
+    Polygon geometry = 1;
+    repeated TrafficLightRule control_rules = 2;
+}
+
+message RoadPolygon {
+    Polygon geometry = 1;
+}
+
+message Lane {
+    repeated Vector3 centers = 1;
+    float max_velocity = 2;  // m/s
+    bool gives_way_to_some_lane = 3;
+    TrafficLightSectionIds traffic_light_section_ids = 4;
+}
+
+message PathGraph {
+    repeated Lane lanes = 1;
+    repeated Crosswalk crosswalks = 2;
+    repeated RoadPolygon road_polygons = 3;
+}
+
+enum TrafficLightState {
+    STATE_UNKNOWN = 0;
+    STATE_GREEN = 1;
+    STATE_BLINKING_GREEN = 2;
+    STATE_YELLOW = 3;
+    STATE_RED = 4;
+    STATE_RED_YELLOW = 5;
+    STATE_NOT_WORKING = 6;
+    STATE_ENABLED = 7;
+    STATE_BLINKING_ENABLED = 8;
+    STATE_DISABLED = 9;
+    STATE_INVISIBLE = 10;
+    STATE_BLINKING_RED = 11;
+}
+
+message TrafficLightSection {
+    uint32 id = 1;
+    TrafficLightState state = 2;
+}
+
+message TrafficLightSections {
+    repeated TrafficLightSection sections = 1;
+}
+
+message TrafficLightSectionIds {
+    uint32 left_section_id = 1;
+    uint32 main_section_id = 2;
+    uint32 right_section_id = 3;
+}

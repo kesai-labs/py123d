@@ -19,6 +19,7 @@ from py123d.datatypes.detections import (
 from py123d.datatypes.map_objects import (
     BaseMapLineObject,
     BaseMapObject,
+    BaseMapPointObject,
     BaseMapSurfaceObject,
     Carpark,
     Crosswalk,
@@ -37,6 +38,7 @@ from py123d.datatypes.map_objects import (
     SpeedBumpType,
     StopZone,
     StopZoneType,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.metadata import (
@@ -144,6 +146,7 @@ __all__ = [
     # Map objects
     "BaseMapLineObject",
     "BaseMapObject",
+    "BaseMapPointObject",
     "BaseMapSurfaceObject",
     "Carpark",
     "Crosswalk",
@@ -162,6 +165,7 @@ __all__ = [
     "SpeedBumpType",
     "StopZone",
     "StopZoneType",
+    "TrafficLight",
     "Walkway",
     # Metadata
     "BaseMetadata",

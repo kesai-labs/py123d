@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Final, List, Optional, Sequence, Union
 
 import numpy as np
 import shapely.geometry as geom
 from trimesh import Trimesh
 
-from py123d.datatypes.map_objects.base_map_objects import BaseMapLineObject, BaseMapSurfaceObject, MapObjectIDType
+from py123d.datatypes.map_objects.base_map_objects import (
+    BaseMapLineObject,
+    BaseMapPointObject,
+    BaseMapSurfaceObject,
+    MapObjectIDType,
+)
 from py123d.datatypes.map_objects.map_layer_types import (
     IntersectionType,
     LaneType,
@@ -17,7 +22,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     StopZoneType,
 )
 from py123d.datatypes.map_objects.utils import get_trimesh_from_boundaries
-from py123d.geometry import Polyline2D, Polyline3D
+from py123d.geometry import BoundingBoxSE3, Polyline2D, Polyline3D, PoseSE3
 
 if TYPE_CHECKING:
     from py123d.api import MapAPI
@@ -644,7 +649,7 @@ class GenericDrivable(BaseMapSurfaceObject):
 class StopZone(BaseMapSurfaceObject):
     """Class representing a stop zone in a map."""
 
-    __slots__ = ("_stop_zone_type", "_lane_ids")
+    __slots__ = ("_stop_zone_type", "_lane_ids", "_intersection_id", "_phase_idx")
 
     def __init__(
         self,
@@ -653,6 +658,8 @@ class StopZone(BaseMapSurfaceObject):
         outline: Optional[Union[Polyline2D, Polyline3D]] = None,
         shapely_polygon: Optional[geom.Polygon] = None,
         lane_ids: Optional[Sequence[MapObjectIDType]] = None,
+        intersection_id: Optional[MapObjectIDType] = None,
+        phase_idx: Optional[int] = None,
     ):
         """Initialize a StopZone instance.
 
@@ -671,10 +678,14 @@ class StopZone(BaseMapSurfaceObject):
         :param outline: The outline of the stop zone, defaults to None.
         :param shapely_polygon: The Shapely polygon representation of the stop zone, defaults to None.
         :param lane_ids: List of lane IDs this stop zone controls, defaults to None.
+        :param intersection_id: ID of the intersection whose signal controller cycles this stop zone, defaults to None.
+        :param phase_idx: Phase index of this stop zone within the intersection's signal cycle, defaults to None.
         """
         super().__init__(object_id, outline, shapely_polygon)
         self._stop_zone_type = stop_zone_type
         self._lane_ids = list(lane_ids) if lane_ids is not None else []
+        self._intersection_id = intersection_id
+        self._phase_idx = phase_idx
 
     @property
     def layer(self) -> MapLayer:
@@ -690,6 +701,16 @@ class StopZone(BaseMapSurfaceObject):
     def lane_ids(self) -> List[MapObjectIDType]:
         """List of lane IDs this stop zone controls."""
         return self._lane_ids
+
+    @property
+    def intersection_id(self) -> Optional[MapObjectIDType]:
+        """ID of the intersection whose signal controller cycles this stop zone, if any."""
+        return self._intersection_id
+
+    @property
+    def phase_idx(self) -> Optional[int]:
+        """Phase index within the intersection's signal cycle, if any."""
+        return self._phase_idx
 
 
 class RoadEdge(BaseMapLineObject):
@@ -793,3 +814,161 @@ class SpeedBump(BaseMapSurfaceObject):
     def speed_bump_type(self) -> SpeedBumpType:
         """The type of the speed bump."""
         return self._speed_bump_type
+
+
+class TrafficLight(BaseMapPointObject):
+    """Class representing a traffic light (signal head) in a map.
+
+    Notes
+    -----
+    The traffic light is located by the center of its housing. The x-axis of the housing pose points in the
+    driving direction of the controlled lanes, i.e. the direction a driver looks when facing the light.
+    Datasets that only provide a location fall back to the default housing dimensions
+    :attr:`DEFAULT_LENGTH`, :attr:`DEFAULT_WIDTH` and :attr:`DEFAULT_HEIGHT`. In maps without elevation (``map_has_z=False``), the z-coordinate
+    is the height above the local ground plane.
+
+    The state of a traffic light is time-dependent and stored in :class:`~py123d.datatypes.TrafficLightDetections`,
+    keyed by lane id. The :attr:`lane_ids` of a traffic light link the two.
+    """
+
+    __slots__ = ("_bounding_box_se3", "_lane_ids", "_stop_zone_ids", "_intersection_id", "_map_api")
+
+    DEFAULT_LENGTH: Final[float] = 0.3
+    """Default depth of the housing in meters (along the facing axis), used when the dataset has no extent."""
+
+    DEFAULT_WIDTH: Final[float] = 0.5
+    """Default width of the housing in meters, used when the dataset has no extent."""
+
+    DEFAULT_HEIGHT: Final[float] = 1.1
+    """Default height of the housing in meters, used when the dataset has no extent."""
+
+    def __init__(
+        self,
+        object_id: MapObjectIDType,
+        bounding_box_se3: BoundingBoxSE3,
+        lane_ids: Optional[Sequence[MapObjectIDType]] = None,
+        stop_zone_ids: Optional[Sequence[MapObjectIDType]] = None,
+        intersection_id: Optional[MapObjectIDType] = None,
+        map_api: Optional["MapAPI"] = None,
+    ) -> None:
+        """Initialize a :class:`TrafficLight` instance.
+
+        :param object_id: The unique identifier for the traffic light.
+        :param bounding_box_se3: The 3D bounding box of the traffic light housing, see the class notes for the
+            orientation convention.
+        :param lane_ids: IDs of the lanes controlled by this traffic light, defaults to None.
+        :param stop_zone_ids: IDs of the stop zones where traffic waits for this traffic light, defaults to None.
+        :param intersection_id: ID of the intersection this traffic light belongs to, defaults to None.
+        :param map_api: The MapAPI instance for accessing related map objects, defaults to None.
+        """
+        super().__init__(object_id, bounding_box_se3.center_se3.point_3d)
+        self._bounding_box_se3 = bounding_box_se3
+        self._lane_ids = list(lane_ids) if lane_ids is not None else []
+        self._stop_zone_ids = list(stop_zone_ids) if stop_zone_ids is not None else []
+        self._intersection_id = intersection_id
+        self._map_api = map_api
+
+    @classmethod
+    def from_pose(
+        cls,
+        object_id: MapObjectIDType,
+        pose_se3: PoseSE3,
+        length: Optional[float] = None,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        lane_ids: Optional[Sequence[MapObjectIDType]] = None,
+        stop_zone_ids: Optional[Sequence[MapObjectIDType]] = None,
+        intersection_id: Optional[MapObjectIDType] = None,
+    ) -> TrafficLight:
+        """Create a :class:`TrafficLight` from the housing pose, filling missing dimensions with the defaults.
+
+        :param object_id: The unique identifier for the traffic light.
+        :param pose_se3: The center pose of the housing, see the class notes for the orientation convention.
+        :param length: Depth of the housing along the facing axis in meters, defaults to None (default dimension).
+        :param width: Width of the housing in meters, defaults to None (default dimension).
+        :param height: Height of the housing in meters, defaults to None (default dimension).
+        :param lane_ids: IDs of the lanes controlled by this traffic light, defaults to None.
+        :param stop_zone_ids: IDs of the stop zones where traffic waits for this traffic light, defaults to None.
+        :param intersection_id: ID of the intersection this traffic light belongs to, defaults to None.
+        :return: The traffic light.
+        """
+        bounding_box_se3 = BoundingBoxSE3(
+            center_se3=pose_se3,
+            length=length if length is not None else cls.DEFAULT_LENGTH,
+            width=width if width is not None else cls.DEFAULT_WIDTH,
+            height=height if height is not None else cls.DEFAULT_HEIGHT,
+        )
+        return cls(
+            object_id=object_id,
+            bounding_box_se3=bounding_box_se3,
+            lane_ids=lane_ids,
+            stop_zone_ids=stop_zone_ids,
+            intersection_id=intersection_id,
+        )
+
+    @property
+    def layer(self) -> MapLayer:
+        """The :class:`~py123d.datatypes.MapLayer` of the map object."""
+        return MapLayer.TRAFFIC_LIGHT
+
+    @property
+    def bounding_box_se3(self) -> BoundingBoxSE3:
+        """The :class:`~py123d.geometry.BoundingBoxSE3` of the traffic light housing."""
+        return self._bounding_box_se3
+
+    @property
+    def pose_se3(self) -> PoseSE3:
+        """The center :class:`~py123d.geometry.PoseSE3` of the traffic light housing."""
+        return self._bounding_box_se3.center_se3
+
+    @property
+    def shapely_polygon(self) -> geom.Polygon:
+        """The shapely polygon of the housing footprint (bird's-eye view of the bounding box)."""
+        return self._bounding_box_se3.shapely_polygon
+
+    @property
+    def lane_ids(self) -> List[MapObjectIDType]:
+        """List of IDs of the lanes controlled by this traffic light."""
+        return self._lane_ids
+
+    @property
+    def lanes(self) -> List[Lane]:
+        """List of controlled :class:`Lane` instances, if a map API is available."""
+        lanes: List[Lane] = []
+        if self._map_api is not None:
+            for lane_id in self.lane_ids:
+                lane = self._map_api.get_map_object_in_layer(lane_id, MapLayer.LANE)
+                if isinstance(lane, Lane):
+                    lanes.append(lane)
+        return lanes
+
+    @property
+    def stop_zone_ids(self) -> List[MapObjectIDType]:
+        """List of IDs of the stop zones where traffic waits for this traffic light."""
+        return self._stop_zone_ids
+
+    @property
+    def stop_zones(self) -> List[StopZone]:
+        """List of associated :class:`StopZone` instances, if a map API is available."""
+        stop_zones: List[StopZone] = []
+        if self._map_api is not None:
+            for stop_zone_id in self.stop_zone_ids:
+                stop_zone = self._map_api.get_map_object_in_layer(stop_zone_id, MapLayer.STOP_ZONE)
+                if isinstance(stop_zone, StopZone):
+                    stop_zones.append(stop_zone)
+        return stop_zones
+
+    @property
+    def intersection_id(self) -> Optional[MapObjectIDType]:
+        """ID of the intersection this traffic light belongs to, if any."""
+        return self._intersection_id
+
+    @property
+    def intersection(self) -> Optional[Intersection]:
+        """The :class:`Intersection` this traffic light belongs to, if a map API is available."""
+        intersection: Optional[Intersection] = None
+        if self._map_api is not None and self.intersection_id is not None:
+            intersection_ = self._map_api.get_map_object_in_layer(self.intersection_id, MapLayer.INTERSECTION)
+            if isinstance(intersection_, Intersection):
+                intersection = intersection_
+        return intersection

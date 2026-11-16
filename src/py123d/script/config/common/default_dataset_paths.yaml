@@ -5,6 +5,8 @@ dataset_paths:
   py123d_logs_root: ${dataset_paths.py123d_data_root}/logs
   py123d_maps_root: ${dataset_paths.py123d_data_root}/maps
   py123d_sensors_root: ${dataset_paths.py123d_data_root}/sensors
+  # Streaming conversions download into <py123d_download_root>/<dataset> and delete it afterwards.
+  py123d_download_root: ${oc.env:PY123D_DOWNLOAD_ROOT,${dataset_paths.py123d_data_root}/.download}
 
   # nuPlan defaults
   nuplan_data_root: ${oc.env:NUPLAN_DATA_ROOT,null}
@@ -35,6 +37,9 @@ dataset_paths:
   # nuReasoning defaults
   nureasoning_data_root: ${oc.env:NUREASONING_DATA_ROOT,null}
 
+  # ONCE defaults
+  once_data_root: ${oc.env:ONCE_DATA_ROOT,null}
+
   # Physical AI AV defaults
   physical_ai_av_data_root: ${oc.env:PHYSICAL_AI_AV_DATA_ROOT,null}
 
@@ -46,3 +51,12 @@ dataset_paths:
 
   # TruckDrive defaults
   truckdrive_data_root: ${oc.env:TRUCKDRIVE_DATA_ROOT,null}
+
+  # NuRec defaults
+  nurec_data_root: ${oc.env:NUREC_DATA_ROOT,null}
+
+  # KITScenes defaults
+  kitscenes_data_root: ${oc.env:KITSCENES_DATA_ROOT,null}
+
+  # Shifts defaults
+  shifts_data_root: ${oc.env:SHIFTS_DATA_ROOT,null}

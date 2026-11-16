@@ -69,7 +69,7 @@ Available Modalities
      - The bounding boxes are available, see :class:`~py123d.datatypes.BoxDetectionsSE3`.
    * - Traffic Lights
      - ✓
-     - Traffic lights include the status and the lane id they are associated with, see :class:`~py123d.datatypes.TrafficLightDetections`.
+     - Traffic lights include the status and the lane id they are associated with, see :class:`~py123d.datatypes.TrafficLightDetections`. The maps also provide the lights themselves (position, heading and the lane connectors they control) as :class:`~py123d.datatypes.TrafficLight` objects.
    * - Cameras
      - (✓)
      -
@@ -313,8 +313,8 @@ Conversion
   To change this behavior, you need to adapt the ``nuplan.yaml`` or ``nuplan-mini.yaml`` converter configuration.
 
 **Streaming mode** — materialize the configured archive subset from the public nuPlan
-AWS bucket into a session-scoped temp directory at parser construction time, convert
-from it, and delete the temp directory on parser destruction. The ``maps/`` and
+AWS bucket into ``$PY123D_DATA_ROOT/.download/nuplan`` at parser construction time, convert
+from it, and delete that directory when the conversion ends. The ``maps/`` and
 ``sensor_blobs/`` subdirectories are auto-detected (the three ``nuplan_*_root``
 paths do not need to be set). No credentials required.
 
@@ -339,8 +339,8 @@ paths do not need to be set). No credentials required.
 
 .. note::
   Streaming mode forces ``camera_store_option: "jpeg_binary"`` and
-  ``lidar_store_option: "binary"`` — the temp directory is deleted immediately after
-  the parser is garbage-collected, so any ``"path"`` references would point at
+  ``lidar_store_option: "binary"`` — the download directory is deleted when the
+  conversion ends, so any ``"path"`` references would point at
   vanished sources.
 
 
@@ -351,6 +351,7 @@ Dataset Issues
 * **Camera & Lidar:** There are synchronization issues between the sensors and the ego vehicle state.
 * **Bounding Boxes:** Due to the auto-labeling process of nuPlan, some bounding boxes may be noisy.
 * **Traffic Lights:** The status of the traffic lights are inferred from the vehicle movements. As such, there may be incorrect labels.
+* **Traffic Light Map Objects:** The ``traffic_lights`` map layer has 3D points with a heading but no lane reference. The controlled lane connectors are found through the traffic-light stop polygons (``stop_polygons.traffic_light_fids`` and ``lane_connectors.traffic_light_stop_line_fids``), which also become the ``stop_zone_ids``. The map has no elevation, so the z-coordinate of a light is its height above ground. The housing size is not provided and uses the 123D default.
 
 Citation
 ~~~~~~~~

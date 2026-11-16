@@ -1,0 +1,34 @@
+defaults:
+  - nurec-curated
+  - _self_
+
+# Streaming variant of dataset=nurec-curated: the scenes are downloaded from Hugging Face
+# into $PY123D_DATA_ROOT/.download/nurec-curated, converted, and deleted when the conversion ends.
+#
+# All scenes are downloaded before the conversion starts, so that directory has to hold
+# them at about 2 GB per scene. Set $PY123D_DOWNLOAD_ROOT to download elsewhere.
+#
+# Usage:
+#   export HF_TOKEN=hf_...
+#   py123d-conversion dataset=nurec-curated-stream dataset.parser.num_sequences=3
+#   py123d-conversion dataset=nurec-curated-stream \
+#     'dataset.parser.downloader.sequence_ids=[<scene uuid>,<scene uuid>]'
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
+parser:
+  nurec_root: null   # not read; the scenes come from the downloader
+
+  # Fetches the scenes selected by `splits`, `num_sequences`, `sample_random` and `seed`.
+  downloader:
+    _target_: py123d.parser.nurec.nurec_download.NuRecDownloader
+    _convert_: 'all'
+
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/nurec-curated
+    hf_repo_id: nvidia/PhysicalAI-Autonomous-Vehicles-NuRec
+    hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
+
+    sequence_ids: null        # narrows the splits down to these scene UUIDs
+    include_sidecars: false   # camera MP4s are not converted and add ~1 GB per scene
+    max_workers: 4

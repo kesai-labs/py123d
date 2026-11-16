@@ -32,6 +32,7 @@ from py123d.datatypes.map_objects.map_objects import (
     RoadEdge,
     RoadLine,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.metadata.log_metadata import LogMetadata
@@ -48,6 +49,7 @@ from ..conftest import (
     make_road_line,
     make_speed_bump,
     make_stop_zone,
+    make_traffic_light,
     make_walkway,
     write_and_read_map,
 )
@@ -77,6 +79,7 @@ def _build_all_object_types() -> list:
     speed_bump = make_speed_bump(object_id=6500)
     road_edge = make_road_edge(object_id=7000)
     road_line = make_road_line(object_id=8000)
+    traffic_light = make_traffic_light(object_id=9000, lane_ids=[10], stop_zone_ids=[6000], intersection_id=1000)
     return [
         lane,
         lane_group,
@@ -89,6 +92,7 @@ def _build_all_object_types() -> list:
         speed_bump,
         road_edge,
         road_line,
+        traffic_light,
     ]
 
 
@@ -247,6 +251,20 @@ class TestArrowMapAPIGetObject:
         result = api.get_map_object_in_layer(10, MapLayer.ROAD_EDGE)
         assert isinstance(result, RoadEdge)
         assert result.road_edge_type == RoadEdgeType.ROAD_EDGE_BOUNDARY
+
+    def test_get_traffic_light(self, tmp_path: Path) -> None:
+        metadata = _build_full_map_metadata()
+        objects = _build_all_object_types()
+        api = write_and_read_map(tmp_path, metadata, objects)
+        result = api.get_map_object_in_layer(9000, MapLayer.TRAFFIC_LIGHT)
+        assert isinstance(result, TrafficLight)
+        assert result.lane_ids == [10]
+        assert result.stop_zone_ids == [6000]
+        assert result.intersection_id == 1000
+        # Links through the map API
+        assert [lane.object_id for lane in result.lanes] == [10]
+        assert [stop_zone.object_id for stop_zone in result.stop_zones] == [6000]
+        assert result.intersection is not None and result.intersection.object_id == 1000
 
     def test_get_road_line(self, tmp_path: Path) -> None:
         metadata = _build_full_map_metadata()

@@ -1,3 +1,4 @@
+import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -12,6 +13,7 @@ from py123d.api.utils.arrow_helper import write_arrow_table
 from py123d.common.utils.msgpack_utils import msgpack_encode_with_numpy
 from py123d.datatypes import (
     BaseMapLineObject,
+    BaseMapPointObject,
     BaseMapSurfaceObject,
     Carpark,
     Crosswalk,
@@ -25,6 +27,7 @@ from py123d.datatypes import (
     RoadLine,
     SpeedBump,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject
@@ -102,6 +105,8 @@ class ArrowMapWriter(BaseMapWriter):
             self._write_road_line(map_object)
         elif isinstance(map_object, SpeedBump):
             self._write_speed_bump(map_object)
+        elif isinstance(map_object, TrafficLight):
+            self._write_traffic_light(map_object)
         else:
             raise ValueError(f"Unsupported map object type: {type(map_object)}")
 
@@ -150,6 +155,8 @@ class ArrowMapWriter(BaseMapWriter):
         self._write_surface_layer(MapLayer.STOP_ZONE, stop_zone)
         self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"].append(int(stop_zone.stop_zone_type))
         self._map_data[MapLayer.STOP_ZONE]["lane_ids"].append(stop_zone.lane_ids)
+        self._map_data[MapLayer.STOP_ZONE]["intersection_id"].append(stop_zone.intersection_id)
+        self._map_data[MapLayer.STOP_ZONE]["phase_idx"].append(stop_zone.phase_idx)
 
     def _write_speed_bump(self, speed_bump: SpeedBump) -> None:
         self._write_surface_layer(MapLayer.SPEED_BUMP, speed_bump)
@@ -164,7 +171,14 @@ class ArrowMapWriter(BaseMapWriter):
         self._write_line_layer(MapLayer.ROAD_LINE, road_line)
         self._map_data[MapLayer.ROAD_LINE]["road_line_type"].append(int(road_line.road_line_type))
 
-    def close(self) -> None:
+    def _write_traffic_light(self, traffic_light: TrafficLight) -> None:
+        self._write_point_layer(MapLayer.TRAFFIC_LIGHT, traffic_light)
+        self._map_data[MapLayer.TRAFFIC_LIGHT]["bounding_box_se3"].append(traffic_light.bounding_box_se3.array)
+        self._map_data[MapLayer.TRAFFIC_LIGHT]["lane_ids"].append(traffic_light.lane_ids)
+        self._map_data[MapLayer.TRAFFIC_LIGHT]["stop_zone_ids"].append(traffic_light.stop_zone_ids)
+        self._map_data[MapLayer.TRAFFIC_LIGHT]["intersection_id"].append(traffic_light.intersection_id)
+
+    def close(self, incomplete: bool = False) -> None:
         """Inherited, see superclass."""
 
         if self._map_file is not None and self._map_data is not None:
@@ -290,6 +304,8 @@ class ArrowMapWriter(BaseMapWriter):
                     "outline": self._map_data[MapLayer.STOP_ZONE]["outline"][idx],
                     "stop_zone_type": self._map_data[MapLayer.STOP_ZONE]["stop_zone_type"][idx],
                     "lane_ids": self._map_data[MapLayer.STOP_ZONE]["lane_ids"][idx],
+                    "intersection_id": self._map_data[MapLayer.STOP_ZONE]["intersection_id"][idx],
+                    "phase_idx": self._map_data[MapLayer.STOP_ZONE]["phase_idx"][idx],
                 }
                 all_features.append(msgpack_encode_with_numpy(stop_zone_dict))  # type: ignore
 
@@ -327,6 +343,20 @@ class ArrowMapWriter(BaseMapWriter):
                 }
                 all_features.append(msgpack_encode_with_numpy(road_line_dict))  # type: ignore
 
+            # 12. Traffic lights
+            for idx in range(len(self._map_data[MapLayer.TRAFFIC_LIGHT]["id"])):
+                all_object_ids.append(self._map_data[MapLayer.TRAFFIC_LIGHT]["id"][idx])
+                all_wkbs.append(self._map_data[MapLayer.TRAFFIC_LIGHT]["wkb"][idx])
+                all_map_layers.append(int(MapLayer.TRAFFIC_LIGHT))
+
+                traffic_light_dict = {
+                    "bounding_box_se3": self._map_data[MapLayer.TRAFFIC_LIGHT]["bounding_box_se3"][idx],
+                    "lane_ids": self._map_data[MapLayer.TRAFFIC_LIGHT]["lane_ids"][idx],
+                    "stop_zone_ids": self._map_data[MapLayer.TRAFFIC_LIGHT]["stop_zone_ids"][idx],
+                    "intersection_id": self._map_data[MapLayer.TRAFFIC_LIGHT]["intersection_id"][idx],
+                }
+                all_features.append(msgpack_encode_with_numpy(traffic_light_dict))  # type: ignore
+
             # Create final table and write to file
             object_ids_ = pa.array(all_object_ids, type=object_id_type)
             map_layers_ = pa.array(all_map_layers, type=pa.int8())
@@ -341,7 +371,14 @@ class ArrowMapWriter(BaseMapWriter):
             table = table.replace_schema_metadata(
                 {b"metadata": msgpack.packb(self._map_metadata.to_dict(), use_bin_type=True)}
             )
-            write_arrow_table(table, self._map_file)
+            # The map is written to the incomplete directory, a complete map is then moved to the map file.
+            metadata = self._map_metadata
+            name = f"{metadata.split or metadata.dataset}/{metadata.log_name or metadata.location}"
+            incomplete_map_file = self._maps_root / ".incomplete" / f"{name}.arrow"
+            incomplete_map_file.parent.mkdir(parents=True, exist_ok=True)
+            write_arrow_table(table, incomplete_map_file)
+            if not incomplete:
+                shutil.move(incomplete_map_file, self._map_file)
 
         del self._map_file, self._map_data, self._map_metadata
         self._map_file = None
@@ -394,6 +431,21 @@ class ArrowMapWriter(BaseMapWriter):
         self._map_data[layer]["id"].append(line_object.object_id)
         self._map_data[layer]["wkb"].append(line_object.shapely_linestring.wkb)
 
+    def _write_point_layer(self, layer: MapLayer, point_object: BaseMapPointObject) -> None:
+        """Helper to write point map objects.
+
+        :param layer: map layer of point object
+        :param point_object: point map object to write
+        """
+        self._assert_initialized()
+        if point_object.object_id in self._map_data[layer]["id"]:
+            raise ValueError(
+                f"Duplicate object ID {point_object.object_id!r} in layer {layer.name}. "
+                f"Object IDs must be unique within each map layer."
+            )
+        self._map_data[layer]["id"].append(point_object.object_id)
+        self._map_data[layer]["wkb"].append(point_object.shapely_point.wkb)
+
 
 def _map_ids_to_integer(map_data: Dict[MapLayer, Dict[str, Any]]) -> None:
     # initialize id mappings
@@ -409,6 +461,7 @@ def _map_ids_to_integer(map_data: Dict[MapLayer, Dict[str, Any]]) -> None:
     speed_bump_id_mapping = ToIntMapping.from_list(map_data[MapLayer.SPEED_BUMP]["id"])
     road_line_id_mapping = ToIntMapping.from_list(map_data[MapLayer.ROAD_LINE]["id"])
     road_edge_id_mapping = ToIntMapping.from_list(map_data[MapLayer.ROAD_EDGE]["id"])
+    traffic_light_id_mapping = ToIntMapping.from_list(map_data[MapLayer.TRAFFIC_LIGHT]["id"])
 
     # 1. Remap lane ids in LANE layer
     if len(map_data[MapLayer.LANE]["id"]) > 0:
@@ -485,3 +538,17 @@ def _map_ids_to_integer(map_data: Dict[MapLayer, Dict[str, Any]]) -> None:
     if len(map_data[MapLayer.ROAD_EDGE]["id"]) > 0:
         for idx in range(len(map_data[MapLayer.ROAD_EDGE]["id"])):
             map_data[MapLayer.ROAD_EDGE]["id"][idx] = road_edge_id_mapping.map(map_data[MapLayer.ROAD_EDGE]["id"][idx])
+    if len(map_data[MapLayer.TRAFFIC_LIGHT]["id"]) > 0:
+        for idx in range(len(map_data[MapLayer.TRAFFIC_LIGHT]["id"])):
+            map_data[MapLayer.TRAFFIC_LIGHT]["id"][idx] = traffic_light_id_mapping.map(
+                map_data[MapLayer.TRAFFIC_LIGHT]["id"][idx]
+            )
+            map_data[MapLayer.TRAFFIC_LIGHT]["lane_ids"][idx] = lane_id_mapping.map_list(
+                map_data[MapLayer.TRAFFIC_LIGHT]["lane_ids"][idx]
+            )
+            map_data[MapLayer.TRAFFIC_LIGHT]["stop_zone_ids"][idx] = stop_zone_id_mapping.map_list(
+                map_data[MapLayer.TRAFFIC_LIGHT]["stop_zone_ids"][idx]
+            )
+            map_data[MapLayer.TRAFFIC_LIGHT]["intersection_id"][idx] = intersection_id_mapping.map(
+                map_data[MapLayer.TRAFFIC_LIGHT]["intersection_id"][idx]
+            )

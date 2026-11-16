@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import List, Optional, Sequence, Union
 
@@ -34,13 +33,10 @@ class TruckDriveDatasetParser(BaseDatasetParser):
         """
         self._downloader = downloader
         self._split_override = split
-        self._temp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
 
         if downloader is not None:
-            if downloader.output_dir is None:
-                self._temp_dir = tempfile.TemporaryDirectory(prefix="truckdrive_stream_")
-                downloader.output_dir = Path(self._temp_dir.name)
             downloader.download()
+            assert downloader.output_dir is not None
             self._data_root = Path(downloader.output_dir)
         else:
             assert truckdrive_data_root is not None, (
@@ -96,7 +92,3 @@ class TruckDriveDatasetParser(BaseDatasetParser):
                 )
             )
         return parsers
-
-    def __del__(self) -> None:
-        if self._temp_dir is not None:
-            self._temp_dir.cleanup()

@@ -53,6 +53,11 @@ def load_point_cloud_data_from_path(
 
         lidar_pcs_dict = load_pandaset_point_cloud_data_from_path(full_lidar_path)
 
+    elif dataset == "once":
+        from py123d.parser.once.once_sensor_io import load_once_point_cloud_data_from_path
+
+        lidar_pcs_dict = load_once_point_cloud_data_from_path(full_lidar_path)
+
     elif dataset == "kitti360":
         from py123d.parser.kitti360.kitti360_sensor_io import load_kitti360_point_cloud_data_from_path
 
@@ -102,6 +107,11 @@ def load_point_cloud_data_from_path(
         from py123d.parser.truckdrive.truckdrive_sensor_io import load_truckdrive_point_cloud_data_from_path
 
         lidar_pcs_dict = load_truckdrive_point_cloud_data_from_path(full_lidar_path, lidar_metadatas)
+
+    elif dataset == "kitscenes":
+        from py123d.parser.kitscenes.kitscenes_sensor_io import load_kitscenes_point_cloud_data_from_path
+
+        lidar_pcs_dict = load_kitscenes_point_cloud_data_from_path(full_lidar_path)
 
     else:
         raise NotImplementedError(f"Loading Lidar data for dataset {dataset} is not implemented.")

@@ -59,8 +59,8 @@ Available Modalities
      - ✓
      - The bounding boxes are available and labeled with :class:`~py123d.parser.registry.KITTI360BoxDetectionLabel`. For further information, see :class:`~py123d.datatypes.BoxDetectionsSE3`.
    * - Traffic Lights
-     - X
-     - n/a
+     - (✓)
+     - No light states are recorded. The static ``trafficLight`` boxes of the annotations are converted to :class:`~py123d.datatypes.TrafficLight` map objects (as annotated, no lane association since the map has no lanes) instead of bounding box detections.
    * - Cameras
      - ✓
      - The dataset has four :class:`~py123d.datatypes.Camera` in a stereo and side-ways setup:

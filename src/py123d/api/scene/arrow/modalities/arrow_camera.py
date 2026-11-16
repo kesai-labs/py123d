@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -8,7 +8,14 @@ import numpy.typing as npt
 import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
-from py123d.api.scene.arrow.modalities.utils import all_columns_in_schema
+from py123d.api.scene.arrow.modalities.utils import (
+    ARRIVAL_TIME_FIELD,
+    add_arrival_time_to_row,
+    all_columns_in_schema,
+    get_arrival_time_field,
+    read_arrival_time_column,
+    read_arrival_timestamp,
+)
 from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
 from py123d.api.utils.arrow_metadata_utils import add_metadata_to_arrow_schema
 from py123d.common.io.camera.jpeg_camera_io import (
@@ -95,6 +102,8 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
                 (f"{metadata.modality_key}.exposure_factor", pa.float32()),
             ]
         )
+        if metadata.has_arrival_time:
+            schema = schema.append(pa.field(*get_arrival_time_field(metadata.modality_key)))
         schema = add_metadata_to_arrow_schema(schema, metadata)
         super().__init__(
             file_path=file_path,
@@ -127,16 +136,16 @@ class ArrowCameraWriter(ArrowBaseModalityWriter):
         else:
             raise NotImplementedError(f"Unsupported camera codec: {self._camera_codec}")
 
-        self.write_batch(
-            {
-                f"{self._metadata.modality_key}.timestamp_us": [modality.timestamp.time_us],
-                f"{self._metadata.modality_key}.data": [data],
-                f"{self._metadata.modality_key}.camera_to_global_se3": [modality.camera_to_global_se3],
-                # None where a dataset stores the pose implicitly, to be composed on read from
-                # ego_state_se3 and the camera extrinsic (see _camera_to_global_from_ego).
-                f"{self._metadata.modality_key}.exposure_factor": [modality.exposure_factor],
-            }
-        )
+        row: Dict[str, Any] = {
+            f"{self._metadata.modality_key}.timestamp_us": [modality.timestamp.time_us],
+            f"{self._metadata.modality_key}.data": [data],
+            f"{self._metadata.modality_key}.camera_to_global_se3": [modality.camera_to_global_se3],
+            # None where a dataset stores the pose implicitly, to be composed on read from
+            # ego_state_se3 and the camera extrinsic (see _camera_to_global_from_ego).
+            f"{self._metadata.modality_key}.exposure_factor": [modality.exposure_factor],
+        }
+        add_arrival_time_to_row(row, self._metadata, modality)
+        self.write_batch(row)
 
     def close(self) -> None:
         if self._mp4_writer is not None:
@@ -285,6 +294,8 @@ class ArrowCameraReader(ArrowBaseModalityReader):
         log_dir: Optional[Path] = None,
         **kwargs,
     ) -> Optional[Any]:
+        if column == ARRIVAL_TIME_FIELD:
+            return read_arrival_time_column(table, index, metadata.modality_key, deserialize)
         column_at_iteration: Optional[Any] = None
         full_column_name = f"{metadata.modality_key}.{column}"
         if full_column_name in table.column_names:
@@ -459,6 +470,7 @@ def _deserialize_camera(
         camera_to_global_se3=camera_to_global_se3,
         timestamp=Timestamp.from_us(timestamp_data),
         exposure_factor=exposure_factor,
+        arrival_timestamp=read_arrival_timestamp(arrow_table, index, modality_key),
     )
 
 

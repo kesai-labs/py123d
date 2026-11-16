@@ -17,7 +17,7 @@ rebuilds the same capability around py123d's :class:`BaseDownloader` contract �
 adding Hydra-instantiability, archive selection, parallel downloads with atomic
 ``.part`` writes, tarfile-safe extraction, and integration with the streaming
 parser path so ``dataset=nuscenes-stream`` can materialize a chosen archive subset
-into a managed temp directory at parser construction time.
+at parser construction time.
 
 Archive catalog (13 files, total ~700 GB)::
 
@@ -29,14 +29,12 @@ Archive catalog (13 files, total ~700 GB)::
 This module exposes :class:`NuscenesDownloader` (Hydra-instantiable) which powers
 two entry points:
 
-1. ``py123d-download dataset=nuscenes`` — fetches the selected archives into a
-   session-scoped ``tempfile.TemporaryDirectory``, extracts them into
-   :attr:`output_dir` (typically ``$NUSCENES_DATA_ROOT``), and deletes the
-   ``.tgz`` files when ``download()`` returns.
+1. ``py123d-download dataset=nuscenes`` — fetches the selected archives into
+   ``<output_dir>/_zip``, extracts them into :attr:`output_dir` (typically
+   ``$NUSCENES_DATA_ROOT``), and deletes the ``.tgz`` files on successful extraction.
 2. The ``NuScenesParser`` streaming path (``dataset=nuscenes-stream``) — materializes
-   the selected archives into a managed temp directory at parser construction time
-   so the nuScenes devkit can load its metadata tables; the temp directory is
-   cleaned up when the parser goes out of scope.
+   the selected archives the same way at parser construction time so the nuScenes
+   devkit can load its metadata tables; the conversion deletes them when it ends.
 
 The HD-map expansion add-on (``nuScenes-map-expansion-v1.3.zip``) is **not** in the
 archive catalog above and is **not** fetched by this downloader — users who need
@@ -54,7 +52,6 @@ import os
 import random as _random_mod
 import shutil
 import tarfile
-import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -510,14 +507,12 @@ class NuscenesDownloader(BaseDownloader):
 
     Two entry points, one class:
 
-    * :meth:`download` — bulk flow. Fetches selected archives into a session-scoped
-      :class:`tempfile.TemporaryDirectory`, extracts them into :attr:`output_dir`,
-      and deletes the ``.tgz`` files when the method returns. Used by
+    * :meth:`download` — bulk flow. Fetches selected archives into
+      ``<output_dir>/_zip``, extracts them into :attr:`output_dir`, and deletes
+      the ``.tgz`` files on successful extraction. Used by
       ``py123d-download dataset=nuscenes``.
-    * :meth:`materialize_archives` — streaming flow. Fetches selected archives into
-      a caller-provided directory (typically a per-parser
-      :class:`tempfile.TemporaryDirectory`), extracts them in place, and removes
-      the ``.tgz`` files on successful extraction. Used by :class:`NuScenesParser`
+    * :meth:`materialize_archives` — streaming flow. Does the same for a
+      caller-provided archive subset and directory. Used by :class:`NuScenesParser`
       when ``downloader`` is provided.
 
     Credentials: reads ``$NUSCENES_EMAIL`` / ``$NUSCENES_PASSWORD`` by default;
@@ -642,10 +637,10 @@ class NuscenesDownloader(BaseDownloader):
     def download(self) -> None:
         """Inherited, see superclass.
 
-        Bulk flow: downloads selected archives into a session-scoped
-        :class:`tempfile.TemporaryDirectory`, extracts them into :attr:`output_dir`,
-        and deletes the ``.tgz`` files when the method returns. No artifact of the
-        archives survives :meth:`download` — only the extracted nuScenes tree.
+        Bulk flow: downloads selected archives into ``<output_dir>/_zip``, extracts
+        them into :attr:`output_dir`, and deletes the ``.tgz`` files on successful
+        extraction. No artifact of the archives survives :meth:`download` — only the
+        extracted nuScenes tree.
         """
         archives = self.resolve_archives()
         logger.info("nuScenes source:        %s (region=%s)", NUSCENES_API_GATEWAY, self.region)
@@ -660,24 +655,19 @@ class NuscenesDownloader(BaseDownloader):
             return
 
         assert self.output_dir is not None, "NuscenesDownloader.output_dir must be set before download()."
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.materialize_archives(archives=archives, output_dir=self.output_dir)
+        logger.info("Bulk download complete: %s", self.output_dir)
 
-        with tempfile.TemporaryDirectory(prefix="py123d-nuscenes-bulk-") as tmp:
-            tmp_dir = Path(tmp)
-            logger.info("Downloading archives to temp dir (auto-cleaned): %s", tmp_dir)
-            self._fetch_and_extract(archives=archives, zip_dir=tmp_dir, extract_dir=self.output_dir)
-            logger.info("Bulk download complete: %s", self.output_dir)
-
-    # ----- Per-archive materialization (streaming conversion) -------------------------
+    # ----- Per-archive materialization (bulk download and streaming conversion) -------
 
     def materialize_archives(self, archives: Sequence[str], output_dir: Union[str, Path]) -> Path:
         """Download and extract a selected archive subset into ``output_dir``.
 
-        Used by :class:`~py123d.parser.nuscenes.nuscenes_parser.NuScenesParser` in
-        streaming mode: the parser creates a :class:`tempfile.TemporaryDirectory`,
-        asks the downloader to populate it with the chosen archives, and reads the
-        resulting nuScenes tree as if it had been downloaded locally. ``.tgz`` files
-        are written to the same directory (a sibling ``_zip`` subdir) during the
+        Used by :meth:`download` and by
+        :class:`~py123d.parser.nuscenes.nuscenes_parser.NuScenesParser` in streaming
+        mode: the parser asks the downloader to populate a directory with the chosen
+        archives, and reads the resulting nuScenes tree as if it had been downloaded
+        locally. ``.tgz`` files are written to a ``_zip`` subdirectory during the
         fetch and removed after successful extraction.
 
         :param archives: Archive filenames to fetch. Must be keys of
@@ -695,7 +685,7 @@ class NuscenesDownloader(BaseDownloader):
         if unknown:
             raise ValueError(f"Unknown nuScenes archive(s): {unknown}")
 
-        logger.info("nuScenes streaming: materializing %d archive(s) into %s", len(archives), output_dir)
+        logger.info("nuScenes: materializing %d archive(s) into %s", len(archives), output_dir)
         self._fetch_and_extract(archives=list(archives), zip_dir=zip_dir, extract_dir=output_dir)
 
         # Zip directory is empty by design (archives deleted post-extract) — drop it.

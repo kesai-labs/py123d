@@ -5,10 +5,19 @@ from typing import Iterator, List
 import numpy as np
 import shapely.geometry as geom
 
-from py123d.datatypes import BaseMapObject, Carpark, GenericDrivable, MapMetadata, RoadEdge, RoadEdgeType, Walkway
-from py123d.geometry import Polyline3D
+from py123d.datatypes import (
+    BaseMapObject,
+    Carpark,
+    GenericDrivable,
+    MapMetadata,
+    RoadEdge,
+    RoadEdgeType,
+    TrafficLight,
+    Walkway,
+)
+from py123d.geometry import BoundingBoxSE3, Polyline3D
 from py123d.parser.base_dataset_parser import BaseMapParser
-from py123d.parser.kitti360.utils.kitti360_helper import KITTI360MapBbox3D
+from py123d.parser.kitti360.utils.kitti360_helper import KITTI360Bbox3D, KITTI360MapBbox3D
 from py123d.parser.utils.map_utils.road_edge.road_edge_2d_utils import (
     get_road_edge_linear_rings,
     split_line_geometry_by_max_length,
@@ -23,6 +32,7 @@ KITTI360_MAP_BBOX = [
     # "ground",
     "driveway",
 ]
+KITTI360_TRAFFIC_LIGHT_LABEL = "trafficLight"
 
 
 class Kitti360MapParser(BaseMapParser):
@@ -54,7 +64,7 @@ def iter_kitti360_map_objects(log_name: str, bbox_root: Path) -> Iterator[BaseMa
 
     :param log_name: The name of the log/sequence
     :param bbox_root: Path to the data_3d_bboxes directory
-    :yields: BaseMapObject instances (GenericDrivable, Walkway, Carpark, RoadEdge)
+    :yields: BaseMapObject instances (GenericDrivable, Walkway, Carpark, RoadEdge, TrafficLight)
     """
     xml_path = bbox_root / "train_full" / f"{log_name}.xml"
     if not xml_path.exists():
@@ -69,7 +79,20 @@ def iter_kitti360_map_objects(log_name: str, bbox_root: Path) -> Iterator[BaseMa
 
     for child in root:
         label = child.find("label").text
-        if child.find("transform") is None or label not in KITTI360_MAP_BBOX:
+        if child.find("transform") is None:
+            continue
+        if label == KITTI360_TRAFFIC_LIGHT_LABEL:
+            # Traffic lights are static 3D boxes in the annotation file and become map objects.
+            # The box is used as annotated: KITTI-360 does not state which housing axis faces the traffic.
+            bbox = KITTI360Bbox3D()
+            bbox.parse_vertices(child)
+            bbox.parse_scale_rotation()
+            yield TrafficLight(
+                object_id=int(child.find("index").text),
+                bounding_box_se3=BoundingBoxSE3.from_array(bbox.get_state_array()),
+            )
+            continue
+        if label not in KITTI360_MAP_BBOX:
             continue
         obj = KITTI360MapBbox3D()
         obj.parse_bbox(child)

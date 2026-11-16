@@ -2,9 +2,14 @@ import numpy as np
 import pytest
 import shapely.geometry as geom
 
-from py123d.datatypes.map_objects.base_map_objects import BaseMapLineObject, BaseMapObject, BaseMapSurfaceObject
+from py123d.datatypes.map_objects.base_map_objects import (
+    BaseMapLineObject,
+    BaseMapObject,
+    BaseMapPointObject,
+    BaseMapSurfaceObject,
+)
 from py123d.datatypes.map_objects.map_layer_types import MapLayer
-from py123d.geometry import Polyline2D, Polyline3D
+from py123d.geometry import Point2D, Point3D, Polyline2D, Polyline3D
 
 
 class ConcreteMapObject(BaseMapObject):
@@ -36,6 +41,18 @@ class ConcreteMapLineObject(BaseMapLineObject):
 
     def __init__(self, object_id, polyline, layer_type=MapLayer.GENERIC_DRIVABLE):
         super().__init__(object_id, polyline)
+        self._layer = layer_type
+
+    @property
+    def layer(self) -> MapLayer:
+        return self._layer
+
+
+class ConcreteMapPointObject(BaseMapPointObject):
+    """Concrete implementation for testing BaseMapPointObject."""
+
+    def __init__(self, object_id, point, layer_type=MapLayer.TRAFFIC_LIGHT):
+        super().__init__(object_id, point)
         self._layer = layer_type
 
     @property
@@ -206,3 +223,43 @@ class TestBaseMapLineObject:
         polyline = Polyline2D.from_array(coords)
         obj = ConcreteMapLineObject(999, polyline)
         assert obj.object_id == 999
+
+
+class TestBaseMapPointObject:
+    """Tests for BaseMapPointObject."""
+
+    def test_init_with_point2d(self):
+        obj = ConcreteMapPointObject("point_1", Point2D(1.0, 2.0))
+        assert obj.object_id == "point_1"
+        assert obj.layer == MapLayer.TRAFFIC_LIGHT
+        assert isinstance(obj.point, Point2D)
+
+    def test_init_with_point3d(self):
+        obj = ConcreteMapPointObject("point_2", Point3D(1.0, 2.0, 3.0))
+        assert isinstance(obj.point, Point3D)
+        assert obj.point.z == 3.0
+
+    def test_point_2d_from_3d_point(self):
+        obj = ConcreteMapPointObject("point_3", Point3D(1.0, 2.0, 3.0))
+        point_2d = obj.point_2d
+        assert isinstance(point_2d, Point2D)
+        np.testing.assert_array_equal(point_2d.array, [1.0, 2.0])
+
+    def test_point_3d_from_2d_point(self):
+        obj = ConcreteMapPointObject("point_4", Point2D(1.0, 2.0))
+        point_3d = obj.point_3d
+        assert isinstance(point_3d, Point3D)
+        np.testing.assert_array_equal(point_3d.array, [1.0, 2.0, 0.0])
+
+    def test_point_2d_and_3d_identity(self):
+        point_2d, point_3d = Point2D(1.0, 2.0), Point3D(1.0, 2.0, 3.0)
+        assert ConcreteMapPointObject("point_5", point_2d).point_2d is point_2d
+        assert ConcreteMapPointObject("point_6", point_3d).point_3d is point_3d
+
+    def test_shapely_point_property(self):
+        obj = ConcreteMapPointObject("point_7", Point3D(1.0, 2.0, 3.0))
+        shapely_point = obj.shapely_point
+        assert isinstance(shapely_point, geom.Point)
+        assert shapely_point.has_z
+        assert (shapely_point.x, shapely_point.y, shapely_point.z) == (1.0, 2.0, 3.0)
+        assert not ConcreteMapPointObject("point_8", Point2D(1.0, 2.0)).shapely_point.has_z

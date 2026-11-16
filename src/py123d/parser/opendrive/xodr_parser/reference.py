@@ -108,6 +108,13 @@ class XODRReferenceLine:
     def length(self) -> float:
         return float(self.reference_line.length)
 
+    @property
+    def cumulative_s_offset(self) -> float:
+        # elevations hold road-global s; local s + cumulative offset recovers it
+        if isinstance(self.reference_line, XODRReferenceLine):
+            return self.s_offset + self.reference_line.cumulative_s_offset
+        return self.s_offset
+
     @classmethod
     def from_plan_view(
         cls,
@@ -172,10 +179,11 @@ class XODRReferenceLine:
     def interpolate_3d(self, s: float, t: float = 0.0, lane_section_end: bool = False) -> npt.NDArray[np.float64]:
         se2 = self.interpolate_se2(s, t, lane_section_end=lane_section_end)
 
-        elevation_polynomial = self._find_polynomial(s, self.elevations, lane_section_end=lane_section_end)
+        s_road = self.cumulative_s_offset + s
+        elevation_polynomial = self._find_polynomial(s_road, self.elevations, lane_section_end=lane_section_end)
         point_3d = np.zeros(len(Point3DIndex), dtype=np.float64)
         point_3d[Point3DIndex.XY] = se2[PoseSE2Index.XY]
-        point_3d[Point3DIndex.Z] = elevation_polynomial.get_value(s - elevation_polynomial.s)
+        point_3d[Point3DIndex.Z] = elevation_polynomial.get_value(s_road - elevation_polynomial.s)
 
         return point_3d
 
@@ -241,12 +249,13 @@ class XODRReferenceLine:
         lane_section_end_arr: npt.NDArray[np.bool_],
     ) -> npt.NDArray[np.float64]:
         se2_arr = self.interpolate_se2_batch(s_arr, t_arr, lane_section_end_arr)
+        s_road_arr = self.cumulative_s_offset + s_arr
         # Fast path for single elevation (common case)
         if len(self.elevations) == 1:
-            z_values = self._eval_single_polynomial_batch(s_arr, self.elevations[0])
+            z_values = self._eval_single_polynomial_batch(s_road_arr, self.elevations[0])
         else:
-            elev_indices = self._find_polynomial_indices_batch(s_arr, self.elevations, lane_section_end_arr)
-            z_values = self._eval_polynomials_batch(s_arr, self.elevations, elev_indices)
+            elev_indices = self._find_polynomial_indices_batch(s_road_arr, self.elevations, lane_section_end_arr)
+            z_values = self._eval_polynomials_batch(s_road_arr, self.elevations, elev_indices)
         result = np.zeros((len(s_arr), len(Point3DIndex)), dtype=np.float64)
         result[:, Point3DIndex.XY] = se2_arr[:, PoseSE2Index.XY]
         result[:, Point3DIndex.Z] = z_values

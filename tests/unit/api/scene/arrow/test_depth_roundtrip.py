@@ -404,8 +404,8 @@ class TestDepthCameraRoundtrip:
                 timestamp=timestamp,
             )
         )
-        log_dir = writer._state.log_dir
         writer.close()
+        log_dir = tmp_path / make_log_metadata().split / make_log_metadata().log_name
 
         assert (log_dir / "camera.pcam_f0.arrow").exists()
         assert (log_dir / "camera_depth.pcam_f0.arrow").exists()
@@ -440,8 +440,8 @@ class TestDepthSceneAPI:
                     timestamp=Timestamp.from_us(100_000 * (iteration + 1)),
                 )
             )
-        log_dir = writer._state.log_dir
         writer.close()
+        log_dir = tmp_path / make_log_metadata().split / make_log_metadata().log_name
         return log_dir, depth_m
 
     def _scene(self, log_dir: Path) -> ArrowSceneAPI:
@@ -515,8 +515,8 @@ class TestDepthSceneAPI:
                     timestamp=Timestamp.from_us(100_000 * (iteration + 1)),
                 )
             )
-        log_dir = writer._state.log_dir
         writer.close()
+        log_dir = tmp_path / make_log_metadata().split / make_log_metadata().log_name
 
         scene = self._scene(log_dir)
         assert scene.available_camera_depth_ids == []

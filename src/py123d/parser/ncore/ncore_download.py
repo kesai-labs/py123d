@@ -22,8 +22,8 @@ reusable library functions. :class:`NCoreDownloader` powers two paths:
    :attr:`NCoreDownloader.output_dir`.
 
 2. The ``NCoreParser`` streaming path — calls
-   :meth:`NCoreDownloader.download_single_clip` for each clip into a per-clip temp
-   directory, converts it, and deletes the temp dir before moving on.
+   :meth:`NCoreDownloader.download_single_clip` for each clip into a per-clip
+   directory, converts it, and deletes that directory before moving on.
 """
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ def download_clip(
     fetched (no repo-level README etc.) — useful for per-clip streaming during conversion.
 
     :param clip_id: Clip UUID.
-    :param output_dir: Destination directory (typically a ``tempfile.TemporaryDirectory``).
+    :param output_dir: Destination directory.
     :param modality: Which modalities to pull for this clip. See :func:`build_clip_allow_patterns`.
     :param cameras: Camera IDs to pull when ``modality="cameras"``.
     :param hf_token: HuggingFace access token.
@@ -192,7 +192,7 @@ class NCoreDownloader(BaseDownloader):
       ``snapshot_download`` call. Used by ``py123d-download dataset=ncore``.
     * :meth:`download_single_clip` — fetch one clip to a caller-provided directory.
       Used by :class:`~py123d.parser.ncore.ncore_parser.NCoreParser` in streaming
-      mode to drop each clip into a per-clip temp directory.
+      mode to drop each clip into a per-clip directory.
 
     The instance is picklable (simple attrs only) so it can be embedded in log-parser
     objects shipped across a Ray process pool.
@@ -216,8 +216,8 @@ class NCoreDownloader(BaseDownloader):
         """Initialize the NCore downloader.
 
         :param output_dir: Destination directory for :meth:`download`. Ignored by
-            :meth:`download_single_clip` (which takes its own ``output_dir`` arg) and
-            by streaming parsers (which manage per-clip temp directories).
+            :meth:`download_single_clip` (which takes its own ``output_dir`` arg);
+            streaming parsers download each clip into ``<output_dir>/clips/<clip_id>``.
         :param revision: HuggingFace dataset branch, tag, or commit.
         :param hf_token: HF access token. Resolves through
             :func:`resolve_hf_token` — falls back to ``$HF_TOKEN`` /
@@ -349,8 +349,8 @@ class NCoreDownloader(BaseDownloader):
         """Fetch one clip to ``output_dir`` using the configured modality/auth.
 
         Intended for the NCore streaming parser — each clip lands in its own per-clip
-        temp directory, is converted, and the temp directory is deleted. Returns the
-        path to the clip's sequence manifest.
+        directory, is converted, and the directory is deleted. Returns the path to the
+        clip's sequence manifest.
         """
         return download_clip(
             clip_id=clip_id,

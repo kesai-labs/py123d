@@ -5,6 +5,7 @@ from typing import Any, Dict, FrozenSet, List, Literal, Optional
 import numpy as np
 import pyarrow as pa
 
+from py123d.api.scene.arrow.modalities.sync_utils import find_timestamp_index, get_timestamp_array
 from py123d.datatypes import BaseModality, BaseModalityMetadata, Timestamp
 
 # Default flush threshold, well under Arrow's 2 GiB per-column limit for binary/string data.
@@ -230,25 +231,8 @@ class ArrowBaseModalityReader(ABC):
         :return: The deserialized modality, or None if no matching timestamp is found.
         """
         ts_column = f"{metadata.modality_key}.timestamp_us"
-        ts_array = table[ts_column].to_numpy()
-        target_us = timestamp.time_us
-
-        index: Optional[int] = None
-        if criteria == "exact":
-            indices = np.where(ts_array == target_us)[0]
-            if len(indices) > 0:
-                index = int(indices[0])
-        elif criteria == "nearest":
-            if len(ts_array) > 0:
-                index = int(np.argmin(np.abs(ts_array - target_us)))
-        elif criteria == "forward":
-            indices = np.where(ts_array >= target_us)[0]
-            if len(indices) > 0:
-                index = int(indices[0])
-        elif criteria == "backward":
-            indices = np.where(ts_array <= target_us)[0]
-            if len(indices) > 0:
-                index = int(indices[-1])
+        ts_array, is_sorted = get_timestamp_array(table, ts_column)
+        index = find_timestamp_index(ts_array, timestamp.time_us, criteria, is_sorted)
 
         modality: Optional[BaseModality] = None
         if index is not None:

@@ -11,13 +11,14 @@ from py123d.geometry.pose import PoseSE3
 class BarometerMetadata(BaseModalityMetadata):
     """Metadata for a barometric pressure sensor, static for a given sensor."""
 
-    __slots__ = ("_barometer_name", "_barometer_id", "_barometer_to_imu_se3")
+    __slots__ = ("_barometer_name", "_barometer_id", "_barometer_to_imu_se3", "_has_arrival_time")
 
     def __init__(
         self,
         barometer_name: str,
         barometer_id: Optional[str] = None,
         barometer_to_imu_se3: PoseSE3 = PoseSE3.identity(),
+        has_arrival_time: bool = False,
     ):
         """Initialize barometer metadata.
 
@@ -26,10 +27,15 @@ class BarometerMetadata(BaseModalityMetadata):
             None (the default) means the log has a single barometer and the modality key is
             ``barometer``.
         :param barometer_to_imu_se3: The extrinsic pose of the sensor relative to the IMU frame.
+        :param has_arrival_time: Whether the log stores the time each measurement was received
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
+            ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
+            such column.
         """
         self._barometer_name = barometer_name
         self._barometer_id = barometer_id
         self._barometer_to_imu_se3 = barometer_to_imu_se3
+        self._has_arrival_time = has_arrival_time
 
     @property
     def barometer_name(self) -> str:
@@ -45,6 +51,11 @@ class BarometerMetadata(BaseModalityMetadata):
     def barometer_to_imu_se3(self) -> PoseSE3:
         """The extrinsic :class:`~py123d.geometry.PoseSE3` of the sensor, relative to the IMU frame."""
         return self._barometer_to_imu_se3
+
+    @property
+    def has_arrival_time(self) -> bool:
+        """Whether the log stores the time each measurement was received."""
+        return self._has_arrival_time
 
     @property
     def modality_type(self) -> ModalityType:
@@ -65,6 +76,7 @@ class BarometerMetadata(BaseModalityMetadata):
             barometer_name=data_dict["barometer_name"],
             barometer_id=data_dict.get("barometer_id"),
             barometer_to_imu_se3=PoseSE3.from_list(data_dict["barometer_to_imu_se3"]),
+            has_arrival_time=data_dict.get("has_arrival_time", False),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -72,11 +84,15 @@ class BarometerMetadata(BaseModalityMetadata):
 
         :return: A dictionary representation of the barometer metadata.
         """
-        return {
+        data_dict = {
             "barometer_name": self._barometer_name,
             "barometer_id": self._barometer_id,
             "barometer_to_imu_se3": self._barometer_to_imu_se3.tolist(),
         }
+        # Only written when set, so the metadata of a log without arrival times is unchanged.
+        if self._has_arrival_time:
+            data_dict["has_arrival_time"] = True
+        return data_dict
 
 
 class Barometer(BaseModality):
@@ -86,7 +102,15 @@ class Barometer(BaseModality):
     mean-sea-level altitude and the environmental readings are optional.
     """
 
-    __slots__ = ("_timestamp", "_metadata", "_pressure", "_msl_altitude", "_temperature", "_humidity")
+    __slots__ = (
+        "_timestamp",
+        "_metadata",
+        "_pressure",
+        "_msl_altitude",
+        "_temperature",
+        "_humidity",
+        "_arrival_timestamp",
+    )
 
     def __init__(
         self,
@@ -96,6 +120,7 @@ class Barometer(BaseModality):
         msl_altitude: Optional[float] = None,
         temperature: Optional[float] = None,
         humidity: Optional[float] = None,
+        arrival_timestamp: Optional[Timestamp] = None,
     ) -> None:
         """Initialize a barometer measurement.
 
@@ -105,6 +130,8 @@ class Barometer(BaseModality):
         :param msl_altitude: Optional mean-sea-level altitude derived from pressure, in meters.
         :param temperature: Optional sensor temperature in degrees Celsius.
         :param humidity: Optional relative humidity in percent (0-100).
+        :param arrival_timestamp: Optional time the recording system received the measurement
+            (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`).
         """
         self._timestamp = timestamp
         self._metadata = metadata
@@ -112,6 +139,7 @@ class Barometer(BaseModality):
         self._msl_altitude = msl_altitude
         self._temperature = temperature
         self._humidity = humidity
+        self._arrival_timestamp = arrival_timestamp
 
     @property
     def timestamp(self) -> Timestamp:
@@ -122,6 +150,11 @@ class Barometer(BaseModality):
     def metadata(self) -> BarometerMetadata:
         """The :class:`BarometerMetadata` associated with this barometer measurement."""
         return self._metadata
+
+    @property
+    def arrival_timestamp(self) -> Optional[Timestamp]:
+        """The time the recording system received this measurement, if recorded."""
+        return self._arrival_timestamp
 
     @property
     def pressure(self) -> float:

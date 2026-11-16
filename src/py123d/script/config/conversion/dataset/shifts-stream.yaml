@@ -1,0 +1,36 @@
+defaults:
+  - shifts
+  - _self_
+
+# Streaming variant of dataset=shifts: the canonical scene archives are streamed from Yandex Object
+# Storage into $PY123D_DATA_ROOT/.download/shifts, converted, and deleted when the conversion ends.
+#
+# The scene archives are gzip streams of one file per scene (about 180 KB each), read with HTTP
+# range requests out of the outer tar files. With `num_scenes` the stream stops after the first N
+# scenes of each split, so a smoke test costs a few MB. Without it a split streams completely
+# (shifts_val 5.6 GB, shifts_test 6.0 GB, shifts_train 61 GB compressed; about 1.1x on disk).
+#
+# Usage:
+#   py123d-conversion dataset=shifts-stream 'dataset.parser.splits=[shifts_val]' dataset.parser.downloader.num_scenes=5
+#   py123d-conversion dataset=shifts-stream 'dataset.parser.splits=[shifts_val,shifts_test]'
+
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
+parser:
+  shifts_data_root: null        # not read; the scenes come from the downloader
+
+  downloader:
+    _target_: py123d.parser.shifts.shifts_download.ShiftsDownloader
+    _convert_: 'all'
+
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/shifts
+
+    # splits is bound to parser.splits so the downloader and parser stay in lockstep.
+    splits: ${dataset.parser.splits}
+
+    num_scenes: null            # first N scenes per split; null streams the whole split
+    overwrite: false            # re-download a split directory that already holds enough scenes
+    max_retries: 3              # a stream that breaks mid-way restarts from the beginning
+    dry_run: false
