@@ -71,6 +71,7 @@ class OpenDriveMapParser(BaseMapParser):
         road_edge_non_drivable_points: Optional[List[List[float]]] = None,
         road_edge_non_drivable_polygons: Optional[List[List[List[float]]]] = None,
         non_drivable_none_lane_min_width: Optional[float] = None,
+        drivable_parking_lanes: bool = False,
     ) -> None:
         self._xodr_path = xodr_path
         self._location = location
@@ -81,6 +82,7 @@ class OpenDriveMapParser(BaseMapParser):
         self._road_edge_non_drivable_points = road_edge_non_drivable_points
         self._road_edge_non_drivable_polygons = road_edge_non_drivable_polygons
         self._non_drivable_none_lane_min_width = non_drivable_none_lane_min_width
+        self._drivable_parking_lanes = drivable_parking_lanes
 
     def get_map_metadata(self) -> MapMetadata:
         """Returns metadata for this OpenDRIVE map."""
@@ -104,6 +106,7 @@ class OpenDriveMapParser(BaseMapParser):
             road_edge_non_drivable_points=self._road_edge_non_drivable_points,
             road_edge_non_drivable_polygons=self._road_edge_non_drivable_polygons,
             non_drivable_none_lane_min_width=self._non_drivable_none_lane_min_width,
+            drivable_parking_lanes=self._drivable_parking_lanes,
         )
 
 
@@ -116,6 +119,7 @@ def iter_xodr_map_objects(
     road_edge_non_drivable_points: Optional[List[List[float]]] = None,
     road_edge_non_drivable_polygons: Optional[List[List[List[float]]]] = None,
     non_drivable_none_lane_min_width: Optional[float] = None,
+    drivable_parking_lanes: bool = False,
 ) -> Iterator[BaseMapObject]:
     """Yields all map objects extracted from an OpenDRIVE (.xodr) file.
 
@@ -132,6 +136,9 @@ def iter_xodr_map_objects(
         for static obstacles standing on otherwise drivable surfaces, defaults to None
     :param non_drivable_none_lane_min_width: None lanes on non-junction roads at least this
         wide are median strips and carved out of the drivable envelope, defaults to None (disabled)
+    :param drivable_parking_lanes: If True, parking lanes on non-junction roads (carparks) join the
+        drivable envelope like shoulders, and road_edge_non_drivable_points can carve single ones out
+        again; junction parking lanes are drivable either way, defaults to False
     """
     opendrive = XODR.parse_from_file(xodr_file)
 
@@ -166,9 +173,11 @@ def iter_xodr_map_objects(
     yield from none_lanes
     yield from curbed_none_lanes
 
+    drivable_car_parks = car_parks if drivable_parking_lanes else []
+
     # Curbed none lanes are carve candidates; auto-carving is disabled pending per-town validation.
     non_drivable_polygons = _match_non_drivable_surfaces(
-        shoulders + none_lanes + generic_drivables, road_edge_non_drivable_points
+        shoulders + none_lanes + generic_drivables + drivable_car_parks, road_edge_non_drivable_points
     )
     non_drivable_polygons += [shapely.Polygon(polygon) for polygon in road_edge_non_drivable_polygons or []]
     non_drivable_polygons += _collect_median_polygons(lane_helper_dict, road_dict, non_drivable_none_lane_min_width)
@@ -186,7 +195,7 @@ def iter_xodr_map_objects(
         lanes,
         lane_groups,
         car_parks,
-        generic_drivables + shoulders + none_lanes,
+        generic_drivables + shoulders + none_lanes + drivable_car_parks,
         road_edge_fill_hole_points,
         non_drivable_polygons,
     )
