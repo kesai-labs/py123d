@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Dict, Final, Iterator, List, Optional, Tuple
+from typing import IO, Dict, Final, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 import shapely
@@ -34,6 +34,7 @@ from py123d.parser.opendrive.utils.id_system import (
 from py123d.parser.opendrive.utils.lane_helper import OpenDriveLaneGroupHelper, OpenDriveLaneHelper
 from py123d.parser.opendrive.utils.objects_helper import OpenDriveObjectHelper
 from py123d.parser.opendrive.utils.stop_zone_helper import create_stop_zones_from_signals
+from py123d.parser.opendrive.utils.traffic_light_helper import create_traffic_lights_from_signals
 from py123d.parser.opendrive.xodr_parser.lane import XODRRoadMark
 from py123d.parser.opendrive.xodr_parser.opendrive import XODR, Junction
 from py123d.parser.opendrive.xodr_parser.road import XODRRoad
@@ -111,7 +112,7 @@ class OpenDriveMapParser(BaseMapParser):
 
 
 def iter_xodr_map_objects(
-    xodr_file: Path,
+    xodr_file: Union[Path, IO[bytes]],
     interpolation_step_size: float = 1.0,
     connection_distance_threshold: float = 0.1,
     internal_only: bool = True,
@@ -123,7 +124,7 @@ def iter_xodr_map_objects(
 ) -> Iterator[BaseMapObject]:
     """Yields all map objects extracted from an OpenDRIVE (.xodr) file.
 
-    :param xodr_file: Path to the OpenDRIVE (.xodr) file.
+    :param xodr_file: Path to the OpenDRIVE (.xodr) file, or the file opened in binary mode.
     :param interpolation_step_size: Step size for interpolating polylines, defaults to 1.0
     :param connection_distance_threshold: Distance threshold for connecting road elements, defaults to 0.1
     :param internal_only: If True, only yield internal road lines (center + between lanes), defaults to True
@@ -187,7 +188,9 @@ def iter_xodr_map_objects(
     yield from _iter_walkways(lane_helper_dict)
     yield from _iter_intersections(junction_dict, lane_group_helper_dict, lane_helper_dict, road_dict)
     yield from _iter_crosswalks(object_helper_dict)
-    yield from _iter_stop_zones(signal_dict, lane_helper_dict)
+    stop_zones = create_stop_zones_from_signals(signal_dict, lane_helper_dict)
+    yield from stop_zones.values()
+    yield from create_traffic_lights_from_signals(signal_dict, lane_helper_dict, road_dict, stop_zones)
 
     # Yield polyline elements that are inferred from other road surfaces
     yield from _iter_road_lines(lane_helper_dict, lane_groups, center_lane_marks_dict, internal_only)
@@ -451,12 +454,6 @@ def _iter_crosswalks(object_helper_dict: Dict[int, OpenDriveObjectHelper]) -> It
     """Yields crosswalk objects."""
     for object_helper in object_helper_dict.values():
         yield Crosswalk(object_id=object_helper.object_id, outline=object_helper.outline_polyline_3d)
-
-
-def _iter_stop_zones(signal_dict: Dict, lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -> Iterator:
-    """Yields stop zone objects."""
-    stop_zones = create_stop_zones_from_signals(signal_dict, lane_helper_dict)
-    yield from stop_zones.values()
 
 
 def _iter_road_lines(

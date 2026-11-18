@@ -161,8 +161,9 @@ Conversion
   py123d-conversion dataset=wod-motion
 
 **Streaming mode** — ``dataset=wod-motion-stream`` attaches a ``WODMotionDownloader`` to
-the parser; it fetches selected shards from GCS into a temp directory at parser
-construction time and cleans up when the parser is garbage-collected:
+the parser; it fetches selected shards from GCS into
+``$PY123D_DATA_ROOT/.download/wod-motion`` at parser construction time and deletes
+them when the conversion ends:
 
 .. code-block:: bash
 
@@ -174,10 +175,10 @@ construction time and cleans up when the parser is garbage-collected:
   py123d-conversion dataset=wod-motion-stream \
       'dataset.parser.downloader.shard_indices={wod-motion_train: [0, 1, 2], wod-motion_val: [0]}'
 
-  # Persist downloads under a dedicated cache dir instead of a tempdir:
+  # Keep the downloaded files instead of deleting them (a later run reuses them):
   py123d-conversion dataset=wod-motion-stream \
       dataset.parser.downloader.num_shards=1 \
-      dataset.parser.downloader.output_dir=/mnt/scratch/wod_motion_cache
+      keep_downloads=true
 
 The motion bucket is anonymously readable after license acceptance, so ADC is not strictly
 required; if available it will be used automatically.

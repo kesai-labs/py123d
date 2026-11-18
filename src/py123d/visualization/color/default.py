@@ -106,6 +106,19 @@ MAP_SURFACE_CONFIG: Dict[MapLayer, PlotConfig] = {
     ),
 }
 
+MAP_POINT_CONFIG: Dict[MapLayer, PlotConfig] = {
+    MapLayer.TRAFFIC_LIGHT: PlotConfig(
+        fill_color=DARKER_GREY,
+        fill_color_alpha=1.0,
+        line_color=BLACK,
+        line_color_alpha=1.0,
+        line_width=0.5,
+        marker_style="o",
+        marker_size=20.0,
+        zorder=4,
+    ),
+}
+
 
 BOX_DETECTION_CONFIG: Dict[DefaultBoxDetectionLabel, PlotConfig] = {
     # Vehicles

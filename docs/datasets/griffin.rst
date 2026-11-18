@@ -69,8 +69,8 @@ Available Modalities
      - Bounding boxes are available with the :class:`~py123d.parser.registry.GriffinBoxDetectionLabel`.
        For more information, see :class:`~py123d.datatypes.detections.BoxDetectionsSE3`.
    * - Traffic Lights
-     - X
-     - n/a
+     - (✓)
+     - No light states are recorded. The CARLA maps provide the traffic lights as :class:`~py123d.datatypes.TrafficLight` objects, placed at the signal post of the OpenDRIVE ``<signal>``.
    * - Cameras
      - ✓
      -

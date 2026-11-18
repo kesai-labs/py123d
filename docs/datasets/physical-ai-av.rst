@@ -97,17 +97,22 @@ Download
 The dataset can be downloaded from `Hugging Face <https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles>`_.
 For additional tools and documentation, see the `Physical AI AV devkit <https://github.com/NVlabs/physical_ai_av>`_.
 
-The downloaded dataset should have the following structure:
+The release ships the per-clip files in chunk archives (``{feature}.chunk_XXXX.zip``); extract their members into
+the following structure. Older revisions store the split in ``clip_index.parquet`` instead of ``splits/default.parquet``.
 
 .. code-block:: none
 
   $PHYSICAL_AI_AV_DATA_ROOT
   ├── clip_index.parquet
+  ├── splits/
+  │   └── default.parquet
   ├── calibration/
   │   ├── camera_intrinsics/
   │   │   └── camera_intrinsics.chunk_XXXX.parquet
-  │   └── sensor_extrinsics/
-  │       └── sensor_extrinsics.chunk_XXXX.parquet
+  │   ├── sensor_extrinsics/
+  │   │   └── sensor_extrinsics.chunk_XXXX.parquet
+  │   └── vehicle_dimensions/
+  │       └── vehicle_dimensions.chunk_XXXX.parquet
   ├── labels/
   │   ├── egomotion/
   │   │   └── {clip_id}.egomotion.parquet

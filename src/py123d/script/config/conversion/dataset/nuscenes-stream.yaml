@@ -1,6 +1,6 @@
 # Streaming variant of dataset=nuscenes — the parser materializes a chosen archive
-# subset from nuScenes' CloudFront API into a session-scoped tempfile.TemporaryDirectory
-# at construction time, converts from it, and deletes the temp dir on parser destruction.
+# subset from nuScenes' CloudFront API into $PY123D_DATA_ROOT/.download/nuscenes at
+# construction time, converts from it, and deletes that directory when the conversion ends.
 #
 # Mirrors `nuscenes.yaml` exactly for splits + sync_config + writer flags; only the
 # data paths, sensor storage options (forced to self-contained binary), and the
@@ -24,13 +24,16 @@
 #   py123d-conversion dataset=nuscenes-stream \
 #     'dataset.parser.stream_archives=[v1.0-trainval_meta.tgz, v1.0-trainval03_blobs.tgz, nuScenes-map-expansion-v1.3.zip, can_bus.zip]'
 
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
 parser:
   _target_: py123d.parser.nuscenes.nuscenes_parser.NuScenesParser
   _convert_: 'all'
 
   splits: ["nuscenes_train", "nuscenes_val", "nuscenes_test"]
 
-  # Ignored when `downloader` is set — the parser materializes archives into a temp dir.
+  # Ignored when `downloader` is set — the parser materializes archives into the downloader's output_dir.
   nuscenes_data_root: null
 
   # Auto-detected in streaming mode: if `nuScenes-map-expansion-v1.3.zip` is in the
@@ -46,8 +49,8 @@ parser:
     _target_: py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader
     _convert_: 'all'
 
-    # Ignored in streaming mode — archives land in the parser's tempfile.TemporaryDirectory.
-    output_dir: null
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/nuscenes
 
     email: null                  # falls back to $NUSCENES_EMAIL
     password: null               # falls back to $NUSCENES_PASSWORD

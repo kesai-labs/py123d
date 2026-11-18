@@ -3,7 +3,6 @@ downloader:
   _convert_: 'all'
 
   # Destination. Defaults to $NCORE_DATA_ROOT (set via default_dataset_paths.yaml).
-  # Override to null to let a streaming parser manage a temp directory.
   output_dir: ${dataset_paths.ncore_data_root}
 
   revision: main            # HF branch / tag / commit

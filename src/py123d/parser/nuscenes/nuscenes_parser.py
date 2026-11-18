@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import gc
 import logging
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Union
 
@@ -128,10 +127,8 @@ class NuScenesParser(BaseDatasetParser):
             is skipped. Pass an explicit path to override.
         :param downloader: Optional :class:`~py123d.parser.nuscenes.nuscenes_download.NuscenesDownloader`
             used for streaming mode. When provided, the parser materializes the configured
-            archives (``stream_archives``) into a session-scoped
-            :class:`tempfile.TemporaryDirectory` at construction time, points
-            ``nuscenes_data_root`` at it, and cleans the temp directory up when the parser
-            is garbage collected.
+            archives (``stream_archives``) into ``downloader.output_dir`` at construction
+            time and points ``nuscenes_data_root`` at it.
         :param stream_archives: Archive subset to materialize in streaming mode. ``None``
             falls back to ``downloader.resolve_archives()``, i.e. the downloader's
             ``preset`` / ``archives`` / ``num_archives`` configuration (default in the
@@ -143,7 +140,6 @@ class NuScenesParser(BaseDatasetParser):
 
         self._splits: List[str] = splits
         self._downloader: Optional["NuscenesDownloader"] = downloader
-        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
 
         if downloader is not None:
             self._nuscenes_data_root: Path = self._materialize_streaming_root(
@@ -175,29 +171,14 @@ class NuScenesParser(BaseDatasetParser):
         downloader: "NuscenesDownloader",
         stream_archives: Optional[List[str]],
     ) -> Path:
-        """Download + extract the configured archive subset into a managed temp directory.
+        """Download + extract the configured archive subset into ``downloader.output_dir``.
 
-        The temp directory is cleaned up in :meth:`__del__`. Mirrors the WOD motion
-        streaming pattern: one shared data root for the parser's lifetime rather than
-        per-scene temp dirs (nuScenes parser needs all metadata tables up front).
+        Mirrors the WOD motion streaming pattern: one shared data root for the parser's
+        lifetime rather than per-scene dirs (nuScenes parser needs all metadata tables up front).
         """
         archives = list(stream_archives) if stream_archives else downloader.resolve_archives()
-        self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-nuscenes-")
-        tmp_root = Path(self._stream_temp_dir_handle.name)
-        logger.info("nuScenes streaming temp dir: %s", tmp_root)
-        downloader.materialize_archives(archives=archives, output_dir=tmp_root)
-        return tmp_root
-
-    def __del__(self) -> None:
-        """Clean up the streaming temp directory when the parser is garbage collected."""
-        # TODO(nuscenes): move to explicit context manager — __del__ semantics are unreliable
-        # (GC ordering, exception swallowing). Mirrors the same TODO on WOD / pandaset parsers.
-        handle = getattr(self, "_stream_temp_dir_handle", None)
-        if handle is not None:
-            try:
-                handle.cleanup()
-            except Exception:
-                pass
+        assert downloader.output_dir is not None, "`downloader.output_dir` must be set for streaming."
+        return downloader.materialize_archives(archives=archives, output_dir=downloader.output_dir)
 
     def _collect_scene_tokens(self) -> Dict[str, List[str]]:
         """Collects scene tokens for the specified splits."""

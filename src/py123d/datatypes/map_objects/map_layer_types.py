@@ -42,6 +42,9 @@ class MapLayer(SerialIntEnum):
     SPEED_BUMP = 10
     """Speed bumps (surface)."""
 
+    TRAFFIC_LIGHT = 11
+    """Traffic lights (points)."""
+
 
 class LaneType(SerialIntEnum):
     """Enum for different lane types.

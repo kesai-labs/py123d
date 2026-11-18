@@ -1037,9 +1037,11 @@ def _collect_signals(opendrive: XODR) -> Dict[int, OpenDriveSignalHelper]:
 
     # First pass: collect signal definitions for type lookup
     signal_lookup = {}
+    signal_road_lookup: Dict[int, int] = {}
     for road in opendrive.roads:
         for signal in road.signals:
             signal_lookup[signal.id] = signal
+            signal_road_lookup[signal.id] = road.id
 
     # Second pass: process signal references (have actual lane validity)
     for road in opendrive.roads:
@@ -1063,6 +1065,7 @@ def _collect_signals(opendrive: XODR) -> Dict[int, OpenDriveSignalHelper]:
         junction_id, phase_idx = signal_phase_dict.get(signal_id, (None, None))
         helper.junction_id = junction_id
         helper.phase_idx = phase_idx
+        helper.road_id = signal_road_lookup.get(signal_id)
 
     return signal_dict
 

@@ -69,8 +69,8 @@ Available Modalities
      - ✓
      - The bounding boxes are available with the :class:`~py123d.parser.registry.NuScenesBoxDetectionLabel`. For more information, see :class:`~py123d.datatypes.BoxDetectionsSE3`.
    * - Traffic Lights
-     - X
-     -
+     - (✓)
+     - No light states are recorded. The map expansion's ``traffic_light`` layer is converted to :class:`~py123d.datatypes.TrafficLight` objects (pose of the housing, lanes of the road blocks it guides, and the stop lines naming it). Not verified on real map data yet.
    * - Cameras
      - ✓
      -
@@ -123,7 +123,7 @@ manually.
   py123d-download dataset=nuscenes \
       'downloader.archives=[v1.0-trainval_meta.tgz, v1.0-trainval03_blobs.tgz, nuScenes-map-expansion-v1.3.zip, can_bus.zip]'
 
-The archives are downloaded into a session-scoped temp directory, extracted into
+The archives are downloaded into ``$NUSCENES_DATA_ROOT/_zip``, extracted into
 ``$NUSCENES_DATA_ROOT``, and deleted — only the standard nuScenes tree survives.
 
 .. dropdown:: Downloader attribution
@@ -233,8 +233,8 @@ section above):
   To change this behavior, you need to adapt the ``nuscenes-sensor.yaml`` or ``nuscenes-mini.yaml`` converter configuration.
 
 **Streaming mode** — materialize a chosen archive subset from nuScenes' CloudFront
-API into a session-scoped temp directory at parser construction time, convert from
-it, and delete the temp directory on parser destruction. The ``maps/`` subdirectory
+API into ``$PY123D_DATA_ROOT/.download/nuscenes`` at parser construction time, convert from
+it, and delete that directory when the conversion ends. The ``maps/`` subdirectory
 extracted from the map expansion is auto-detected (no ``nuscenes_map_root`` override
 needed).
 
@@ -261,8 +261,8 @@ needed).
 
 .. note::
   Streaming mode forces ``camera_store_option: "jpeg_binary"`` and
-  ``lidar_store_option: "binary"`` — the temp directory is deleted immediately after
-  the parser is garbage-collected, so any ``"path"`` references would point at
+  ``lidar_store_option: "binary"`` — the download directory is deleted when the
+  conversion ends, so any ``"path"`` references would point at
   vanished sources.
 
 

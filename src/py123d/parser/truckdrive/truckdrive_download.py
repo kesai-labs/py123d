@@ -7,7 +7,6 @@ import importlib
 import logging
 import os
 import shutil
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
@@ -174,29 +173,24 @@ class TruckDriveDownloader(BaseDownloader):
             logger.info("[skip] %s", key)
             return
 
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        part_path = destination.with_suffix(destination.suffix + ".part")
-        if part_path.exists():
-            part_path.unlink()
-
         logger.info("[download] %s", key)
         _, hf_hub_download, _ = _require_hf_hub()
         try:
-            tmp_download = hf_hub_download(
+            # ``local_dir`` writes the file to ``output_dir / key``, without a copy in the Hugging Face cache.
+            hf_hub_download(
                 repo_id=HF_TRUCKDRIVE_REPO_ID,
                 repo_type=HF_TRUCKDRIVE_REPO_TYPE,
                 filename=key,
                 revision=self.revision,
                 token=self.hf_token,
                 force_download=self.overwrite,
+                local_dir=self.output_dir,
             )
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to download {key} from Hugging Face. "
                 "Ensure dataset access is approved and your HF token has read scope."
             ) from exc
-        shutil.copy2(tmp_download, part_path)
-        part_path.replace(destination)
 
     def _authenticate_hf(self) -> None:
         if not self.hf_login or not self.hf_token:
@@ -227,15 +221,16 @@ class TruckDriveDownloader(BaseDownloader):
             return
 
         logger.info("[unzip] %s", zip_path)
-        with tempfile.TemporaryDirectory(prefix="truckdrive_unzip_") as tmp_dir:
-            tmp_path = Path(tmp_dir)
+        # Extracted next to the archive, so moving the result into place stays on one filesystem.
+        tmp_path = scene_dir / f"_unzip_{modality}"
+        try:
             with zipfile.ZipFile(zip_path) as archive:
                 if not archive.namelist():
                     return
                 archive.extractall(tmp_path)
 
             matches = [path for path in tmp_path.rglob(modality) if path.is_dir() and path.name == modality]
-            scoped = [path for path in matches if scene_name in path.parts]
+            scoped = [path for path in matches if scene_name in path.relative_to(tmp_path).parts]
             if scoped:
                 matches = scoped
             if len(matches) == 1:
@@ -250,6 +245,8 @@ class TruckDriveDownloader(BaseDownloader):
             if any(tmp_path.iterdir()):
                 self._merge_tree(tmp_path, destination)
                 return
+        finally:
+            shutil.rmtree(tmp_path, ignore_errors=True)
 
         raise RuntimeError(f"Could not determine extracted layout for archive: {zip_path}")
 

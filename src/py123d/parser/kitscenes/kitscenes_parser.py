@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import tempfile
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
@@ -66,14 +65,10 @@ class KITScenesDatasetParser(BaseDatasetParser):
         :param kitscenes_data_root: Root of the HuggingFace download, containing ``data/<split>/<scene_uuid>/``.
         :param splits: KITScenes splits to convert (e.g. ``["train", "val"]``). When ``None``, all splits on disk.
         :param scene_ids: Optional subset of scene UUIDs. When ``None``, all scenes in the selected splits.
-        :param downloader: Optional downloader for streaming mode. Scenes are downloaded before parsing, into a
-            temporary directory if the downloader has no ``output_dir``.
+        :param downloader: Optional downloader for streaming mode. Scenes are downloaded before parsing, into
+            the downloader's ``output_dir``.
         """
-        self._temp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
         if downloader is not None:
-            if downloader.output_dir is None:
-                self._temp_dir = tempfile.TemporaryDirectory(prefix="kitscenes_stream_")
-                downloader.output_dir = Path(self._temp_dir.name)
             downloader.download()
             kitscenes_data_root = downloader.output_dir
 
@@ -118,10 +113,6 @@ class KITScenesDatasetParser(BaseDatasetParser):
                 location = _infer_location(scene_dir / MAP_ORIGIN_FILE)
                 map_parsers.append(KITScenesMapParser(self._data_root, split, scene_id, location))
         return map_parsers
-
-    def __del__(self) -> None:
-        if self._temp_dir is not None:
-            self._temp_dir.cleanup()
 
 
 class KITScenesLogParser(BaseLogParser):

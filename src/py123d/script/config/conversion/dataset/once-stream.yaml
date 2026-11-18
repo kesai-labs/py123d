@@ -1,0 +1,41 @@
+defaults:
+  - once
+  - _self_
+
+# Streaming variant of dataset=once: the archives of the selected splits are downloaded from the official
+# Google Drive folders into $PY123D_DATA_ROOT/.download/once, extracted, converted, and deleted when the
+# conversion ends. ONCE ships one tar per split and modality (e.g. train_lidar.tar, train_cam01.tar), so the
+# download granularity is a split: train 22 GB, val 13 GB, test 31 GB (lidar is about half of each).
+# Each archive is deleted right after extraction, so the folder peaks at the extracted split plus one archive.
+# Google Drive needs no account; a failed download can simply be rerun and resumes.
+#
+# Usage:
+#   py123d-conversion dataset=once-stream 'dataset.parser.splits=[once_val]'
+#   py123d-conversion dataset=once-stream 'dataset.parser.splits=[once_val]' 'dataset.parser.downloader.cameras=[]'
+
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
+parser:
+  once_data_root: null   # not read; the data comes from the downloader
+
+  downloader:
+    _target_: py123d.parser.once.once_download.OnceDownloader
+    _convert_: 'all'
+
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/once
+
+    splits: null           # set by the parser
+    # All seven cameras by default; [] = lidar only, or a subset like [cam01, cam03].
+    cameras: [cam01, cam03, cam05, cam06, cam07, cam08, cam09]
+    keep_archives: false   # keep the tar files next to the extracted data
+    max_workers: 2
+    dry_run: false
+
+log_writer_config:
+  # Streaming forces self-contained payloads. Do NOT switch to "path" — the download dir is
+  # deleted after conversion, which would leave the Arrow logs pointing at vanished files.
+  camera_store_option: "jpeg_binary"  # "jpeg_binary", "png_binary" — "path" forbidden here
+  lidar_store_option: "binary"        # "binary" — "path" forbidden here
+  lidar_codec: "laz"                  # "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"

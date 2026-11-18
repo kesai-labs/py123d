@@ -9,7 +9,7 @@ import trimesh
 from typing_extensions import TypeAlias
 
 from py123d.datatypes.map_objects.map_layer_types import MapLayer
-from py123d.geometry import Point3DIndex, Polyline2D, Polyline3D
+from py123d.geometry import Point2D, Point3D, Point3DIndex, Polyline2D, Polyline3D
 
 MapObjectIDType: TypeAlias = Union[str, int]
 
@@ -155,3 +155,44 @@ class BaseMapLineObject(BaseMapObject):
     def shapely_linestring(self) -> geom.LineString:
         """The shapely LineString representation of the polyline."""
         return self._polyline.linestring
+
+
+class BaseMapPointObject(BaseMapObject):
+    """Base interface representation of all map objects that are located by a single point."""
+
+    __slots__ = ("_point",)
+
+    def __init__(self, object_id: MapObjectIDType, point: Union[Point2D, Point3D]) -> None:
+        """Initialize a BaseMapPointObject instance.
+
+        :param object_id: Unique identifier for the map object.
+        :param point: The location of the point object, either 2D or 3D.
+        """
+        super().__init__(object_id)
+        self._point = point
+
+    @property
+    def point(self) -> Union[Point2D, Point3D]:
+        """The location, either :class:`~py123d.geometry.Point2D` or :class:`~py123d.geometry.Point3D`."""
+        return self._point
+
+    @property
+    def point_2d(self) -> Point2D:
+        """The location as :class:`~py123d.geometry.Point2D`."""
+        if isinstance(self._point, Point2D):
+            return self._point
+        # Converts 3D point to 2D by dropping the z-coordinate
+        return self._point.point_2d
+
+    @property
+    def point_3d(self) -> Point3D:
+        """The location as :class:`~py123d.geometry.Point3D` (zero-padded to 3D if necessary)."""
+        if isinstance(self._point, Point3D):
+            return self._point
+        # Converts 2D point to 3D by adding a default (zero) z-coordinate
+        return Point3D(self._point.x, self._point.y, 0.0)
+
+    @property
+    def shapely_point(self) -> geom.Point:
+        """The shapely Point representation of the location."""
+        return self._point.shapely_point

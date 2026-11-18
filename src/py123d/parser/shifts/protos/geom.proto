@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package neurips_dataset;
+
+message Vector3 {
+    double x = 1;
+    double y = 2;
+    double z = 3;
+}
+
+message Polygon {
+    repeated Vector3 points = 1;
+}

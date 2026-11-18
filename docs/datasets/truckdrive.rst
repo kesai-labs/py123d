@@ -124,8 +124,8 @@ Conversion
   py123d-conversion dataset=truckdrive-stream \
       'dataset.parser.scene_names=[scene_28_1]'
 
-In streaming mode, scenes are downloaded to a managed temporary directory,
-converted, then cleaned up.
+In streaming mode, scenes are downloaded to ``$PY123D_DATA_ROOT/.download/truckdrive``,
+converted, then deleted.
 
 
 Dataset Issues

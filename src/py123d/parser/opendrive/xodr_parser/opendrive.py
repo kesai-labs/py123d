@@ -4,7 +4,7 @@ import gzip
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import IO, List, Optional, Union
 from xml.etree.ElementTree import Element, parse
 
 from py123d.parser.opendrive.xodr_parser.road import XODRRoad
@@ -51,8 +51,9 @@ class XODR:
         return XODR(**args)
 
     @classmethod
-    def parse_from_file(cls, file_path: Path) -> XODR:
-        if file_path.suffix == ".gz":
+    def parse_from_file(cls, file_path: Union[Path, IO[bytes]]) -> XODR:
+        """Parses an OpenDRIVE file, given as a path (optionally gzipped) or as an open binary file."""
+        if isinstance(file_path, Path) and file_path.suffix == ".gz":
             with gzip.open(file_path, "rb") as f:
                 tree = parse(f)
         else:

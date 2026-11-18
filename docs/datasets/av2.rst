@@ -186,8 +186,9 @@ Conversion
   converter configuration.
 
 **Streaming mode** — ``dataset=av2-sensor-stream`` attaches an ``Av2Downloader`` to
-the parser; it fetches selected logs from S3 into a temp directory at parser
-construction time and cleans up on parser GC. Useful when the full ~250 GB dataset
+the parser; it fetches selected logs from S3 into
+``$PY123D_DATA_ROOT/.download/av2-sensor`` at parser construction time and deletes
+them when the conversion ends. Useful when the full ~250 GB dataset
 is too large for local disk and you only need a handful of logs for iteration:
 
 .. code-block:: bash
@@ -201,10 +202,10 @@ is too large for local disk and you only need a handful of logs for iteration:
   py123d-conversion dataset=av2-sensor-stream \
       'dataset.parser.downloader.log_ids={av2-sensor_val: [00a6ffc1-6ce9-3bc3-a060-6006e9893a1a]}'
 
-  # Persist downloads under a dedicated cache dir instead of a tempdir:
+  # Keep the downloaded files instead of deleting them (a later run reuses them):
   py123d-conversion dataset=av2-sensor-stream \
       dataset.parser.downloader.num_logs=1 \
-      dataset.parser.downloader.output_dir=/mnt/scratch/av2_sensor_cache
+      keep_downloads=true
 
 .. warning::
   Each AV2 Sensor log is ~250 MB (~1000 objects: annotations + calibration + map +
@@ -214,8 +215,8 @@ is too large for local disk and you only need a handful of logs for iteration:
 .. note::
   The streaming variant overrides the default ``log_writer_config`` to force
   self-contained sensor payloads (``camera_store_option: jpeg_binary``,
-  ``lidar_store_option: binary``) since the source temp directory is deleted when
-  the parser is garbage collected.
+  ``lidar_store_option: binary``) since the downloaded source files are deleted when
+  the conversion ends.
 
 Dataset Issues
 ~~~~~~~~~~~~~~

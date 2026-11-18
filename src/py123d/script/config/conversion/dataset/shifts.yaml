@@ -1,0 +1,45 @@
+parser:
+  _target_: py123d.parser.shifts.shifts_parser.ShiftsParser
+  _convert_: 'all'
+
+  # splits: one or more of the three canonical Shifts partitions (see SHIFTS_SPLIT_TO_DIRECTORY):
+  #
+  #   shifts_train  → train/        (388,406 scenes; Moscow, no precipitation)
+  #   shifts_val    → development/  ( 36,605 scenes; Shifts calls it "development")
+  #   shifts_test   → evaluation/   ( 36,804 scenes; Shifts calls it "evaluation", futures included)
+  #
+  # Every scene is one 10 s log of 50 frames at 5 Hz (25 past + 25 future, T0 at frame 24).
+  splits: ["shifts_val", "shifts_test", "shifts_train"]
+  shifts_data_root: ${dataset_paths.shifts_data_root}   # <root>/{train,development,evaluation}/NNN/*.pb
+  skip_maps: false        # when true, get_map_parsers() returns [] — no per-log map.arrow files
+  skip_logs: false        # when true, get_log_parsers() returns [] — for maps-only runs
+
+  # To stream the scene archives from Yandex Object Storage instead of reading from disk, use the
+  # `dataset=shifts-stream` config variant, which attaches a ShiftsDownloader.
+  downloader: null
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+
+  infer_ego_dynamics: true    # Shifts provides ego velocity but no acceleration
+  infer_box_dynamics: false   # agent velocities are measured
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

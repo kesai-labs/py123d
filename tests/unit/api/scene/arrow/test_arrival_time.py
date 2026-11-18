@@ -648,9 +648,8 @@ def _write_log(logs_root: Path, has_arrival_time: bool) -> Path:
             time_us = _ITERATION_US * (iteration + 1) + offset_us
             arrival = Timestamp.from_us(_arrival_us(case.name, iteration, time_us)) if has_arrival_time else None
             writer.write_async(case.make_modality(metadatas[case.name], time_us, arrival))
-    log_dir = writer._state.log_dir
     writer.close()
-    return log_dir
+    return logs_root / make_log_metadata().split / make_log_metadata().log_name
 
 
 def _scene(log_dir: Path) -> ArrowSceneAPI:

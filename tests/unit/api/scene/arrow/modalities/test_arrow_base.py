@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
 import pyarrow as pa
 
+from py123d.api.scene.arrow.modalities import sync_utils
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader, ArrowBaseModalityWriter
+from py123d.api.scene.arrow.modalities.sync_utils import find_timestamp_index, get_timestamp_array
 from py123d.datatypes import BaseModality, BaseModalityMetadata, ModalityType, Timestamp
 
 # ---------------------------------------------------------------------------
@@ -449,3 +453,58 @@ class TestReadAtTimestamp:
         result = _StubReader.read_at_timestamp(Timestamp.from_us(100), table, self._METADATA, self._DATASET, "exact")
         assert result is not None
         assert result.timestamp.time_us == 100
+
+
+class TestTimestampLookup:
+    """Binary search on sorted timestamps gives the rows of the full scan; the array is computed once per table."""
+
+    _CRITERIA = ("exact", "nearest", "forward", "backward")
+
+    def test_binary_search_matches_full_scan(self):
+        rng = np.random.default_rng(0)
+        for _ in range(300):
+            ts = np.sort(rng.integers(0, 20, int(rng.integers(0, 12)))) * 10  # repeated values and gaps
+            for target in range(-15, 215, 5):  # before, between, on and after the values
+                for criteria in self._CRITERIA:
+                    expected = find_timestamp_index(ts, target, criteria, is_sorted=False)
+                    assert find_timestamp_index(ts, target, criteria, is_sorted=True) == expected, (
+                        ts,
+                        target,
+                        criteria,
+                    )
+
+    def test_array_cached_per_table_and_column(self):
+        column = "stub.timestamp_us"
+        table = pa.Table.from_batches(
+            [pa.record_batch({column: pa.array(values, pa.int64())}) for values in ([100, 200], [200, 300])]
+        )
+        values, is_sorted = get_timestamp_array(table, column)
+        assert values.tolist() == [100, 200, 200, 300]
+        assert is_sorted
+        assert not values.flags.writeable
+        assert get_timestamp_array(table, column)[0] is values
+
+    def test_cache_entry_removed_with_table(self):
+        table = _make_timestamp_table([1, 2])
+        key = id(table)
+        get_timestamp_array(table, "stub.timestamp_us")
+        assert key in sync_utils._TIMESTAMP_ARRAYS
+        del table
+        gc.collect()
+        assert key not in sync_utils._TIMESTAMP_ARRAYS
+
+    def test_unsorted_and_null_columns_use_the_full_scan(self):
+        assert not get_timestamp_array(_make_timestamp_table([300, 100, 200]), "stub.timestamp_us")[1]
+        table = pa.table({"stub.timestamp_us": pa.array([100, None, 300], pa.int64())})
+        assert not get_timestamp_array(table, "stub.timestamp_us")[1]
+
+    def test_read_at_timestamp_on_several_batches(self):
+        column = "stub.timestamp_us"
+        table = pa.Table.from_batches(
+            [pa.record_batch({column: pa.array(values, pa.int64())}) for values in ([100, 200], [300], [400, 500])]
+        )
+        metadata = _StubMetadata("stub")
+        result = _StubReader.read_at_timestamp(Timestamp.from_us(320), table, metadata, "test-dataset", "nearest")
+        assert result is not None and result.timestamp.time_us == 300
+        result = _StubReader.read_at_timestamp(Timestamp.from_us(320), table, metadata, "test-dataset", "forward")
+        assert result is not None and result.timestamp.time_us == 400

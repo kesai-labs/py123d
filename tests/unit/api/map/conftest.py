@@ -22,6 +22,7 @@ from py123d.datatypes import (
     RoadLine,
     SpeedBump,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.map_objects.base_map_objects import BaseMapObject, MapObjectIDType
@@ -33,7 +34,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     SpeedBumpType,
     StopZoneType,
 )
-from py123d.geometry import Polyline2D, Polyline3D
+from py123d.geometry import EulerAngles, Polyline2D, Polyline3D, PoseSE3, Quaternion
 
 # ---------------------------------------------------------------------------
 # Helper functions (not fixtures — so tests can customize arguments)
@@ -266,6 +267,34 @@ def make_road_line(
     zs = np.linspace(2.0, 4.0, n) if z_values else np.zeros(n)
     polyline = Polyline3D.from_array(np.column_stack([xs, ys, zs]))
     return RoadLine(object_id=object_id, road_line_type=RoadLineType.SOLID_WHITE, polyline=polyline)
+
+
+def make_traffic_light(
+    object_id: MapObjectIDType = 0,
+    lane_ids: Optional[Sequence[MapObjectIDType]] = None,
+    stop_zone_ids: Optional[Sequence[MapObjectIDType]] = None,
+    intersection_id: Optional[MapObjectIDType] = None,
+    x: float = 20.0,
+    y: float = 1.5,
+    z: float = 5.4,
+    yaw: float = 0.5,
+    length: Optional[float] = None,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+) -> TrafficLight:
+    """Create a TrafficLight at a 3D pose; dimensions default to the traffic light defaults."""
+    quaternion = Quaternion.from_euler_angles(EulerAngles(0.0, 0.0, yaw))
+    pose_se3 = PoseSE3(x, y, z, quaternion.qw, quaternion.qx, quaternion.qy, quaternion.qz)
+    return TrafficLight.from_pose(
+        object_id=object_id,
+        pose_se3=pose_se3,
+        length=length,
+        width=width,
+        height=height,
+        lane_ids=lane_ids,
+        stop_zone_ids=stop_zone_ids,
+        intersection_id=intersection_id,
+    )
 
 
 # ---------------------------------------------------------------------------

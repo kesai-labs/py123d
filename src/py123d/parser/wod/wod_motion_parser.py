@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union
 
@@ -154,10 +153,8 @@ class WODMotionParser(BaseDatasetParser):
             conversion pass is skipped entirely. Useful for running maps-only conversion
             passes in parallel to a previously completed logs-only pass.
         :param downloader: Optional :class:`WODMotionDownloader` to run at construction time.
-            When provided, the downloader's :attr:`output_dir` is used as the data root
-            (a managed :class:`tempfile.TemporaryDirectory` is assigned if it is ``None``),
-            and ``wod_motion_data_root`` is ignored. The temp dir, if any, is cleaned up
-            when the parser is garbage collected.
+            When provided, the downloader's :attr:`output_dir` is used as the data root,
+            and ``wod_motion_data_root`` is ignored.
         """
         for split in splits:
             assert split in WOD_MOTION_AVAILABLE_SPLITS, (
@@ -168,7 +165,6 @@ class WODMotionParser(BaseDatasetParser):
         self._add_dummy_lane_groups: bool = add_dummy_lane_groups
         self._skip_maps: bool = skip_maps
         self._skip_logs: bool = skip_logs
-        self._stream_temp_dir_handle: Optional[tempfile.TemporaryDirectory] = None
 
         if downloader is not None:
             self._wod_motion_data_root = self._run_downloader(downloader)
@@ -184,37 +180,18 @@ class WODMotionParser(BaseDatasetParser):
         self._split_tf_record_pairs: List[Tuple[str, Path, str]] = self._collect_split_tf_record_pairs()
 
     def _run_downloader(self, downloader: WODMotionDownloader) -> Path:
-        """Resolve ``downloader.output_dir`` (assigning a temp dir if needed), run the
-        download, and return the populated root directory.
+        """Run the download and return the populated root directory.
 
         The returned path mimics the on-disk layout a locally-downloaded WOMD dataset has
         (``<root>/{training,validation,testing}/*.tfrecord-*``), so the rest of the parser
-        is unchanged. When ``downloader.output_dir`` is ``None`` the temp dir is held on
-        ``self._stream_temp_dir_handle`` and cleaned up on parser GC; when set, the caller
-        is responsible for retention — this supports persistent caches across runs.
+        is unchanged.
         """
         # Only override splits when the caller hasn't customized them on the downloader.
         downloader._splits = list(self._splits)  # type: ignore[attr-defined]
 
-        if downloader.output_dir is None:
-            self._stream_temp_dir_handle = tempfile.TemporaryDirectory(prefix="py123d-womd-")
-            downloader.output_dir = Path(self._stream_temp_dir_handle.name)
-            logger.info("WOMD streaming temp dir: %s", downloader.output_dir)
-
         downloader.download()
+        assert downloader.output_dir is not None
         return downloader.output_dir
-
-    def __del__(self) -> None:
-        """Clean up the streaming temp directory when the parser is garbage collected."""
-        # TODO(womd): move to explicit context manager — __del__ semantics are unreliable
-        # (GC ordering, exception swallowing) and this pattern is flagged in the project
-        # weaknesses analysis.
-        handle = getattr(self, "_stream_temp_dir_handle", None)
-        if handle is not None:
-            try:
-                handle.cleanup()
-            except Exception:
-                pass
 
     def _collect_split_tf_record_pairs(self) -> List[Tuple[str, Path, str]]:
         """Helper to collect the pairings of the split names and the corresponding tf record file."""

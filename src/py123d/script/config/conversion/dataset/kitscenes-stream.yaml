@@ -1,8 +1,11 @@
-# Streaming variant of dataset=kitscenes. Downloads the selected scenes from the gated Hugging Face release into a
-# managed temp directory, converts them with self-contained sensor storage, and cleans up afterwards.
+# Streaming variant of dataset=kitscenes. Downloads the selected scenes from the gated Hugging Face release into
+# $PY123D_DATA_ROOT/.download/kitscenes, converts them with self-contained sensor storage, and deletes them afterwards.
 #
 # Usage:
 #   py123d-conversion dataset=kitscenes-stream 'dataset.parser.scene_ids=[c34c778f-ad8c-0aa9-7e1a-c86a73f887c7]'
+
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
 
 parser:
   _target_: py123d.parser.kitscenes.kitscenes_parser.KITScenesDatasetParser
@@ -17,8 +20,8 @@ parser:
     _target_: py123d.parser.kitscenes.kitscenes_download.KITScenesDownloader
     _convert_: 'all'
 
-    # null → parser assigns a tempfile.TemporaryDirectory for the duration of the run.
-    output_dir: null
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/kitscenes
     dry_run: false
     splits: ${dataset.parser.splits}
     scene_ids: ${dataset.parser.scene_ids}

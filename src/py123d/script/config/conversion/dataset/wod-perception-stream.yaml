@@ -1,6 +1,6 @@
 # Streaming variant of dataset=wod-perception — downloads selected perception segments
-# from GCS into a managed temp directory at parser construction time, converts, and
-# cleans up on parser GC.
+# from GCS into $PY123D_DATA_ROOT/.download/wod-perception at parser construction time,
+# converts, and deletes that directory when the conversion ends.
 #
 # NOTE: unlike the motion bucket, the perception bucket is NOT anonymously readable.
 # Authenticate via `gcloud auth application-default login` or point
@@ -15,13 +15,16 @@
 #     dataset.parser.downloader.num_shards=1 \
 #     'dataset.parser.splits=[wod-perception_val]'
 
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
 parser:
   _target_: py123d.parser.wod.wod_perception_parser.WODPerceptionParser
   _convert_: 'all'
 
   splits: ["wod-perception_val", "wod-perception_train", "wod-perception_test"]
 
-  # Ignored — the downloader materializes segments into a temp dir whose path becomes the root.
+  # Ignored — the downloader materializes segments into its output_dir, which becomes the root.
   wod_perception_data_root: null
   zero_roll_pitch: true
   keep_polar_features: false
@@ -32,9 +35,8 @@ parser:
     _target_: py123d.parser.wod.wod_download.WODPerceptionDownloader
     _convert_: 'all'
 
-    # null → parser assigns a tempfile.TemporaryDirectory for the duration of the run.
-    # Set to a persistent path to reuse downloads across runs.
-    output_dir: null
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/wod-perception
 
     splits: ${dataset.parser.splits}
 
@@ -58,7 +60,7 @@ log_writer_config:
   force_map_conversion: ${force_map_conversion}
 
   # Streaming forces self-contained payloads. Do NOT switch to "path" — the source
-  # TFRecord temp directory is deleted when the parser is garbage collected, which
+  # TFRecord download directory is deleted when the conversion ends, which
   # would leave the Arrow logs pointing at a vanished source.
   camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4" — "path" forbidden here
   lidar_store_option: "binary"       # "binary" — "path" forbidden here

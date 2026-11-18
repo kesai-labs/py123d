@@ -1,12 +1,12 @@
 # Streaming variant of dataset=pandaset — each Ray worker extracts its assigned log
-# from a shared pandaset.zip (~44.5 GB) into a per-log temp directory, converts it,
-# and deletes the per-log temp dir before moving on.
+# from a shared pandaset.zip (~44.5 GB) into a per-log directory, converts it,
+# and deletes the per-log directory before moving on.
 #
 # Unlike the per-clip ncore-stream flow, PandaSet's HF mirror is one monolithic zip,
 # so the *first* log access triggers the full 44.5 GB download. By default the zip
-# lands under <system_temp>/py123d-pandaset-cache/pandaset.zip (shared across Ray
-# workers on the same machine). Override via dataset.parser.downloader.zip_cache_dir
-# when system temp is undersized or when you want a persistent location.
+# lands under $PY123D_DATA_ROOT/.download/pandaset/_zip/pandaset.zip (shared across Ray
+# workers) and is deleted when the conversion ends. Override via
+# dataset.parser.downloader.zip_cache_dir when you want a persistent location.
 # Nothing is written to the HuggingFace hub cache.
 #
 # Split routing: when all per-split log-name lists are empty (the default below),
@@ -19,13 +19,16 @@
 #   py123d-conversion dataset=pandaset-stream \
 #     'dataset.parser.downloader.log_names=[001, 002, 005]'
 
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
 parser:
   _target_: py123d.parser.pandaset.pandaset_parser.PandasetParser
   _convert_: 'all'
 
   splits: ["pandaset_train"]
 
-  # Ignored when `downloader` is set — logs land in per-log temp directories.
+  # Ignored when `downloader` is set — logs land in per-log download directories.
   pandaset_data_root: null
 
   # Empty per-split lists → streaming mode routes every selected log to `splits[0]`.
@@ -33,16 +36,18 @@ parser:
   val_log_names: []
   test_log_names: []
 
+  keep_downloads: ${dataset.keep_downloads}
+
   downloader:
     _target_: py123d.parser.pandaset.pandaset_download.PandasetDownloader
     _convert_: 'all'
 
-    # Not used in streaming — each log goes to its own per-log tempfile.TemporaryDirectory.
-    # (The 44.5 GB zip is cached separately under zip_cache_dir.)
-    output_dir: null
+    # Each log is extracted into <output_dir>/<log_name> and deleted once converted,
+    # unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/pandaset
 
-    # Shared on-disk location for pandaset.zip. null → <system_temp>/py123d-pandaset-cache/.
-    # Override to a filesystem with room when system temp is small.
+    # Shared on-disk location for pandaset.zip. null → <output_dir>/_zip, deleted when the
+    # conversion ends. Set to a persistent path to keep the zip across runs.
     zip_cache_dir: null
 
     revision: main
@@ -64,7 +69,7 @@ log_writer_config:
   force_map_conversion: ${force_map_conversion}
 
   # Streaming forces self-contained payloads. Do NOT switch to "path" — the per-log
-  # temp directory is deleted immediately after conversion, which would leave the
+  # download directory is deleted immediately after conversion, which would leave the
   # Arrow logs pointing at a vanished source.
   camera_store_option: "jpeg_binary"  # "jpeg_binary", "png_binary" — "path" forbidden here
   lidar_store_option: "binary"        # "binary" — "path" forbidden here

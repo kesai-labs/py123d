@@ -22,8 +22,10 @@ from py123d.datatypes.map_objects.map_objects import (
     RoadLine,
     SpeedBump,
     StopZone,
+    TrafficLight,
     Walkway,
 )
+from py123d.geometry import BoundingBoxSE3, EulerAngles, Point3D, PoseSE3, Quaternion
 from py123d.geometry.polyline import Polyline2D, Polyline3D
 
 from .mock_map_api import MockMapAPI
@@ -981,6 +983,81 @@ class TestSpeedBump:
         for bump_type in SpeedBumpType:
             speed_bump = SpeedBump(object_id=7, outline=outline, speed_bump_type=bump_type)
             assert speed_bump.speed_bump_type == bump_type
+
+
+class TestTrafficLight:
+    @staticmethod
+    def _pose(x: float = 10.0, y: float = 2.0, z: float = 5.4, yaw: float = 0.3) -> PoseSE3:
+        quaternion = Quaternion.from_euler_angles(EulerAngles(0.0, 0.0, yaw))
+        return PoseSE3(x, y, z, quaternion.qw, quaternion.qx, quaternion.qy, quaternion.qz)
+
+    def test_properties(self):
+        """Test that the properties of the TrafficLight object are correct."""
+        bounding_box = BoundingBoxSE3(center_se3=self._pose(), length=0.3, width=0.5, height=1.2)
+        traffic_light = TrafficLight(
+            object_id=3, bounding_box_se3=bounding_box, lane_ids=[1, 2], stop_zone_ids=[7], intersection_id=9
+        )
+        assert traffic_light.layer == MapLayer.TRAFFIC_LIGHT
+        assert traffic_light.object_id == 3
+        assert traffic_light.lane_ids == [1, 2]
+        assert traffic_light.stop_zone_ids == [7]
+        assert traffic_light.intersection_id == 9
+        assert traffic_light.bounding_box_se3 is bounding_box
+        assert traffic_light.pose_se3.yaw == pytest.approx(0.3)
+        assert isinstance(traffic_light.point, Point3D)
+        np.testing.assert_allclose(traffic_light.point_3d.array, [10.0, 2.0, 5.4])
+        np.testing.assert_allclose(traffic_light.point_2d.array, [10.0, 2.0])
+        assert isinstance(traffic_light.shapely_point, shapely.Point) and traffic_light.shapely_point.has_z
+        assert isinstance(traffic_light.shapely_polygon, shapely.Polygon)
+        assert traffic_light.shapely_polygon.area == pytest.approx(0.3 * 0.5)
+        assert traffic_light.shapely_polygon.centroid.distance(traffic_light.shapely_point) < 1e-9
+
+    def test_defaults(self):
+        """Lane, stop zone and intersection references default to empty, links need a map API."""
+        traffic_light = TrafficLight(object_id=3, bounding_box_se3=BoundingBoxSE3(self._pose(), 0.3, 0.5, 1.2))
+        assert traffic_light.lane_ids == [] and traffic_light.stop_zone_ids == []
+        assert traffic_light.intersection_id is None
+        assert traffic_light.lanes == [] and traffic_light.stop_zones == [] and traffic_light.intersection is None
+
+    def test_from_pose_default_dimensions(self):
+        """from_pose fills missing dimensions with the default housing size."""
+        traffic_light = TrafficLight.from_pose(object_id=4, pose_se3=self._pose(), lane_ids=[1])
+        box = traffic_light.bounding_box_se3
+        assert (box.length, box.width, box.height) == (0.3, 0.5, 1.1)
+        assert traffic_light.lane_ids == [1]
+        np.testing.assert_allclose(box.center_se3.array, self._pose().array)
+
+        traffic_light = TrafficLight.from_pose(object_id=5, pose_se3=self._pose(), width=0.48, height=1.15)
+        box = traffic_light.bounding_box_se3
+        assert (box.length, box.width, box.height) == (0.3, pytest.approx(0.48), pytest.approx(1.15))
+
+    def test_links_through_map_api(self):
+        """Lanes, stop zones and the intersection are resolved through the map API."""
+        lanes, lane_groups, intersections = _get_linked_map_object_setup()
+        stop_zone = StopZone(
+            object_id=70,
+            stop_zone_type=StopZoneType.TRAFFIC_LIGHT,
+            shapely_polygon=shapely.Polygon([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]),
+            lane_ids=[lanes[0].object_id],
+        )
+        traffic_light = TrafficLight.from_pose(
+            object_id=1,
+            pose_se3=self._pose(),
+            lane_ids=[lanes[0].object_id, lanes[1].object_id, 12345],
+            stop_zone_ids=[70, 999],
+            intersection_id=intersections[0].object_id,
+        )
+        MockMapAPI(
+            lanes=lanes,
+            lane_groups=lane_groups,
+            intersections=intersections,
+            stop_zones=[stop_zone],
+            traffic_lights=[traffic_light],
+            add_map_api_links=True,
+        )
+        assert [lane.object_id for lane in traffic_light.lanes] == [lanes[0].object_id, lanes[1].object_id]
+        assert [sz.object_id for sz in traffic_light.stop_zones] == [70]
+        assert traffic_light.intersection is intersections[0]
 
 
 class TestMockMapAPI:

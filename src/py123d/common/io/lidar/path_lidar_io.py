@@ -53,6 +53,11 @@ def load_point_cloud_data_from_path(
 
         lidar_pcs_dict = load_pandaset_point_cloud_data_from_path(full_lidar_path)
 
+    elif dataset == "once":
+        from py123d.parser.once.once_sensor_io import load_once_point_cloud_data_from_path
+
+        lidar_pcs_dict = load_once_point_cloud_data_from_path(full_lidar_path)
+
     elif dataset == "kitti360":
         from py123d.parser.kitti360.kitti360_sensor_io import load_kitti360_point_cloud_data_from_path
 

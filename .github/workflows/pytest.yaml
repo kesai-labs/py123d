@@ -7,7 +7,8 @@ on:
 
 jobs:
   test-unit:
-    # ubuntu-latest (26.04) ships no Python 3.9 build.
+    # ubuntu-latest is Ubuntu 26.04, for which setup-python has no Python 3.9 (end of life since October 2025).
+    # Pinned so that 3.9 stays tested; to be lifted when 3.9 support is dropped.
     runs-on: ubuntu-24.04
     strategy:
       matrix:

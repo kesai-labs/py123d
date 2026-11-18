@@ -25,6 +25,11 @@ def _signal_type_to_stop_zone_type(signal: OpenDriveSignalHelper) -> StopZoneTyp
     return SIGNAL_TYPE_MAP.get(signal.xodr_signal.type, StopZoneType.UNKNOWN)
 
 
+def get_signal_stop_zone_id(signal_id: object) -> int:
+    """Object id of the stop zone created for a signal (hashed, since derived signal ids are strings)."""
+    return int(hashlib.md5(str(signal_id).encode("utf-8")).hexdigest(), 16) & 0x7FFFFFFF
+
+
 def _get_stop_zone_s_range(helper: OpenDriveLaneHelper) -> tuple:
     """Get the (start_s, end_s) range for a stop zone on a lane."""
     travels_in_s = helper.id < 0
@@ -214,10 +219,8 @@ def create_stop_zones_from_signals(
         if outline is None:
             continue
 
-        object_id = int(hashlib.md5(str(signal_id).encode("utf-8")).hexdigest(), 16) & 0x7FFFFFFF
-
         stop_zones[signal_id] = StopZone(
-            object_id=object_id,
+            object_id=get_signal_stop_zone_id(signal_id),
             stop_zone_type=stop_zone_type,
             outline=outline,
             lane_ids=[h.lane_id for h in helpers],

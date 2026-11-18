@@ -6,7 +6,6 @@ import io
 import json
 import logging
 import random
-import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -171,7 +170,7 @@ class NuRecParser(BaseDatasetParser):
             AlpaSim does.
         :param downloader: Streams the scenes from Hugging Face instead of reading ``nurec_root``. It
             fetches the scenes selected by ``splits``, ``num_sequences``, ``sample_random`` and ``seed``,
-            narrowed down by its own ``sequence_ids``, into a temporary directory.
+            narrowed down by its own ``sequence_ids``, into its ``output_dir``.
         :param map_source: Which map a scene is converted from, see :class:`NuRecMapParser`. The
             ``xodr_*`` and ``alignment_*`` options are forwarded to it as well.
         """
@@ -214,9 +213,6 @@ class NuRecParser(BaseDatasetParser):
             if sample_random:
                 downloader.sample_random = sample_random
                 downloader.seed = seed
-            if downloader.output_dir is None:
-                self._tmp_dir = tempfile.TemporaryDirectory(prefix="nurec_streaming_")
-                downloader.output_dir = Path(self._tmp_dir.name)
             downloader.download()
             # The downloaded files keep the release layout, so they are selected like local ones.
             roots = [Path(downloader.output_dir)]

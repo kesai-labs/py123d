@@ -23,6 +23,7 @@ from py123d.datatypes import (
     RoadLine,
     SpeedBump,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.map_objects.map_layer_types import (
@@ -34,7 +35,7 @@ from py123d.datatypes.map_objects.map_layer_types import (
     SpeedBumpType,
     StopZoneType,
 )
-from py123d.geometry import Point2D, Polyline2D, Polyline3D
+from py123d.geometry import Point2D, Point3D, Polyline2D, Polyline3D
 
 from ..conftest import (
     make_carpark,
@@ -47,6 +48,7 @@ from ..conftest import (
     make_road_line,
     make_speed_bump,
     make_stop_zone,
+    make_traffic_light,
     make_walkway,
     write_and_read_map,
 )
@@ -192,6 +194,34 @@ class TestRoundTripBasic:
         assert read.speed_bump_type == SpeedBumpType.UNKNOWN
         np.testing.assert_allclose(read.outline.array, sb.outline.array, atol=1e-6)
 
+    def test_roundtrip_traffic_light(self, tmp_path: Path) -> None:
+        tl = make_traffic_light(object_id=13, lane_ids=[1, 2], stop_zone_ids=[9], intersection_id=100, yaw=0.7)
+        others = [make_lane(object_id=1), make_lane(object_id=2, y_offset=5.0), make_stop_zone(object_id=9)]
+        others.append(make_intersection(object_id=100))
+        api = write_and_read_map(tmp_path, _meta(), [tl] + others)
+
+        read = api.get_map_object_in_layer(13, MapLayer.TRAFFIC_LIGHT)
+        assert isinstance(read, TrafficLight)
+        assert read.layer == MapLayer.TRAFFIC_LIGHT
+        np.testing.assert_allclose(read.bounding_box_se3.array, tl.bounding_box_se3.array, atol=1e-9)
+        np.testing.assert_allclose(read.point_3d.array, [20.0, 1.5, 5.4], atol=1e-9)
+        assert read.pose_se3.yaw == pytest.approx(0.7)
+        assert read.lane_ids == [1, 2]
+        assert read.stop_zone_ids == [9]
+        assert read.intersection_id == 100
+
+    def test_roundtrip_traffic_light_default_dimensions(self, tmp_path: Path) -> None:
+        tl = make_traffic_light(object_id=14, length=0.3, width=0.48, height=1.15)
+        api = write_and_read_map(tmp_path, _meta(), [tl])
+        read = api.get_map_object_in_layer(14, MapLayer.TRAFFIC_LIGHT)
+        assert isinstance(read, TrafficLight)
+        assert (read.bounding_box_se3.length, read.bounding_box_se3.width, read.bounding_box_se3.height) == (
+            pytest.approx(0.3),
+            pytest.approx(0.48),
+            pytest.approx(1.15),
+        )
+        assert read.lane_ids == [] and read.stop_zone_ids == [] and read.intersection_id is None
+
     def test_roundtrip_road_edge(self, tmp_path: Path) -> None:
         re = make_road_edge(object_id=10, z_values=True)
         api = write_and_read_map(tmp_path, _meta(), [re])
@@ -311,6 +341,26 @@ class TestRoundTripIDRemapping:
                 assert lane.right_lane_id in all_ids
             if lane.left_lane_id is not None:
                 assert lane.left_lane_id in all_ids
+
+    def test_traffic_light_cross_refs(self, tmp_path: Path) -> None:
+        """String ids of a traffic light and its references are remapped consistently with the other layers."""
+        lane = make_lane(object_id="lane_a")
+        stop_zone = make_stop_zone(object_id="stop_a", lane_ids=["lane_a"])
+        intersection = make_intersection(object_id="int_a")
+        tl = make_traffic_light(
+            object_id="tl_a", lane_ids=["lane_a", "missing"], stop_zone_ids=["stop_a"], intersection_id="int_a"
+        )
+        api = write_and_read_map(tmp_path, _meta(), [lane, stop_zone, intersection, tl])
+
+        tl_ids = api.get_all_map_object_ids_in_layer(MapLayer.TRAFFIC_LIGHT)
+        assert len(tl_ids) == 1
+        read = api.get_map_object_in_layer(tl_ids[0], MapLayer.TRAFFIC_LIGHT)
+        assert isinstance(read, TrafficLight)
+        assert read.lane_ids == api.get_all_map_object_ids_in_layer(MapLayer.LANE)  # "missing" is dropped
+        assert read.stop_zone_ids == api.get_all_map_object_ids_in_layer(MapLayer.STOP_ZONE)
+        assert read.intersection_id == api.get_all_map_object_ids_in_layer(MapLayer.INTERSECTION)[0]
+        assert [lane.object_id for lane in read.lanes] == read.lane_ids
+        assert [sz.object_id for sz in read.stop_zones] == read.stop_zone_ids
 
     def test_stop_zone_lane_cross_refs(self, tmp_path: Path) -> None:
         """StopZone.lane_ids should reference actual lane IDs after remap."""
@@ -700,6 +750,18 @@ class TestRoundTripSpatialQueries:
         box = geom.box(0, 0, 25, 5)
         result = api.query(geometry=box, layers=[MapLayer.LANE], predicate="intersects")
         assert len(result[MapLayer.LANE]) == 2
+
+    def test_point_layer_spatial_queries(self, tmp_path: Path) -> None:
+        near = make_traffic_light(object_id=1, x=10.0, y=1.5, z=5.0)
+        far = make_traffic_light(object_id=2, x=500.0, y=500.0, z=5.0)
+        api = write_and_read_map(tmp_path, _meta(), [near, far])
+
+        in_radius = api.get_map_objects_in_radius(Point3D(10.0, 1.5, 0.0), radius=2.0, layers=[MapLayer.TRAFFIC_LIGHT])
+        assert [tl.object_id for tl in in_radius[MapLayer.TRAFFIC_LIGHT]] == [1]
+
+        box = geom.box(0.0, 0.0, 20.0, 20.0)
+        ids = api.query_object_ids(box, layers=[MapLayer.TRAFFIC_LIGHT], predicate="intersects")
+        assert ids[MapLayer.TRAFFIC_LIGHT] == [1]
 
     def test_radius_zero(self, tmp_path: Path) -> None:
         """Radius=0 — likely returns empty even if point is inside a polygon."""

@@ -1,11 +1,14 @@
 # Streaming variant of dataset=wod-motion — downloads selected scenario shards from GCS
-# into a managed temp directory at parser construction time, converts, and cleans up on
-# parser GC.
+# into $PY123D_DATA_ROOT/.download/wod-motion at parser construction time, converts, and
+# deletes that directory when the conversion ends.
 #
 # Usage:
 #   py123d-conversion dataset=wod-motion-stream dataset.parser.downloader.num_shards=1
 #   py123d-conversion dataset=wod-motion-stream \
 #     'dataset.parser.downloader.shard_indices={wod-motion_train: [0, 1, 2]}'
+
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
 
 parser:
   _target_: py123d.parser.wod.wod_motion_parser.WODMotionParser
@@ -21,7 +24,7 @@ parser:
   #   wod-motion-interactive_test   → testing_interactive      ( 150 shards, 9s; futures masked)
   splits: ["wod-motion_val", "wod-motion_train", "wod-motion_test"]
 
-  # Ignored — the downloader materializes shards into a temp dir whose path becomes the root.
+  # Ignored — the downloader materializes shards into its output_dir, which becomes the root.
   wod_motion_data_root: null
   add_dummy_lane_groups: false
   skip_maps: false        # when true, get_map_parsers() returns [] — saves disk when tight
@@ -31,9 +34,8 @@ parser:
     _target_: py123d.parser.wod.wod_download.WODMotionDownloader
     _convert_: 'all'
 
-    # null → parser assigns a tempfile.TemporaryDirectory for the duration of the run.
-    # Set to a persistent path to reuse downloads across runs.
-    output_dir: null
+    # Deleted when the conversion ends, unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/wod-motion
 
     # splits is bound to parser.splits so the downloader and parser stay in lockstep.
     splits: ${dataset.parser.splits}

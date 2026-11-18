@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package neurips_dataset;
+
+enum TrajectoryTag {
+    /* The vehicle moved at least 2 meters
+     and it's final orientation turned to the left at least PI/12 and at most 3 PI / 4*/
+     kMoveLeft = 0;
+
+     /* The vehicle moved at least 2 meters
+      and it's final orientation turned to the right at least PI / 12 at most 3 PI / 4*/
+     kMoveRight = 1;
+
+     /* The vehicle moved at least 2 meters
+     and it's final orientation did't change more than by PI / 12*/
+     kMoveForward = 2;
+
+     /* The vehicle moved at least 2 meters
+      and it's final orientation changed by more than 3 PI / 4*/
+     kMoveBack = 3;
+
+     /* There were at least 2-seconds net ticks
+      when 2-second kinematic approximation of movement gave acceleration more than 0.3m/s*/
+     kAcceleration = 4;
+
+     /* There were at least 2-seconds net ticks
+      when 2-second kinematic approximation of movement gave deceleration more than 0.3m/s*/
+     kDeceleration = 5;
+
+     /* There were at least 2-seconds net ticks
+      when 2-second kinematic approximation of movement did't give
+      acceleration or deceleration more than 0.3m/s */
+     kUniform = 6;
+
+     /* THE FOLLOWING REFER TO THE NEXT 3 TAGS:
+      starting and final positions and velocities are taken from
+      2-seconds kinematic approximations around that instants */
+
+     /* displacement between starting and final position is more than 0.5m
+      and final velocity is less than 0.25m/s */
+     kStopping = 7;
+
+     /* displacement between starting and final position is more than 0.5m
+      and final velocity is less than 0.25m/s */
+     kStarting = 8;
+
+     /* displacement between starting and final position is less than 0.5m */
+     kStationary = 9;
+}
+
+enum DayTimeTag {
+    _kUnusedDayTime = 0;
+    /* from 00:00 till 6:00 */
+    kNight = 1;
+    /* from 6:00 till 12:00 */
+    kMorning = 2;
+    /* from 12:00 till 18:00 */
+    kAfternoon = 3;
+    /* from 18:00 till 00:00 */
+    kEvening = 4;
+}
+
+enum SeasonTag {
+    _kUnusedSeason = 0;
+    kWinter = 1;
+    kSpring = 2;
+    kSummer = 3;
+    kAutumn = 4;
+}
+
+enum SunPhaseTag {
+    _kUnusedDaylight = 0;
+    kAstronomicalNight = 1;
+    kTwilight = 2;
+    kDaylight = 3;
+}
+
+enum Track {
+    _kUnusedTrack = 0;
+    Moscow = 1;
+    Skolkovo = 2;
+    Innopolis = 3;
+    AnnArbor = 4;
+    Modiin = 5;
+    TelAviv = 6;
+}
+
+enum Precipitation {
+    _kUnusedPrecipitation = 0;
+    kNoPrecipitation = 1;
+    kRain = 2;
+    kSleet = 3;
+    kSnow = 4;
+}
+
+message SceneTags {
+    DayTimeTag day_time = 1;
+    SeasonTag season = 2;
+    Track track = 3;
+    SunPhaseTag sun_phase = 4;
+    Precipitation precipitation = 5;
+}

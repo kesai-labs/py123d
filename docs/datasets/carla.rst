@@ -63,8 +63,8 @@ Available Modalities
      - ✓
      - Depending on the collected dataset. For further information, see :class:`~py123d.datatypes.BoxDetectionsSE3`.
    * - Traffic Lights
-     - X
-     - n/a
+     - (✓)
+     - The maps provide the traffic lights of the CARLA towns as :class:`~py123d.datatypes.TrafficLight` objects, placed at the signal post of the OpenDRIVE ``<signal>`` with the lanes, stop zone and junction they control. Light states are only available for pre-converted logs (lead123d).
    * - Cameras
      - ✓
      - Depending on the collected dataset. For further information, see :class:`~py123d.datatypes.Camera`.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import tempfile
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union
 
@@ -72,6 +72,7 @@ class PandasetParser(BaseDatasetParser):
         val_log_names: Optional[List[str]] = None,
         test_log_names: Optional[List[str]] = None,
         downloader: Optional["PandasetDownloader"] = None,
+        keep_downloads: bool = False,
     ) -> None:
         """Initializes the :class:`PandasetParser`.
 
@@ -84,12 +85,13 @@ class PandasetParser(BaseDatasetParser):
         :param test_log_names: List of log names to include in the test split.
         :param downloader: Optional :class:`~py123d.parser.pandaset.pandaset_download.PandasetDownloader`
             used for streaming mode. When provided, each log parser extracts its assigned
-            log from the cached ``pandaset.zip`` into a per-log
-            :class:`tempfile.TemporaryDirectory`, converts it, and deletes the temp dir
-            before moving on. Log selection comes from
+            log from the cached ``pandaset.zip`` into
+            ``<downloader.output_dir>/<log_name>``, converts it, and deletes that
+            directory before moving on. Log selection comes from
             :meth:`PandasetDownloader.resolve_log_names`, intersected with the
             per-split lists so each log is routed to the right split. No local
             ``pandaset_data_root`` is required in this mode.
+        :param keep_downloads: Keeps the logs extracted in streaming mode instead of deleting them.
         """
         for split in splits:
             assert split in PANDASET_SPLITS, f"Split {split} is not available. Available splits: {PANDASET_SPLITS}"
@@ -99,6 +101,7 @@ class PandasetParser(BaseDatasetParser):
         self._val_log_names: List[str] = list(val_log_names) if val_log_names else []
         self._test_log_names: List[str] = list(test_log_names) if test_log_names else []
         self._downloader: Optional["PandasetDownloader"] = downloader
+        self._keep_downloads = keep_downloads
 
         if downloader is not None:
             self._pandaset_data_root: Optional[Path] = None
@@ -180,6 +183,7 @@ class PandasetParser(BaseDatasetParser):
                 log_name=log_name,
                 split=split,
                 downloader=self._downloader,
+                keep_downloads=self._keep_downloads,
             )
             for source_log_path, log_name, split in self._log_entries
         ]
@@ -198,11 +202,13 @@ class PandasetLogParser(BaseLogParser):
         log_name: str,
         split: str,
         downloader: Optional["PandasetDownloader"] = None,
+        keep_downloads: bool = False,
     ) -> None:
         self._source_log_path = source_log_path
         self._log_name = log_name
         self._split = split
         self._downloader = downloader
+        self._keep_downloads = keep_downloads
 
     def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
@@ -218,23 +224,23 @@ class PandasetLogParser(BaseLogParser):
         """Yield the on-disk log path for the duration of one iterator pass.
 
         In local mode this is the pre-set ``source_log_path``. In streaming mode
-        the log is extracted from the cached ``pandaset.zip`` into a fresh
-        :class:`tempfile.TemporaryDirectory` which is deleted when the context
-        manager exits (i.e. after ``iter_modalities_sync`` is exhausted).
+        the log is extracted from the cached ``pandaset.zip`` into
+        ``<downloader.output_dir>/<log_name>`` which is deleted (unless ``keep_downloads``)
+        when the context manager exits (i.e. after ``iter_modalities_sync`` is exhausted).
         """
         if self._downloader is None:
             assert self._source_log_path is not None
             yield self._source_log_path
             return
 
-        with tempfile.TemporaryDirectory(prefix=f"py123d-pandaset-{self._log_name}-") as tmp:
-            tmp_root = Path(tmp)
-            logger.info("Streaming PandaSet log %s to %s", self._log_name, tmp_root)
-            log_path = self._downloader.download_single_log(
-                log_name=self._log_name,
-                output_dir=tmp_root,
-            )
-            yield log_path
+        output_dir = self._downloader.output_dir
+        assert output_dir is not None, "`downloader.output_dir` must be set for streaming."
+        logger.info("Streaming PandaSet log %s to %s", self._log_name, output_dir)
+        try:
+            yield self._downloader.download_single_log(log_name=self._log_name, output_dir=output_dir)
+        finally:
+            if not self._keep_downloads:
+                shutil.rmtree(output_dir / self._log_name, ignore_errors=True)
 
     def iter_modalities_sync(self) -> Iterator[ModalitiesSync]:
         """Inherited, see superclass."""

@@ -66,8 +66,8 @@ Available Modalities
      - X
      - Not provided by the dataset.
    * - Traffic Lights
-     - X
-     - Traffic lights are part of the map, but py123d has no map layer for them yet. Their stop lines are converted to :class:`~py123d.datatypes.StopZone` objects.
+     - (✓)
+     - No light states are recorded. The map's traffic lights are converted to :class:`~py123d.datatypes.TrafficLight` objects (position and width from the Lanelet2 way, lanes and stop lines from the regulatory element). Their stop lines are converted to :class:`~py123d.datatypes.StopZone` objects.
    * - Cameras
      - ✓
      - Nine rectified pinhole cameras at 10 Hz: a six-camera surround ring, a tilted stereo pair and a high-resolution front camera. See :class:`~py123d.datatypes.Camera`.
@@ -179,8 +179,8 @@ Sensor data is stored as references to the original files, so the converted logs
   py123d-conversion dataset=kitscenes-stream \
       'dataset.parser.scene_ids=[c34c778f-ad8c-0aa9-7e1a-c86a73f887c7]'
 
-In streaming mode, scenes are downloaded to a managed temporary directory, converted with all sensor data stored in
-the logs, and cleaned up afterwards.
+In streaming mode, scenes are downloaded to ``$PY123D_DATA_ROOT/.download/kitscenes``, converted with all sensor data
+stored in the logs, and deleted afterwards.
 
 
 Conventions
@@ -216,7 +216,11 @@ Dataset Issues
 - **Intersections:** Lanelet2 has no intersection primitive. Intersections are derived from crossing lanes, which
   can produce small false positives where lanes merge or split. They are marked as traffic-light controlled if a lane
   with a traffic light leads into them.
-- **Not converted:** Traffic lights, traffic signs and poles of the maps, speed limits from traffic signs (only the
+- **Traffic lights:** A Lanelet2 traffic light is the bottom edge of the housing, optionally with a ``height`` tag.
+  The light is centered on that edge, half the height above it, and faces the driving direction of the lanelets
+  referencing the regulatory element. The housing depth, and the height when the tag is missing, use the 123D
+  defaults. The ``direction`` tag of a light (``left``, ``straight``, ``right``) is not converted.
+- **Not converted:** Traffic signs and poles of the maps, speed limits from traffic signs (only the
   lanelet ``speed_limit`` tags are used), GNSS/INS measurements and the precomputed ground segmentation.
 
 

@@ -1,0 +1,17 @@
+downloader:
+  _target_: py123d.parser.once.once_download.OnceDownloader
+  _convert_: 'all'
+
+  # Destination of the extracted data. Defaults to $ONCE_DATA_ROOT (set via default_dataset_paths.yaml).
+  # The archives land in output_dir/_archives and are deleted after extraction unless keep_archives is set.
+  output_dir: ${dataset_paths.once_data_root}
+
+  # Labelled splits to download: train 22 GB, val 13 GB, test 31 GB. The raw (unlabelled) splits are not supported.
+  splits: ["once_train", "once_val", "once_test"]
+
+  # All seven cameras by default; [] = lidar only, or a subset like [cam01, cam03].
+  cameras: [cam01, cam03, cam05, cam06, cam07, cam08, cam09]
+
+  keep_archives: false
+  max_workers: 2
+  dry_run: false

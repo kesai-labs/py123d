@@ -38,11 +38,12 @@ from py123d.datatypes.map_objects.map_objects import (
     RoadLine,
     SpeedBump,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.metadata.log_metadata import LogMetadata
 from py123d.datatypes.metadata.map_metadata import MapMetadata
-from py123d.geometry import OccupancyMap2D, Point2D, Point3D, Polyline3D
+from py123d.geometry import BoundingBoxSE3, OccupancyMap2D, Point2D, Point3D, Polyline3D
 
 # TODO: add to some configs
 MAX_LRU_CACHED_MAPS: Final[int] = 128
@@ -99,6 +100,7 @@ class ArrowMapAPI(MapAPI):
             MapLayer.SPEED_BUMP: self._get_speed_bump,
             MapLayer.ROAD_EDGE: self._get_road_edge,
             MapLayer.ROAD_LINE: self._get_road_line,
+            MapLayer.TRAFFIC_LIGHT: self._get_traffic_light,
         }
 
         _map_table = get_lru_cached_arrow_table(str(self._file_path))
@@ -514,6 +516,24 @@ class ArrowMapAPI(MapAPI):
                 polyline=Polyline3D.from_linestring(road_line_linestring),
             )
         return road_line
+
+    @lru_cache(maxsize=MAP_OBJECT_CACHE_SIZE)
+    def _get_traffic_light(self, object_id: MapObjectIDType) -> Optional[TrafficLight]:
+        """Helper method for getting a traffic light by its ID."""
+        traffic_light: Optional[TrafficLight] = None
+        table_row_idx = self._object_ids_to_row_idx[MapLayer.TRAFFIC_LIGHT].get(object_id, None)
+        if table_row_idx is not None and object_id in self._occupancy_maps[MapLayer.TRAFFIC_LIGHT].ids:
+            traffic_light_features_binary = self._features[table_row_idx]
+            traffic_light_features = msgpack_decode_with_numpy(traffic_light_features_binary)
+            traffic_light = TrafficLight(
+                object_id=object_id,
+                bounding_box_se3=BoundingBoxSE3.from_array(traffic_light_features["bounding_box_se3"], copy=False),
+                lane_ids=traffic_light_features.get("lane_ids", []),
+                stop_zone_ids=traffic_light_features.get("stop_zone_ids", []),
+                intersection_id=traffic_light_features.get("intersection_id"),
+                map_api=self,
+            )
+        return traffic_light
 
 
 @lru_cache(maxsize=MAX_LRU_CACHED_MAPS)

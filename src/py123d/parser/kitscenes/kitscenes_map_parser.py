@@ -31,8 +31,9 @@ from py123d.datatypes import (
     RoadLineType,
     StopZone,
     StopZoneType,
+    TrafficLight,
 )
-from py123d.geometry import Polyline3D
+from py123d.geometry import EulerAngles, Polyline3D, PoseSE3, Quaternion
 from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.kitscenes.kitscenes_constants import DATASET_NAME, MAP_FILE, MAP_ORIGIN_FILE
 
@@ -97,6 +98,7 @@ class KITScenesMapParser(BaseMapParser):
         yield from _iter_road_edges(lanelet_map)
         yield from _iter_road_lines(lanelet_map)
         yield from _iter_stop_zones(lanelet_map, lanes)
+        yield from _iter_traffic_lights(lanelet_map, lanes, lane_groups)
 
 
 def get_kitscenes_map_metadata(split: str, scene_id: str, location: Optional[str]) -> MapMetadata:
@@ -634,3 +636,89 @@ def _iter_stop_zones(lanelet_map: _LaneletMap, lanes: Dict[int, _LaneData]) -> I
             outline=Polyline3D.from_array(outline),
             lane_ids=sorted(lane_ids),
         )
+
+
+def _iter_traffic_lights(
+    lanelet_map: _LaneletMap, lanes: Dict[int, _LaneData], lane_groups: Dict[int, _LaneGroupData]
+) -> Iterator[TrafficLight]:
+    """Convert the traffic light ways referred to by ``traffic_light`` regulatory elements into traffic lights.
+
+    A Lanelet2 traffic light is a linestring along the bottom edge of the housing with a ``height`` tag. Its
+    position is the center of the housing, its width the length of the linestring, and it faces the lanelets that
+    reference the regulatory element. One regulatory element can refer to several lights that show the same signal.
+    """
+    lane_ids_by_lanelet: Dict[int, List[int]] = {}
+    for lane in lanes.values():
+        lane_ids_by_lanelet.setdefault(lane.lanelet_id, []).append(lane.lane_id)
+
+    regulated_lanelets: Dict[int, List[int]] = {}
+    for lanelet_id in lanelet_map.relations_of_type("lanelet"):
+        for regulatory_element_id in lanelet_map.members(lanelet_id, "regulatory_element"):
+            regulated_lanelets.setdefault(regulatory_element_id, []).append(lanelet_id)
+
+    for regulatory_element_id in lanelet_map.relations_of_type("regulatory_element"):
+        if lanelet_map.relation_tags[regulatory_element_id].get("subtype") != "traffic_light":
+            continue
+        lanelet_ids = regulated_lanelets.get(regulatory_element_id, [])
+        lane_ids = sorted(
+            {lane_id for lanelet_id in lanelet_ids for lane_id in lane_ids_by_lanelet.get(lanelet_id, [])}
+        )
+        stop_zone_ids = [
+            stop_line_id
+            for stop_line_id in lanelet_map.members(regulatory_element_id, "ref_line")
+            if stop_line_id in lanelet_map.way_node_ids
+        ]
+        # The stop line is a few meters before the intersection, so the controlled lanes may not be in it yet.
+        intersection_ids = {
+            lane_groups[lanes[lane_id].lane_group_id].intersection_id
+            for start_lane_id in lane_ids
+            for lane_id in [start_lane_id, *lanes[start_lane_id].successor_ids]
+            if lane_id in lanes and lanes[lane_id].lane_group_id in lane_groups
+        } - {None}
+
+        # Driving direction at the end of the controlled lanes, where the light is looked at.
+        directions = []
+        for lane_id in lane_ids:
+            boundary = lanes[lane_id].left_boundary.array
+            if len(boundary) >= 2:
+                directions.append(boundary[-1, :2] - boundary[-2, :2])
+
+        for way_id in lanelet_map.members(regulatory_element_id, "refers"):
+            if way_id not in lanelet_map.way_node_ids:
+                continue
+            points = lanelet_map.way_points(way_id)
+            if len(points) == 0:
+                continue
+            height = _parse_float_tag(lanelet_map.way_tags.get(way_id, {}).get("height"))
+            width = float(np.linalg.norm(points[-1, :2] - points[0, :2])) if len(points) >= 2 else None
+            if directions:
+                mean_direction = np.sum(np.asarray(directions, dtype=np.float64), axis=0)
+            else:
+                # Fallback: the normal of the light's bottom edge, which is drawn left to right as seen by the driver
+                edge = points[-1, :2] - points[0, :2] if len(points) >= 2 else np.array([1.0, 0.0])
+                mean_direction = np.array([edge[1], -edge[0]])
+            yaw = float(np.arctan2(mean_direction[1], mean_direction[0]))
+            quaternion = Quaternion.from_euler_angles(EulerAngles(0.0, 0.0, yaw))
+            center = points.mean(axis=0)
+            center_z = center[2] + (height / 2 if height is not None else 0.0)
+            yield TrafficLight.from_pose(
+                object_id=way_id,
+                pose_se3=PoseSE3(
+                    center[0], center[1], center_z, quaternion.qw, quaternion.qx, quaternion.qy, quaternion.qz
+                ),
+                width=width if width is not None and width > 0.0 else None,
+                height=height,
+                lane_ids=lane_ids,
+                stop_zone_ids=stop_zone_ids,
+                intersection_id=min(intersection_ids) if intersection_ids else None,  # type: ignore[type-var]
+            )
+
+
+def _parse_float_tag(value: Optional[str]) -> Optional[float]:
+    """Parse a numeric OSM tag value, or None if missing or not a number."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None

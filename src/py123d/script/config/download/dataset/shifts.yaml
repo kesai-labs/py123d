@@ -1,0 +1,12 @@
+downloader:
+  _target_: py123d.parser.shifts.shifts_download.ShiftsDownloader
+  _convert_: 'all'
+
+  output_dir: ${dataset_paths.shifts_data_root}   # <root>/{train,development,evaluation}/NNN/*.pb
+  dry_run: false
+
+  # Canonical Shifts partitions: shifts_train (61 GB), shifts_val (5.6 GB), shifts_test (6.0 GB)
+  splits: ["shifts_val", "shifts_test", "shifts_train"]
+  num_scenes: null            # first N scenes per split; null downloads the whole split
+  overwrite: false
+  max_retries: 3

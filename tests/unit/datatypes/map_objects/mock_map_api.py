@@ -17,6 +17,7 @@ from py123d.datatypes.map_objects.map_objects import (
     RoadEdge,
     RoadLine,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.metadata import MapMetadata
@@ -36,6 +37,7 @@ class MockMapAPI(MapAPI):
         stop_zones: List[StopZone] = [],
         road_edges: List[RoadEdge] = [],
         road_lines: List[RoadLine] = [],
+        traffic_lights: List[TrafficLight] = [],
         add_map_api_links: bool = False,
     ):
         self._layers: Dict[MapLayer, List[BaseMapObject]] = {
@@ -49,6 +51,7 @@ class MockMapAPI(MapAPI):
             MapLayer.STOP_ZONE: stop_zones,
             MapLayer.ROAD_EDGE: road_edges,
             MapLayer.ROAD_LINE: road_lines,
+            MapLayer.TRAFFIC_LIGHT: traffic_lights,
         }
 
         for layer, layer_objects in self._layers.items():
@@ -56,6 +59,7 @@ class MockMapAPI(MapAPI):
                 MapLayer.LANE,
                 MapLayer.LANE_GROUP,
                 MapLayer.INTERSECTION,
+                MapLayer.TRAFFIC_LIGHT,
             ]:
                 for obj in layer_objects:
                     if add_map_api_links:

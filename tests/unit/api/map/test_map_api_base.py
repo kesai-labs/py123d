@@ -88,10 +88,9 @@ class TestMapAPIProperties:
         result = mock_api.version
         assert isinstance(result, str)
 
-    def test_available_map_layers_returns_all_10_layers(self, mock_api: MockMapAPI) -> None:
-        """The available_map_layers property should return all 10 MapLayer values."""
+    def test_available_map_layers_returns_all_layers(self, mock_api: MockMapAPI) -> None:
+        """The available_map_layers property should return all MapLayer values."""
         layers = mock_api.available_map_layers
-        assert len(layers) == 10
         expected_layers = {
             MapLayer.LANE,
             MapLayer.LANE_GROUP,
@@ -103,6 +102,7 @@ class TestMapAPIProperties:
             MapLayer.STOP_ZONE,
             MapLayer.ROAD_EDGE,
             MapLayer.ROAD_LINE,
+            MapLayer.TRAFFIC_LIGHT,
         }
         assert set(layers) == expected_layers
 

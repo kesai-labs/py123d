@@ -3,7 +3,6 @@ downloader:
   _convert_: 'all'
 
   # Destination. Defaults to $WOD_PERCEPTION_DATA_ROOT (set via default_dataset_paths.yaml).
-  # Override to null to let a streaming parser manage a temp directory.
   output_dir: ${dataset_paths.wod_perception_data_root}
 
   # 123D split names — one or more of {wod-perception_train, wod-perception_val, wod-perception_test}.

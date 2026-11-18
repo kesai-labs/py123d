@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import Dict, Final, Iterator, Optional
+from typing import Dict, Final, Iterator, List, Optional, Set
 
 import geopandas as gpd
 import numpy as np
@@ -22,10 +22,11 @@ from py123d.datatypes.map_objects.map_objects import (
     RoadEdge,
     RoadLine,
     StopZone,
+    TrafficLight,
     Walkway,
 )
 from py123d.datatypes.metadata import MapMetadata
-from py123d.geometry import Polyline2D, Polyline3D
+from py123d.geometry import EulerAngles, Polyline2D, Polyline3D, PoseSE3, Quaternion
 from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.nuplan.utils.nuplan_constants import (
     NUPLAN_INTERSECTION_TYPE_CONVERSION,
@@ -78,6 +79,7 @@ class NuplanMapParser(BaseMapParser):
         yield from _iter_nuplan_carparks(nuplan_gdf)
         yield from _iter_nuplan_generic_drivables(nuplan_gdf)
         yield from _iter_nuplan_stop_zones(nuplan_gdf)
+        yield from _iter_nuplan_traffic_lights(nuplan_gdf)
         yield from _iter_nuplan_road_edges(nuplan_gdf)
         yield from _iter_nuplan_road_lines(nuplan_gdf)
         del nuplan_gdf
@@ -358,6 +360,71 @@ def _iter_nuplan_stop_zones(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator
             stop_zone_type=stop_zone_type,
             shapely_polygon=all_geometries[idx],  # type: ignore
             lane_ids=lane_ids,
+        )
+
+
+def _split_fids(fids: object) -> List[int]:
+    """Parse a comma-separated nuPlan fid list column value, e.g. ``"14515,14623"``, into integers."""
+    if fids is None or pd.isna(fids) or not str(fids):
+        return []
+    return [int(fid) for fid in str(fids).split(",") if fid]
+
+
+def _iter_nuplan_traffic_lights(nuplan_gdf: Dict[str, gpd.GeoDataFrame]) -> Iterator[TrafficLight]:
+    """Yield TrafficLight objects from the nuPlan ``traffic_lights`` point layer.
+
+    The layer itself has no lane reference. Lights are linked to the lanes they control through the traffic-light
+    stop polygons: ``stop_polygons.traffic_light_fids`` names the lights of a stop polygon, and
+    ``lane_connectors.traffic_light_stop_line_fids`` names the stop polygons a lane connector waits at. The lane
+    connectors are the lanes the per-frame traffic light status refers to.
+    """
+    # 1. Stop polygon -> traffic lights, and traffic light -> stop polygons
+    stop_polygons = nuplan_gdf["stop_polygons"]
+    stop_zone_ids_by_light: Dict[int, Set[int]] = {}
+    for stop_polygon_fid, traffic_light_fids in zip(stop_polygons.fid, stop_polygons.traffic_light_fids):
+        for traffic_light_fid in _split_fids(traffic_light_fids):
+            stop_zone_ids_by_light.setdefault(traffic_light_fid, set()).add(int(stop_polygon_fid))
+
+    # 2. Stop polygon -> lane connectors waiting at it (and their intersection)
+    lane_connectors = nuplan_gdf["lane_connectors"]
+    lane_group_connectors = nuplan_gdf["lane_group_connectors"]
+    intersection_by_lane_group_connector = dict(
+        zip(lane_group_connectors.fid.astype(int), lane_group_connectors.intersection_fid)
+    )
+    connector_ids_by_stop_zone: Dict[int, Set[int]] = {}
+    intersection_by_connector: Dict[int, Optional[int]] = {}
+    for connector_fid, stop_line_fids, lane_group_connector_fid in zip(
+        lane_connectors.fid, lane_connectors.traffic_light_stop_line_fids, lane_connectors.lane_group_connector_fid
+    ):
+        for stop_polygon_fid in _split_fids(stop_line_fids):
+            connector_ids_by_stop_zone.setdefault(stop_polygon_fid, set()).add(int(connector_fid))
+        intersection_fid = intersection_by_lane_group_connector.get(int(lane_group_connector_fid))
+        intersection_by_connector[int(connector_fid)] = int(intersection_fid) if pd.notna(intersection_fid) else None
+
+    # 3. Traffic lights
+    traffic_lights = nuplan_gdf["traffic_lights"]
+    for traffic_light_fid, geometry, yaw in zip(
+        traffic_lights.fid, traffic_lights.geometry, traffic_lights.ori_mean_yaw
+    ):
+        traffic_light_id = int(traffic_light_fid)
+        stop_zone_ids = sorted(stop_zone_ids_by_light.get(traffic_light_id, set()))
+        lane_ids = sorted({cid for sz_id in stop_zone_ids for cid in connector_ids_by_stop_zone.get(sz_id, set())})
+        intersection_ids = {intersection_by_connector.get(lane_id) for lane_id in lane_ids} - {None}
+        intersection_id = min(intersection_ids) if intersection_ids else None  # type: ignore[type-var]
+
+        # NOTE: ``ori_mean_yaw`` is the heading of the light face normal, i.e. pointing towards the approaching
+        # traffic. The 123D convention is the driving direction of the controlled lanes, hence the flip by pi.
+        yaw = float(yaw) + np.pi if pd.notna(yaw) else 0.0
+        quaternion = Quaternion.from_euler_angles(EulerAngles(0.0, 0.0, yaw))
+        z = float(geometry.z) if geometry.has_z else 0.0
+        pose_se3 = PoseSE3(geometry.x, geometry.y, z, quaternion.qw, quaternion.qx, quaternion.qy, quaternion.qz)
+
+        yield TrafficLight.from_pose(
+            object_id=traffic_light_id,
+            pose_se3=pose_se3,
+            lane_ids=lane_ids,
+            stop_zone_ids=stop_zone_ids,
+            intersection_id=intersection_id,
         )
 
 

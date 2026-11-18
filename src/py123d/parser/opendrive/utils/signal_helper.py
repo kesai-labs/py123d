@@ -1,7 +1,8 @@
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
+from py123d.geometry import PoseSE2Index
 from py123d.parser.opendrive.utils.id_system import build_lane_id
 from py123d.parser.opendrive.xodr_parser.road import XODRRoad
 from py123d.parser.opendrive.xodr_parser.signals import XODRSignal, XODRSignalReference
@@ -19,6 +20,28 @@ class OpenDriveSignalHelper:
     junction_id: Optional[int] = None  # junction whose controller cycles this signal
     phase_idx: Optional[int] = None  # controller sequence within that junction's cycle
     is_derived: bool = False  # synthesized from a road object (CARLA stop stencil), not an xodr <signal>
+    road_id: Optional[int] = None  # road that defines the <signal>, i.e. the frame of its s/t position
+
+
+def get_signal_position_3d(signal: XODRSignal, road: XODRRoad) -> Tuple[float, float, float, float]:
+    """Position of a signal in world coordinates, from its s/t/zOffset on the defining road.
+
+    :param signal: The xodr signal definition.
+    :param road: The road the signal is defined on.
+    :return: x, y, z of the signal (bottom edge, i.e. road elevation plus zOffset) and the road heading at s.
+    """
+    # signal t is relative to the plan view, not the lane-offset centerline
+    se2 = road.plan_view.interpolate_se2(signal.s, signal.t)
+    elevation = 0.0
+    for polynomial in road.elevation_profile.elevations:  # sorted by s
+        if polynomial.s <= signal.s:
+            elevation = polynomial.get_value(signal.s - polynomial.s)
+    return (
+        float(se2[PoseSE2Index.X]),
+        float(se2[PoseSE2Index.Y]),
+        elevation + signal.z_offset,
+        float(se2[PoseSE2Index.YAW]),
+    )
 
 
 def _lane_section_idx_from_s(road: XODRRoad, s: float) -> int:

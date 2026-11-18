@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import tempfile
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union, cast
 
 import numpy as np
+from scipy.spatial.transform import Rotation, Slerp
 
 from py123d.datatypes import (
     BoxDetectionAttributes,
@@ -105,6 +106,7 @@ class NCoreParser(BaseDatasetParser):
         ncore_data_root: Optional[Union[Path, str]] = None,
         max_clips: Optional[int] = None,
         downloader: Optional[NCoreDownloader] = None,
+        keep_downloads: bool = False,
     ) -> None:
         """Initialize the NCore parser.
 
@@ -115,11 +117,12 @@ class NCoreParser(BaseDatasetParser):
             of the downloader's own selection in streaming mode.
         :param downloader: Optional :class:`NCoreDownloader` used for streaming mode.
             When provided, each log parser pulls its assigned clip via
-            :meth:`NCoreDownloader.download_single_clip` into a per-clip
-            :class:`tempfile.TemporaryDirectory`, converts it, and deletes the temp dir
-            before moving on. Clip selection comes from
+            :meth:`NCoreDownloader.download_single_clip` into
+            ``<downloader.output_dir>/clips/<clip_id>``, converts it, and deletes that
+            directory before moving on. Clip selection comes from
             :meth:`NCoreDownloader.resolve_clip_ids`; no local ``ncore_data_root`` is
             required in this mode.
+        :param keep_downloads: Keeps the clips downloaded in streaming mode instead of deleting them.
         """
         for split in splits:
             assert split in NCORE_SPLITS, f"Split {split} is not available. Available splits: {NCORE_SPLITS}"
@@ -128,6 +131,7 @@ class NCoreParser(BaseDatasetParser):
         self._splits = splits
         self._max_clips = max_clips
         self._downloader: Optional[NCoreDownloader] = downloader
+        self._keep_downloads = keep_downloads
 
         if downloader is not None:
             self._data_root: Optional[Path] = None
@@ -187,6 +191,7 @@ class NCoreParser(BaseDatasetParser):
                 sequence_manifest_path=manifest,
                 split=split,
                 downloader=self._downloader,
+                keep_downloads=self._keep_downloads,
             )
             for clip_id, manifest, split in self._clip_entries
         ]
@@ -206,12 +211,14 @@ class NCoreLogParser(BaseLogParser):
         sequence_manifest_path: Optional[Path],
         split: str,
         downloader: Optional[NCoreDownloader] = None,
+        keep_downloads: bool = False,
     ) -> None:
         self._data_root = data_root
         self._clip_id = clip_id
         self._sequence_manifest_path = sequence_manifest_path
         self._split = split
         self._downloader = downloader
+        self._keep_downloads = keep_downloads
 
     def get_log_metadata(self) -> LogMetadata:
         """Inherited, see superclass."""
@@ -223,7 +230,7 @@ class NCoreLogParser(BaseLogParser):
         )
 
     # ------------------------------------------------------------------------------------------------------------------
-    # Clip materialization (local path OR per-clip temp download)
+    # Clip materialization (local path OR per-clip download)
     # ------------------------------------------------------------------------------------------------------------------
 
     @contextlib.contextmanager
@@ -231,23 +238,24 @@ class NCoreLogParser(BaseLogParser):
         """Yields ``(data_root, sequence_manifest_path)`` for the duration of one iterator pass.
 
         In local mode these are the pre-set instance attributes. In streaming mode the
-        clip is downloaded into a fresh ``tempfile.TemporaryDirectory`` which is deleted
-        when the context manager exits (i.e. after the parser generator is exhausted and
-        after ``_ClipContext.close()`` releases the zarr readers).
+        clip is downloaded into ``<downloader.output_dir>/clips/<clip_id>`` which is deleted
+        (unless ``keep_downloads``) when the context manager exits (i.e. after the parser generator
+        is exhausted and after ``_ClipContext.close()`` releases the zarr readers).
         """
         if self._downloader is None:
             assert self._data_root is not None and self._sequence_manifest_path is not None
             yield self._data_root, self._sequence_manifest_path
             return
 
-        with tempfile.TemporaryDirectory(prefix=f"ncore_{self._clip_id}_") as tmp:
-            tmp_root = Path(tmp)
-            logger.info("Streaming NCore clip %s to %s", self._clip_id, tmp_root)
-            manifest_path = self._downloader.download_single_clip(
-                clip_id=self._clip_id,
-                output_dir=tmp_root,
-            )
-            yield tmp_root, manifest_path
+        output_dir = self._downloader.output_dir
+        assert output_dir is not None, "`downloader.output_dir` must be set for streaming."
+        logger.info("Streaming NCore clip %s to %s", self._clip_id, output_dir)
+        try:
+            manifest_path = self._downloader.download_single_clip(clip_id=self._clip_id, output_dir=output_dir)
+            yield output_dir, manifest_path
+        finally:
+            if not self._keep_downloads:
+                shutil.rmtree(output_dir / "clips" / self._clip_id, ignore_errors=True)
 
     # ------------------------------------------------------------------------------------------------------------------
     # Synchronized iteration (lidar-rate)
@@ -428,12 +436,12 @@ class _ClipContext:
 
     def close(self) -> None:
         # SequenceComponentGroupsReader does not expose a public close; dropping references lets
-        # garbage collection release the underlying zarr/itar file handles before the temp dir
-        # (if any) is cleaned up by the surrounding context manager.
+        # garbage collection release the underlying zarr/itar file handles before the download
+        # dir (if any) is cleaned up by the surrounding context manager.
         self._sequence_reader = None
         self.camera_readers = {}
 
-        # Drop the per-path LRU caches in the lidar loader so cleaned-up temp files don't
+        # Drop the per-path LRU caches in the lidar loader so cleaned-up files don't
         # linger as stale reader references.
         from py123d.parser.ncore.ncore_sensor_io import _open_lidar_reader
 
@@ -579,6 +587,16 @@ def _nearest_rig_pose(rig_poses_se3: np.ndarray, rig_poses_ts: np.ndarray, ts_us
     return PoseSE3.from_transformation_matrix(rig_poses_se3[idx])
 
 
+def _rig_pose_at(rig_poses_se3: np.ndarray, rig_poses_ts: np.ndarray, ts_us: int) -> PoseSE3:
+    """Rig-to-world at ``ts_us``, between the two poses around it (translation linear, rotation slerp)."""
+    i = int(np.clip(np.searchsorted(rig_poses_ts, ts_us), 1, len(rig_poses_ts) - 1))
+    alpha = float(np.clip((ts_us - rig_poses_ts[i - 1]) / (rig_poses_ts[i] - rig_poses_ts[i - 1]), 0.0, 1.0))
+    pose = np.eye(4)
+    pose[:3, :3] = Slerp([0.0, 1.0], Rotation.from_matrix(rig_poses_se3[i - 1 : i + 1, :3, :3]))(alpha).as_matrix()
+    pose[:3, 3] = (1.0 - alpha) * rig_poses_se3[i - 1, :3, 3] + alpha * rig_poses_se3[i, :3, 3]
+    return PoseSE3.from_transformation_matrix(pose)
+
+
 def _ego_state_from_rig_trajectory(
     rig_poses_se3: np.ndarray,
     rig_poses_ts: np.ndarray,
@@ -638,7 +656,10 @@ def _build_box_detections_in_window(
         ref_to_rig = reference_to_rig.get(obs.reference_frame_id, PoseSE3.identity())
         bbox_in_rig = cuboid_bbox_to_rig_se3_array(obs, ref_to_rig)
 
-        rig_to_world_at_obs = _nearest_rig_pose(rig_poses_se3, rig_poses_ts, sweep_end_us)
+        # NCore gives a cuboid "relative to the reference frame's coordinate system" at
+        # ``reference_frame_timestamp_us`` (ncore.data.CuboidTrackObservation, whose ``transform`` evaluates the pose
+        # at that time). PAI-AV sets it to the time the lidar scanned the object, not to the end of the sweep.
+        rig_to_world_at_obs = _rig_pose_at(rig_poses_se3, rig_poses_ts, int(obs.reference_frame_timestamp_us))
         bbox_in_rig[BoundingBoxSE3Index.SE3] = rel_to_abs_se3_array(
             origin=rig_to_world_at_obs,
             pose_se3_array=bbox_in_rig[BoundingBoxSE3Index.SE3].reshape(1, -1),

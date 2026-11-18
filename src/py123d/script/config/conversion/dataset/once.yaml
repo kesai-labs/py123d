@@ -1,0 +1,51 @@
+parser:
+  _target_: py123d.parser.once.once_parser.OnceParser
+  _convert_: 'all'
+
+  # Labelled splits; the raw (unlabelled) splits are not supported.
+  splits: ["once_train", "once_val", "once_test"]
+  once_data_root: ${dataset_paths.once_data_root}
+
+  # Optional list of sequence ids (e.g. ["000027", "000028"]); null converts every sequence of the splits.
+  log_names: null
+
+  # ONCE annotates every second released frame (1 Hz, sensors are at 2 Hz). When true, boxes are tracked across
+  # annotated frames and interpolated at the unannotated frames in between. When false, the unannotated frames
+  # carry no box detections.
+  interpolate_labels: true
+
+log_writer_config:
+  _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig
+  _convert_: 'all'
+
+  force_log_conversion: ${force_log_conversion}
+  force_map_conversion: ${force_map_conversion}
+
+  camera_store_option: "path" # "path", "jpeg_binary", "png_binary"
+  lidar_store_option: "path" #  "path", "binary"
+  lidar_codec: null # None or "laz", "draco", "ipc_zstd", "ipc_lz4", "ipc"
+
+  infer_ego_dynamics: true
+  infer_box_dynamics: true
+
+log_writer:
+  _target_: py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter
+  _convert_: 'all'
+  log_writer_config: ${dataset.log_writer_config}
+  logs_root: ${dataset_paths.py123d_logs_root}
+  sensors_root: ${dataset_paths.py123d_sensors_root}
+  ipc_compression: null
+  ipc_compression_level: null
+
+  sync_config:
+    _target_: py123d.api.scene.arrow.arrow_log_writer.SyncConfig
+    _convert_: 'all'
+    reference_column: lidar.lidar_merged.timestamp_us
+    direction: "forward" # "forward" or "backward"
+
+map_writer:
+  _target_: py123d.api.map.arrow.arrow_map_writer.ArrowMapWriter
+  _convert_: 'all'
+  force_map_conversion: ${force_map_conversion}
+  maps_root: ${dataset_paths.py123d_maps_root}
+  logs_root: ${dataset_paths.py123d_logs_root}

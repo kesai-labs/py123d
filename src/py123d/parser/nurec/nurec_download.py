@@ -24,8 +24,8 @@ reusable library functions. :class:`NuRecDownloader` powers two paths:
 1. The ``py123d-download dataset=nurec-<...>`` CLI — fetches all selected sequences
    into :attr:`NuRecDownloader.output_dir`.
 
-2. The ``NuRecParser`` streaming path — fetches all selected sequences into a temporary
-   directory, which is converted and deleted afterwards.
+2. The ``NuRecParser`` streaming path — fetches all selected sequences into
+   :attr:`NuRecDownloader.output_dir`, which is converted and deleted afterwards.
 """
 
 from __future__ import annotations
@@ -159,8 +159,7 @@ class NuRecDownloader(BaseDownloader):
 
     :meth:`download` fetches all selected sequences into :attr:`output_dir`, with one
     ``snapshot_download`` call per release. It is used by ``py123d-download dataset=nurec-<...>``,
-    and by :class:`~py123d.parser.nurec.nurec_parser.NuRecParser` in streaming mode, which
-    points :attr:`output_dir` at a temporary directory.
+    and by :class:`~py123d.parser.nurec.nurec_parser.NuRecParser` in streaming mode.
     """
 
     def __init__(
@@ -182,8 +181,7 @@ class NuRecDownloader(BaseDownloader):
     ) -> None:
         """Initialize the NuRec downloader.
 
-        :param output_dir: Destination directory for :meth:`download`. A streaming parser
-            assigns a temporary directory when this is ``None``.
+        :param output_dir: Destination directory for :meth:`download`.
         :param hf_repo_id: HuggingFace repo ID for the NuRec dataset.
         :param hf_token: HF access token. Resolves through :func:`resolve_hf_token`.
         :param sequence_ids: Narrows the splits down to these sequences, each given as a

@@ -10,10 +10,10 @@ from py123d.api import SceneAPI
 from py123d.common.utils.enums import resolve_enum_arguments
 from py123d.datatypes.map_objects.base_map_objects import BaseMapLineObject, BaseMapSurfaceObject
 from py123d.datatypes.map_objects.map_layer_types import MapLayer, StopZoneType
-from py123d.datatypes.map_objects.map_objects import Lane, StopZone
+from py123d.datatypes.map_objects.map_objects import Lane, StopZone, TrafficLight
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
 from py123d.geometry import Point3D, Point3DIndex, Polyline3D
-from py123d.visualization.color.default import MAP_SURFACE_CONFIG
+from py123d.visualization.color.default import MAP_POINT_CONFIG, MAP_SURFACE_CONFIG
 from py123d.visualization.viser.elements.base_element import ElementContext, ViewerElement
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ _MAP_DISPLAY_LAYERS: List[MapLayer] = [
     MapLayer.GENERIC_DRIVABLE,
     MapLayer.STOP_ZONE,
     MapLayer.SPEED_BUMP,
+    MapLayer.TRAFFIC_LIGHT,
 ]
 
 _ROAD_EDGE_COLOR_DARK: Tuple[int, int, int] = (255, 255, 255)
@@ -146,7 +147,7 @@ class MapElement(ViewerElement):
         for map_layer, mesh in map_data["surfaces"].items():
             layer_cb = self._gui_layer_checkboxes.get(map_layer)
             is_visible = self._gui_visible.value and (layer_cb is None or layer_cb.value)
-            color = MAP_SURFACE_CONFIG[map_layer].fill_color.rgb
+            color = (MAP_SURFACE_CONFIG.get(map_layer) or MAP_POINT_CONFIG[map_layer]).fill_color.rgb
             self._handles[f"surface/{map_layer.serialize()}"] = self._server.scene.add_mesh_simple(
                 f"/map/{map_layer.serialize()}",
                 vertices=mesh.vertices.astype(np.float32),
@@ -297,12 +298,13 @@ def _get_map_data(
         MapLayer.SPEED_BUMP,
     ]
     line_layers = [MapLayer.ROAD_EDGE]
+    point_layers = [MapLayer.TRAFFIC_LIGHT]
 
     map_api = scene.get_map_api()
     if map_api is None:
         return output
 
-    all_layers = surface_layers + line_layers
+    all_layers = surface_layers + line_layers + point_layers
     map_objects_dict = map_api.get_map_objects_in_radius(
         scene_query_position.point_2d,
         radius=radius,
@@ -355,6 +357,21 @@ def _get_map_data(
 
         if len(surface_meshes) > 0:
             output["surfaces"][map_layer] = trimesh.util.concatenate(surface_meshes)
+
+    # Traffic light housings as boxes
+    traffic_light_meshes = []
+    for traffic_light in map_objects_dict.get(MapLayer.TRAFFIC_LIGHT, []):
+        if not isinstance(traffic_light, TrafficLight):
+            continue
+        box = traffic_light.bounding_box_se3
+        transform = box.center_se3.transformation_matrix.copy()
+        transform[:3, 3] -= scene_center_array
+        transform[Point3DIndex.Z, 3] += z_offset_no_z
+        traffic_light_meshes.append(
+            trimesh.creation.box(extents=(box.length, box.width, box.height), transform=transform)
+        )
+    if len(traffic_light_meshes) > 0:
+        output["surfaces"][MapLayer.TRAFFIC_LIGHT] = trimesh.util.concatenate(traffic_light_meshes)
 
     # Road edge line segments
     road_edge_objects = map_objects_dict.get(MapLayer.ROAD_EDGE, [])

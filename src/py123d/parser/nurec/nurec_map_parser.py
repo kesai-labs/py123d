@@ -5,7 +5,6 @@ import json
 import logging
 import math
 import re
-import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,9 +33,10 @@ from py123d.datatypes import (
     SpeedBump,
     StopZone,
     StopZoneType,
+    TrafficLight,
     Walkway,
 )
-from py123d.geometry import Polyline2D, Polyline3D
+from py123d.geometry import BoundingBoxSE3, Polyline2D, Polyline3D, PoseSE3, Quaternion
 from py123d.parser.base_dataset_parser import BaseMapParser
 from py123d.parser.opendrive.opendrive_map_parser import iter_xodr_map_objects
 
@@ -465,6 +465,20 @@ def _transform_map_object(map_object: BaseMapObject, alignment: NuRecMapAlignmen
             road_line_type=map_object.road_line_type,
             polyline=_transform_polyline(map_object.polyline, alignment),
         )
+    if isinstance(map_object, TrafficLight):
+        box = map_object.bounding_box_se3
+        center = alignment.transform_points(box.center_se3.point_3d.array[None, :])[0]
+        # points are row vectors (p' = (p - o) @ R), so the pose rotation becomes R^T @ R_pose
+        rotation = alignment.row_rotation.T @ box.center_se3.rotation_matrix
+        quaternion = Quaternion.from_rotation_matrix(rotation)
+        pose_se3 = PoseSE3(center[0], center[1], center[2], quaternion.qw, quaternion.qx, quaternion.qy, quaternion.qz)
+        return TrafficLight(
+            object_id=map_object.object_id,
+            bounding_box_se3=BoundingBoxSE3(pose_se3, box.length, box.width, box.height),
+            lane_ids=list(map_object.lane_ids),
+            stop_zone_ids=list(map_object.stop_zone_ids),
+            intersection_id=map_object.intersection_id,
+        )
     logger.warning("NuRec map alignment: leaving unsupported map object type unaligned: %s", type(map_object).__name__)
     return map_object
 
@@ -750,19 +764,13 @@ class NuRecMapParser(BaseMapParser):
         xodr_bytes = archive.read(self._xodr_member)
         alignment = self._load_alignment(archive) if self._alignment_enabled else None
 
-        with tempfile.NamedTemporaryFile(suffix=".xodr", delete=False) as tmp_file:
-            tmp_file.write(xodr_bytes)
-            tmp_path = Path(tmp_file.name)
-        try:
-            for map_object in iter_xodr_map_objects(
-                xodr_file=tmp_path,
-                interpolation_step_size=self._xodr_interpolation_step_size,
-                connection_distance_threshold=self._xodr_connection_distance_threshold,
-                internal_only=self._xodr_internal_only,
-            ):
-                yield _transform_map_object(map_object, alignment) if alignment is not None else map_object
-        finally:
-            tmp_path.unlink(missing_ok=True)
+        for map_object in iter_xodr_map_objects(
+            xodr_file=io.BytesIO(xodr_bytes),
+            interpolation_step_size=self._xodr_interpolation_step_size,
+            connection_distance_threshold=self._xodr_connection_distance_threshold,
+            internal_only=self._xodr_internal_only,
+        ):
+            yield _transform_map_object(map_object, alignment) if alignment is not None else map_object
 
     def _load_alignment(self, archive: ZipFile) -> NuRecMapAlignment:
         geo_origin = _read_xodr_geo_origin(archive, self._xodr_member)
@@ -803,6 +811,7 @@ class NuRecMapParser(BaseMapParser):
         wait_line_rows = self._read_layer_rows(archive, "wait_line")
         lane_lines = self._read_layer(archive, "lane_line")
         intersection_rows = self._read_layer_rows(archive, "intersection_area")
+        traffic_light_rows = self._read_layer_rows(archive, "traffic_light")
         sign_categories = {
             map_id: sign.get("category")
             for map_id, sign in self._read_layer_rows(archive, "traffic_sign")
@@ -1002,6 +1011,7 @@ class NuRecMapParser(BaseMapParser):
             yield Walkway(object_id=next_id, outline=Polyline3D.from_array(pts))
             next_id += 1
 
+        stop_zone_ids_by_lane_id: Dict[int, List[int]] = {}
         unknown_subtypes: Dict[str, int] = {}
         for map_id, wait_line in wait_line_rows:
             subtype = wait_line.get("intersection_subtype")
@@ -1013,15 +1023,18 @@ class NuRecMapParser(BaseMapParser):
             if pts is None or float(np.linalg.norm(pts[-1][:2] - pts[0][:2])) < 1e-6:
                 continue
             related = _wait_line_lanes(map_id, relations)
+            stop_zone_lane_ids = sorted(
+                lane_id_by_map_id[lane_map_id] for lane_map_id in related if lane_map_id in lane_id_by_map_id
+            )
+            for lane_id in stop_zone_lane_ids:
+                stop_zone_ids_by_lane_id.setdefault(lane_id, []).append(next_id)
             yield StopZone(
                 object_id=next_id,
                 stop_zone_type=_stop_zone_type(
                     related, wait_line.get("category"), subtype, relations, sign_categories, marking_categories
                 ),
                 outline=Polyline3D.from_array(_segment_to_outline(pts)),
-                lane_ids=sorted(
-                    lane_id_by_map_id[lane_map_id] for lane_map_id in related if lane_map_id in lane_id_by_map_id
-                ),
+                lane_ids=stop_zone_lane_ids,
             )
             next_id += 1
 
@@ -1059,11 +1072,15 @@ class NuRecMapParser(BaseMapParser):
                 sorted(unknown_line_styles),
             )
 
+        intersection_id_by_lane_id: Dict[int, int] = {}
         for map_id, area in intersection_rows:
             pts = _mads_points_xyz(area, "location")
             if pts is None or len(pts) < 3:
                 continue
             related = relations.intersection_lanes.get(map_id, ()) if map_id is not None else ()
+            for lane_map_id in related:
+                if lane_map_id in lane_id_by_map_id:
+                    intersection_id_by_lane_id.setdefault(lane_id_by_map_id[lane_map_id], next_id)
             lane_group_ids = sorted(
                 {
                     group_id_by_lane_id[lane_id_by_map_id[lane_map_id]]
@@ -1078,6 +1095,58 @@ class NuRecMapParser(BaseMapParser):
                 outline=Polyline3D.from_array(pts),
             )
             next_id += 1
+
+        for map_id, traffic_light in traffic_light_rows:
+            bounding_box_se3 = _mads_bounding_box_se3(traffic_light)
+            if bounding_box_se3 is None:
+                continue
+            related = relations.light_lanes.get(map_id, ()) if map_id is not None else ()
+            lane_ids = sorted(
+                lane_id_by_map_id[lane_map_id] for lane_map_id in related if lane_map_id in lane_id_by_map_id
+            )
+            # Stop zones and intersections are linked through the controlled lanes; clipgt associates neither directly.
+            stop_zone_ids = sorted(
+                {sz_id for lane_id in lane_ids for sz_id in stop_zone_ids_by_lane_id.get(lane_id, [])}
+            )
+            intersection_ids = {
+                intersection_id_by_lane_id[lane_id] for lane_id in lane_ids if lane_id in intersection_id_by_lane_id
+            }
+            yield TrafficLight(
+                object_id=next_id,
+                bounding_box_se3=bounding_box_se3,
+                lane_ids=lane_ids,
+                stop_zone_ids=stop_zone_ids,
+                intersection_id=min(intersection_ids) if intersection_ids else None,
+            )
+            next_id += 1
+
+
+def _mads_bounding_box_se3(entry: Dict) -> Optional[BoundingBoxSE3]:
+    """BoundingBoxSE3 from a MADS parquet box (``center``, ``dimensions``, ``orientation`` quaternion), or None.
+
+    The x-axis of a MADS traffic light box is the face normal, pointing towards the approaching traffic. The box
+    is turned by 180 degrees about its z-axis so that the x-axis follows the 123D convention (driving direction of
+    the controlled lanes); the extent along x stays the depth of the housing.
+    """
+    try:
+        center, dimensions, orientation = entry["center"], entry["dimensions"], entry["orientation"]
+        quaternion = Quaternion(
+            float(orientation["w"]), float(orientation["x"]), float(orientation["y"]), float(orientation["z"])
+        )
+        rotation = quaternion.rotation_matrix @ np.diag([-1.0, -1.0, 1.0])
+        quaternion = Quaternion.from_rotation_matrix(rotation)
+        pose_se3 = PoseSE3(
+            float(center["x"]),
+            float(center["y"]),
+            float(center["z"]),
+            quaternion.qw,
+            quaternion.qx,
+            quaternion.qy,
+            quaternion.qz,
+        )
+        return BoundingBoxSE3(pose_se3, float(dimensions["x"]), float(dimensions["y"]), float(dimensions["z"]))
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
 
 
 def _neighbour_lane_id(

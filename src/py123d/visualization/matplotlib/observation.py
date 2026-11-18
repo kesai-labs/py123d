@@ -11,7 +11,7 @@ from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionL
 from py123d.datatypes.detections.box_detections import BoxDetectionsSE2, BoxDetectionsSE3
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetections
 from py123d.datatypes.map_objects.map_layer_types import MapLayer, StopZoneType
-from py123d.datatypes.map_objects.map_objects import Lane
+from py123d.datatypes.map_objects.map_objects import Lane, TrafficLight
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE2, EgoStateSE3
 from py123d.geometry import (
     BoundingBoxSE2,
@@ -26,6 +26,7 @@ from py123d.visualization.color.default import (
     BOX_DETECTION_CONFIG,
     CENTERLINE_CONFIG,
     EGO_VEHICLE_CONFIG,
+    MAP_POINT_CONFIG,
     MAP_SURFACE_CONFIG,
     ROUTE_CONFIG,
     TRAFFIC_LIGHT_CONFIG,
@@ -92,6 +93,7 @@ def add_default_map_on_ax(
         MapLayer.WALKWAY,
         MapLayer.STOP_ZONE,
         MapLayer.SPEED_BUMP,
+        MapLayer.TRAFFIC_LIGHT,
     ]
     x_min, x_max = point_2d.x - radius, point_2d.x + radius
     y_min, y_max = point_2d.y - radius, point_2d.y + radius
@@ -172,11 +174,35 @@ def add_default_map_on_ax(
                         label=layer.serialize(),
                     )
 
+            if layer == MapLayer.TRAFFIC_LIGHT:
+                add_traffic_light_markers_to_ax(ax, map_objects, MAP_POINT_CONFIG[layer], label=layer.serialize())
+
         except Exception:
             print(f"Error adding map object of type {layer.name}")
             traceback.print_exc()
 
     ax.set_title(f"Map: {map_api.location}")
+
+
+def add_traffic_light_markers_to_ax(
+    ax: plt.Axes, traffic_lights: List[TrafficLight], plot_config: PlotConfig, label: Optional[str] = None
+) -> None:
+    """Draws one marker per traffic light at its position in bird's-eye view."""
+    if len(traffic_lights) == 0:
+        return
+    points = np.array([traffic_light.point_2d.array for traffic_light in traffic_lights])
+    ax.scatter(
+        points[:, 0],
+        points[:, 1],
+        marker=plot_config.marker_style,
+        s=plot_config.marker_size,
+        c=[plot_config.fill_color.hex],
+        alpha=plot_config.fill_color_alpha,
+        edgecolors=plot_config.line_color.hex,
+        linewidths=plot_config.line_width,
+        zorder=plot_config.zorder,
+        label=label,
+    )
 
 
 def add_box_detections_to_ax(ax: plt.Axes, box_detections: Union[BoxDetectionsSE2, BoxDetectionsSE3]) -> None:
@@ -194,17 +220,33 @@ def add_ego_vehicle_to_ax(ax: plt.Axes, ego_vehicle_state: Union[EgoStateSE3, Eg
 
 
 def add_traffic_lights_to_ax(ax: plt.Axes, traffic_light_detections: TrafficLightDetections, map_api: MapAPI) -> None:
+    """Colors the centerlines of lanes with a traffic light status, and the traffic lights controlling them."""
+    has_traffic_light_layer = MapLayer.TRAFFIC_LIGHT in map_api.available_map_layers
     for traffic_light_detection in traffic_light_detections:
         lane = map_api.get_map_object_in_layer(traffic_light_detection.lane_id, MapLayer.LANE)
-        assert isinstance(lane, Lane), f"Lane with id {traffic_light_detection.lane_id} not found."
-        if lane is not None:
-            add_shapely_linestring_to_ax(
-                ax,
-                lane.centerline.linestring,
-                TRAFFIC_LIGHT_CONFIG[traffic_light_detection.status],
+        if not isinstance(lane, Lane):
+            # The lane can lie outside the map, e.g. in nuReasoning clips.
+            continue
+        plot_config = TRAFFIC_LIGHT_CONFIG[traffic_light_detection.status]
+        add_shapely_linestring_to_ax(ax, lane.centerline.linestring, plot_config)
+        if has_traffic_light_layer:
+            # Traffic lights stand at the end of the lane they control, so a radius query around it finds them.
+            lane_end = lane.centerline_2d.array[-1]
+            traffic_lights = [
+                traffic_light
+                for traffic_light in map_api.get_layer_objects_in_radius(
+                    Point2D(lane_end[0], lane_end[1]), 60.0, MapLayer.TRAFFIC_LIGHT
+                )
+                if lane.object_id in traffic_light.lane_ids
+            ]
+            marker_config = PlotConfig(
+                fill_color=plot_config.line_color,
+                line_color=MAP_POINT_CONFIG[MapLayer.TRAFFIC_LIGHT].line_color,
+                line_width=MAP_POINT_CONFIG[MapLayer.TRAFFIC_LIGHT].line_width,
+                marker_size=MAP_POINT_CONFIG[MapLayer.TRAFFIC_LIGHT].marker_size,
+                zorder=MAP_POINT_CONFIG[MapLayer.TRAFFIC_LIGHT].zorder + 1,
             )
-        else:
-            raise ValueError(f"Lane with id {traffic_light_detection.lane_id} not found in map {map_api.location}.")
+            add_traffic_light_markers_to_ax(ax, traffic_lights, marker_config)
 
 
 def add_bounding_boxes_to_ax(

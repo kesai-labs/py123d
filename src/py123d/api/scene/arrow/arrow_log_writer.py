@@ -1,4 +1,6 @@
 import logging
+import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -330,6 +332,9 @@ class ArrowLogWriter(BaseLogWriter):
         sync_file_path = log_dir / "sync.arrow"
         _write_log: bool = False
         if not sync_file_path.exists() or self._log_writer_config.force_log_conversion:
+            # The log is written to the incomplete directory, close() moves it to the log directory above.
+            log_dir = self._logs_root / ".incomplete" / log_metadata.split / log_metadata.log_name
+            shutil.rmtree(log_dir, ignore_errors=True)  # leftovers of a conversion that did not complete
             log_dir.mkdir(parents=True, exist_ok=True)
             self._state = ArrowLogWriterState(log_dir=log_dir, log_metadata=log_metadata)
             _write_log = True
@@ -367,7 +372,7 @@ class ArrowLogWriter(BaseLogWriter):
         )
         self._write_single_modality(modality)
 
-    def close(self) -> None:
+    def close(self, incomplete: bool = False) -> None:
         """Inherited, see superclass."""
         if self._state is not None:
             self._close_writers()
@@ -383,6 +388,15 @@ class ArrowLogWriter(BaseLogWriter):
                 # Modality writers are already closed so Arrow files are finalized and readable.
                 # Read back the files to build the sync table.
                 self._build_deferred_sync_table()
+
+            # A complete log is moved out of the incomplete directory. Files already in the log directory
+            # are kept, e.g. a per-log map. The sync table marks a log as converted and goes last.
+            if not incomplete:
+                log_dir = self._logs_root / self._state.log_metadata.split / self._state.log_metadata.log_name
+                log_dir.mkdir(parents=True, exist_ok=True)
+                for file_path in sorted(self._state.log_dir.iterdir(), key=lambda path: path.name == "sync.arrow"):
+                    file_path.replace(log_dir / file_path.name)
+                os.removedirs(self._state.log_dir)  # also removes the parent directories, if empty
 
         self._state = None
 

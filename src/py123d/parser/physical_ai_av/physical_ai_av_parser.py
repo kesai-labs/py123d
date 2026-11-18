@@ -7,6 +7,7 @@ from typing import Dict, Iterator, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 import pandas as pd
+from scipy.spatial.transform import Rotation, Slerp
 
 from py123d.datatypes import (
     BoxDetectionAttributes,
@@ -92,6 +93,10 @@ class PhysicalAIAVParser(BaseDatasetParser):
         (i.e. the calibration parquet for that chunk exists).
         """
         clip_index = pd.read_parquet(self._data_root / "clip_index.parquet")
+        if "split" not in clip_index.columns:
+            # Current dataset revisions keep the split in splits/default.parquet (index clip_id, column split).
+            splits = pd.read_parquet(self._data_root / "splits" / "default.parquet", columns=["split"])
+            clip_index = clip_index.join(splits, how="inner")
         available_chunks = self._discover_available_chunks()
         entries: List[Tuple[str, int, str]] = []
         for split in self._splits:
@@ -743,6 +748,17 @@ def _extract_box_detections(
     return _build_box_detections(group_df, sweep_start, ego_df, ego_timestamps, ego_metadata, metadata)
 
 
+def _ego_pose_at(ego_df: pd.DataFrame, ego_timestamps: np.ndarray, timestamp_us: int) -> PoseSE3:
+    """The ego pose at ``timestamp_us``, between the two egomotion rows around it (position linear, rotation slerp)."""
+    i = int(np.clip(np.searchsorted(ego_timestamps, timestamp_us), 1, len(ego_timestamps) - 1))
+    before, after = ego_df.iloc[i - 1], ego_df.iloc[i]
+    alpha = float(np.clip((timestamp_us - ego_timestamps[i - 1]) / (ego_timestamps[i] - ego_timestamps[i - 1]), 0, 1))
+    quats = [[row["qx"], row["qy"], row["qz"], row["qw"]] for row in (before, after)]
+    qx, qy, qz, qw = Slerp([0.0, 1.0], Rotation.from_quat(quats))(alpha).as_quat()
+    x, y, z = ((1 - alpha) * before[axis] + alpha * after[axis] for axis in ("x", "y", "z"))
+    return quat_scalar_last_to_pose_se3(qx=qx, qy=qy, qz=qz, qw=qw, x=x, y=y, z=z)
+
+
 def _build_box_detections(
     group_df: pd.DataFrame,
     timestamp_us: int,
@@ -753,8 +769,8 @@ def _build_box_detections(
 ) -> BoxDetectionsSE3:
     """Build BoxDetectionsSE3 from a group of obstacle detections at one timestamp.
 
-    Each detection is transformed from the ego frame at the detection's own timestamp
-    to the global frame, using the closest ego pose to that detection's timestamp.
+    Each detection is transformed from the ego frame at the timestamp of its reference frame
+    to the global frame, using the ego pose at that timestamp.
     """
     timestamp = Timestamp.from_us(timestamp_us)
     num_dets = len(group_df)
@@ -793,25 +809,12 @@ def _build_box_detections(
         det_labels.append(label)
         det_tokens.append(str(det_row["track_id"]))
 
-    # NOTE @DanielDauner: PAI-AV is somewhat ambiguous about how to reference boxes and ego poses.
-    # We tried start lidar sweep, end lidar sweep and the detection timestamp itself.
-    # The best visual alignment is using the end sweep ego pose.
-
-    # Transform each detection from ego frame (at detection's own timestamp) to global
-    ego_idx = find_closest_index(ego_timestamps, timestamp_us + _LIDAR_SPIN_DURATION_US)
-    ego_row = ego_df.iloc[ego_idx]
-    ego_pose = quat_scalar_last_to_pose_se3(
-        qx=ego_row["qx"],
-        qy=ego_row["qy"],
-        qz=ego_row["qz"],
-        qw=ego_row["qw"],
-        x=ego_row["x"],
-        y=ego_row["y"],
-        z=ego_row["z"],
-    )
-    for det_idx in range(num_dets):
+    # Each detection is given in the rig frame at its ``reference_frame_timestamp_us`` (the same convention as
+    # ncore.data.CuboidTrackObservation): the time the lidar scanned the object. With the ego pose of the sweep end
+    # instead, every box is shifted by the ego motion in between, and fewer lidar points lie inside it.
+    for det_idx, reference_timestamp_us in enumerate(group_df["reference_frame_timestamp_us"].to_numpy(dtype=np.int64)):
         det_state[det_idx, BoundingBoxSE3Index.SE3] = rel_to_abs_se3_array(
-            origin=ego_pose,
+            origin=_ego_pose_at(ego_df, ego_timestamps, int(reference_timestamp_us)),
             pose_se3_array=det_state[det_idx : det_idx + 1, BoundingBoxSE3Index.SE3],
         )
 

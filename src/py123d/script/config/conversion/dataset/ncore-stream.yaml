@@ -1,5 +1,5 @@
 # Streaming variant of dataset=ncore — each Ray worker downloads its assigned clip from
-# Hugging Face into a per-clip temp directory, converts it, and deletes the temp dir
+# Hugging Face into a per-clip directory, converts it, and deletes that directory
 # before moving on.
 #
 # Clip-level parallelism therefore also parallelizes downloads. Each clip is ~1.2 GB
@@ -12,22 +12,27 @@
 #   py123d-conversion dataset=ncore-stream \
 #     'dataset.parser.downloader.clip_ids=[000da9de-0ee5-465a-9a2d-e7e91d3016bb]'
 
+# Keep the raw files in parser.downloader.output_dir after the conversion, instead of deleting them.
+keep_downloads: ${keep_downloads}
+
 parser:
   _target_: py123d.parser.ncore.ncore_parser.NCoreParser
   _convert_: 'all'
 
   splits: ["ncore_train"]
 
-  # Ignored when `downloader` is set — clips land in per-clip temp directories.
+  # Ignored when `downloader` is set — clips land in per-clip download directories.
   ncore_data_root: null
   max_clips: null
+  keep_downloads: ${dataset.keep_downloads}
 
   downloader:
     _target_: py123d.parser.ncore.ncore_download.NCoreDownloader
     _convert_: 'all'
 
-    # Not used in streaming — each clip goes to its own per-clip tempfile.TemporaryDirectory.
-    output_dir: null
+    # Each clip is downloaded into <output_dir>/clips/<clip_id> and deleted once converted,
+    # unless keep_downloads is set.
+    output_dir: ${dataset_paths.py123d_download_root}/ncore
 
     revision: main
     hf_token: null            # falls back to $HF_TOKEN / $HUGGINGFACE_HUB_TOKEN
@@ -55,7 +60,7 @@ log_writer_config:
   async_conversion: ${async_conversion}
 
   # Streaming forces self-contained payloads. Do NOT switch to "path" — the per-clip
-  # temp directory is deleted immediately after conversion, which would leave the
+  # download directory is deleted immediately after conversion, which would leave the
   # Arrow logs pointing at a vanished source.
   camera_store_option: "jpeg_binary" # "jpeg_binary", "png_binary", "mp4" — "path" forbidden here
   lidar_store_option: "binary"       # "binary" — "path" forbidden here

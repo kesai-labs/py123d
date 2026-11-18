@@ -34,13 +34,12 @@ On-disk layout produced by the downloader, matching what
 This module exposes :class:`NuplanDownloader` (Hydra-instantiable) which powers two
 entry points:
 
-1. ``py123d-download dataset=nuplan`` — bulk flow. Fetches archives into a
-   session-scoped :class:`tempfile.TemporaryDirectory`, extracts them into
-   :attr:`output_dir` (typically ``$NUPLAN_DATA_ROOT``), and deletes the ``.zip``
-   files on successful extraction.
+1. ``py123d-download dataset=nuplan`` — bulk flow. Fetches archives into
+   ``<output_dir>/_zip``, extracts them into :attr:`output_dir` (typically
+   ``$NUPLAN_DATA_ROOT``), and deletes the ``.zip`` files on successful extraction.
 2. The :class:`NuplanParser` streaming path (``dataset=nuplan-stream`` /
-   ``dataset=nuplan-mini-stream``) — materializes archives into a managed temp
-   directory at parser construction time; cleaned up on parser GC.
+   ``dataset=nuplan-mini-stream``) — materializes archives the same way at parser
+   construction time; the conversion deletes them when it ends.
 
 Archive selection is driven by two orthogonal axes:
 
@@ -68,7 +67,6 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import shutil
-import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -258,15 +256,13 @@ class NuplanDownloader(BaseDownloader):
 
     Two entry points, one class:
 
-    * :meth:`download` — bulk flow. Fetches the selected archives into a
-      session-scoped :class:`tempfile.TemporaryDirectory`, extracts them into
-      :attr:`output_dir`, and deletes the ``.zip`` files when extraction succeeds.
-      Used by ``py123d-download dataset=nuplan``.
-    * :meth:`materialize_archives` — streaming flow. Fetches the selected archives
-      into a caller-provided directory (typically a per-parser
-      :class:`tempfile.TemporaryDirectory`), extracts them in place, and removes
-      the ``.zip`` files on successful extraction. Used by :class:`NuplanParser`
-      when ``downloader`` is provided.
+    * :meth:`download` — bulk flow. Fetches the selected archives into
+      ``<output_dir>/_zip``, extracts them into :attr:`output_dir`, and deletes
+      the ``.zip`` files when extraction succeeds. Used by
+      ``py123d-download dataset=nuplan``.
+    * :meth:`materialize_archives` — streaming flow. Does the same for a
+      caller-provided directory. Used by :class:`NuplanParser` when ``downloader``
+      is provided.
 
     No credentials are required — the bucket is public. Users should still review
     the upstream license at :data:`NUPLAN_LICENSE_URL` before use.
@@ -285,9 +281,7 @@ class NuplanDownloader(BaseDownloader):
         """Initialize the nuPlan downloader.
 
         :param output_dir: Destination directory. Archives are extracted in-place —
-            the ``.zip`` files do not survive :meth:`download`. When ``None``, a
-            streaming caller (:class:`NuplanParser`) provides an output directory
-            directly to :meth:`materialize_archives`. In bulk mode, should point at
+            the ``.zip`` files do not survive :meth:`download`. In bulk mode, should point at
             ``$NUPLAN_DATA_ROOT`` so the resulting ``maps/`` and ``nuplan-v1.1/``
             subdirs land in their canonical location.
         :param splits: 123D split names (subset of :data:`NUPLAN_DATA_SPLITS`).
@@ -354,10 +348,10 @@ class NuplanDownloader(BaseDownloader):
     def download(self) -> None:
         """Inherited, see superclass.
 
-        Bulk flow: downloads selected archives into a session-scoped
-        :class:`tempfile.TemporaryDirectory`, extracts them into :attr:`output_dir`,
-        and deletes the ``.zip`` files on successful extraction. No archive file
-        survives :meth:`download` — only the extracted nuPlan tree.
+        Bulk flow: downloads selected archives into ``<output_dir>/_zip``, extracts
+        them into :attr:`output_dir`, and deletes the ``.zip`` files on successful
+        extraction. No archive file survives :meth:`download` — only the extracted
+        nuPlan tree.
         """
         archives = self.resolve_archives()
         total_gb = sum(spec.approx_size_gb for spec in archives)
@@ -383,24 +377,19 @@ class NuplanDownloader(BaseDownloader):
             return
 
         assert self.output_dir is not None, "NuplanDownloader.output_dir must be set before download()."
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.materialize_archives(output_dir=self.output_dir)
+        logger.info("Bulk download complete: %s", self.output_dir)
 
-        with tempfile.TemporaryDirectory(prefix="py123d-nuplan-bulk-") as tmp:
-            tmp_dir = Path(tmp)
-            logger.info("Downloading archives to temp dir (auto-cleaned): %s", tmp_dir)
-            self._fetch_and_extract(archives=archives, zip_dir=tmp_dir, extract_dir=self.output_dir)
-            logger.info("Bulk download complete: %s", self.output_dir)
-
-    # ----- Per-archive materialization (streaming conversion) -------------------------
+    # ----- Per-archive materialization (bulk download and streaming conversion) -------
 
     def materialize_archives(self, output_dir: Union[str, Path]) -> Path:
         """Download and extract the configured archive subset into ``output_dir``.
 
-        Used by :class:`~py123d.parser.nuplan.nuplan_parser.NuplanParser` in
-        streaming mode: the parser creates a :class:`tempfile.TemporaryDirectory`,
-        asks the downloader to populate it with the archives resolved from
-        ``splits`` + ``include_*`` flags, and reads the resulting nuPlan tree as
-        if it had been downloaded locally. ``.zip`` files land in a sibling
+        Used by :meth:`download` and by
+        :class:`~py123d.parser.nuplan.nuplan_parser.NuplanParser` in streaming mode:
+        the parser asks the downloader to populate a directory with the archives
+        resolved from ``splits`` + ``include_*`` flags, and reads the resulting
+        nuPlan tree as if it had been downloaded locally. ``.zip`` files land in a
         ``_zip`` subdirectory during the fetch and are removed after successful
         extraction.
 
@@ -416,7 +405,7 @@ class NuplanDownloader(BaseDownloader):
         archives = self.resolve_archives()
         total_gb = sum(spec.approx_size_gb for spec in archives)
         logger.info(
-            "nuPlan streaming: materializing %d archive(s) (≈ %.1f GB) into %s",
+            "nuPlan: materializing %d archive(s) (≈ %.1f GB) into %s",
             len(archives),
             total_gb,
             output_dir_path,
