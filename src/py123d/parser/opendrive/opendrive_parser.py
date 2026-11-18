@@ -27,6 +27,7 @@ class OpenDriveParser(BaseDatasetParser):
         road_edge_non_drivable_points: Optional[Dict[str, List[List[float]]]] = None,
         road_edge_non_drivable_polygons: Optional[Dict[str, List[List[List[float]]]]] = None,
         non_drivable_none_lane_min_width: Optional[Dict[str, float]] = None,
+        drivable_parking_lanes: bool = False,
     ) -> None:
         """Initializes the OpenDriveParser.
 
@@ -44,6 +45,8 @@ class OpenDriveParser(BaseDatasetParser):
             envelope, for static obstacles standing on otherwise drivable surfaces, defaults to None
         :param non_drivable_none_lane_min_width: Per-location width threshold above which none
             lanes on non-junction roads count as median strips, defaults to None
+        :param drivable_parking_lanes: If True, parking lanes on non-junction roads join the drivable
+            envelope (road_edge_non_drivable_points can carve single ones out again), defaults to False
         """
         self._xodr_paths = [Path(p) if Path(p).is_absolute() else _CARLA_MAPS_DIR / p for p in xodr_paths]
         for p in self._xodr_paths:
@@ -57,6 +60,7 @@ class OpenDriveParser(BaseDatasetParser):
         self._road_edge_non_drivable_points = road_edge_non_drivable_points or {}
         self._road_edge_non_drivable_polygons = road_edge_non_drivable_polygons or {}
         self._non_drivable_none_lane_min_width = non_drivable_none_lane_min_width or {}
+        self._drivable_parking_lanes = drivable_parking_lanes
 
     def get_map_parsers(self) -> List[BaseMapParser]:
         """Returns one map parser per XODR file."""
@@ -79,6 +83,7 @@ class OpenDriveParser(BaseDatasetParser):
                 non_drivable_none_lane_min_width=self._non_drivable_none_lane_min_width.get(
                     xodr_path.name.removesuffix("".join(xodr_path.suffixes))
                 ),
+                drivable_parking_lanes=self._drivable_parking_lanes,
             )
             for xodr_path in self._xodr_paths
         ]

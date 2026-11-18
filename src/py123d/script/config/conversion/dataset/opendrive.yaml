@@ -25,11 +25,20 @@ parser:
   # junction-interior none-lane surfaces stay drivable (crossing pavement). Currently disabled.
   non_drivable_none_lane_min_width: null
 
-  # Shoulder/none-lane/generic-drivable surfaces containing these (x, y) points are carved out of
+  # Parking lanes on non-junction roads are drivable: in CARLA 0.9.15 they are empty road-level asphalt
+  # (2026-11-17 audit, 68 of 73), the exceptions are carved below.
+  drivable_parking_lanes: true
+
+  # Shoulder/none-lane/generic-drivable/parking surfaces containing these (x, y) points are carved out of
   # the drivable envelope: areas the source .xodr types as lanes but that are not drivable in reality.
   road_edge_non_drivable_points:
     Town03:
       - [239.3, 41.5]   # tunnel divider barrier, typed as a 3.5 m bidirectional lane on road 65
+      - [216.4, -47.0]  # none-lane 83: curved 1.8 m strip forming a drivable ring in the kerb area at the corner
+      - [218.7, -50.4]  # none-lane 84: its 1 m inner twin
+      - [220.8, 8.7]    # parking lane: partly sidewalk-level surface
+      - [192.5, 9.1]    # parking lane: partly sidewalk-level surface at a bus stop
+      - [114.7, 10.3]   # parking lane: partly sidewalk-level surface
     Town04:
       - [381.0, 67.0]   # exit gore between the connectors of junction 745: water drums + light pole
       - [382.0, 170.5]  # exit gore between connectors: water drums + light pole
@@ -37,6 +46,9 @@ parser:
       - [203.7, 364.6]  # same exit gore, second none lane
     Town06:
       - [-1.4, 28.2]    # traffic island on none-lane surface
+    Town07:
+      - [-134.1, 152.6] # parking lane with a static parked car mesh (not a CARLA actor)
+      - [-160.0, 153.1] # parking lane with a static parked car mesh (not a CARLA actor)
 
   # (x, y) polygons carved out of the drivable envelope, for static props standing on otherwise
   # drivable surfaces. Unused: footprint holes on shoulders were judged worse than the props.
@@ -55,6 +67,10 @@ parser:
       - [-27.6, 100.7]  # plaza east pocket
       - [-141.7, 99.0]  # roundabout east splitter island
       - [-149.5, 88.7]  # roundabout south splitter island
+    Town10HD:
+      - [-46.6, -124.0] # T-junction gore between the turning connectors of junction 468: paved, no lane in the xodr
+      - [-35.5, -67.6]  # T-junction gore between the turning connectors of junction 895: paved, no lane in the xodr
+      - [41.9, -34.2]   # gore between the turning connectors at the junction mouth near (41.7,-34.2): paved, no lane in the xodr
 
 log_writer_config:
   _target_: py123d.api.scene.arrow.utils.log_writer_config.LogWriterConfig

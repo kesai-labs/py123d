@@ -66,8 +66,13 @@ _KNOWN_ASSOCIATION_KINDS = frozenset(
         "INTERSECTION_AREA_TO_LANE",
         "LIGHT_TO_LANE",
         "SIGN_TO_LANE",
+        "ROAD_MARKING_TO_LANE",
     }
 )
+
+# "STOP" painted on the lane. It marks stop-sign approaches, never signalised ones,
+# so it confirms a stop sign where the sign itself is not mapped.
+_STOP_ROAD_MARKING_CATEGORY = "ROI_POLYGON_ROAD_MARKING_STOP"
 
 
 @dataclass
@@ -86,6 +91,7 @@ class _ClipgtRelations:
     intersection_lanes: Dict[str, set] = field(default_factory=dict)
     light_lanes: Dict[str, set] = field(default_factory=dict)
     sign_lanes: Dict[str, set] = field(default_factory=dict)
+    marking_lanes: Dict[str, set] = field(default_factory=dict)
     # Counts of association `key.kind` values outside the vocabulary below, so
     # schema drift across a large batch shows up in logs instead of vanishing silently.
     unknown_kinds: Dict[str, int] = field(default_factory=dict)
@@ -477,6 +483,64 @@ def _transform_map_object(map_object: BaseMapObject, alignment: NuRecMapAlignmen
     return map_object
 
 
+_SHOULDER_USE_TYPE = "SHOULDER_LANE"
+_SHOULDER_SIDE_MIN_GAP_M = 0.5
+
+
+def _lane_use_types(lane: Dict) -> Set[str]:
+    """The clipgt `use_types` tags of a lane row (SHOULDER_LANE, HOV_LANE, ...), empty when absent."""
+    use_types = lane.get("use_types")
+    if use_types is None:
+        return set()
+    return {str(value) for value in use_types}
+
+
+def _distance_to_polylines(point_xy: np.ndarray, polylines_xy: List[np.ndarray]) -> float:
+    """Smallest 2D distance from a point to any of the polylines."""
+    best = np.inf
+    for pts in polylines_xy:
+        start, end = pts[:-1], pts[1:]
+        direction = end - start
+        along = np.clip(
+            ((point_xy - start) * direction).sum(axis=1) / np.maximum((direction * direction).sum(axis=1), 1e-12),
+            0.0,
+            1.0,
+        )
+        closest = start + along[:, None] * direction
+        best = min(best, float(np.min(np.hypot(*(point_xy - closest).T))))
+    return best
+
+
+def _shoulder_inner_rails(
+    left_d: np.ndarray,
+    right_d: np.ndarray,
+    left_neighbours: Set[str],
+    right_neighbours: Set[str],
+    boundary_xy: List[np.ndarray],
+) -> List[np.ndarray]:
+    """Rails of a shoulder lane that border a driving lane, oriented with the drivable side on the left.
+
+    The side comes from the lane neighbour associations; without any, the rail farther from every
+    road boundary is taken as the inner one.
+    """
+    sides: Set[str] = set()
+    if left_neighbours:
+        sides.add("left")
+    if right_neighbours:
+        sides.add("right")
+    if not sides and boundary_xy:
+        left_gap = _distance_to_polylines(left_d[len(left_d) // 2, :2], boundary_xy)
+        right_gap = _distance_to_polylines(right_d[len(right_d) // 2, :2], boundary_xy)
+        if abs(left_gap - right_gap) > _SHOULDER_SIDE_MIN_GAP_M:
+            sides.add("left" if left_gap > right_gap else "right")
+    rails: List[np.ndarray] = []
+    if "left" in sides:
+        rails.append(left_d)
+    if "right" in sides:
+        rails.append(right_d[::-1].copy())
+    return rails
+
+
 class NuRecMapParser(BaseMapParser):
     """Map parser for one NuRec USDZ scene.
 
@@ -641,6 +705,9 @@ class NuRecMapParser(BaseMapParser):
                     elif kind == "SIGN_TO_LANE":
                         relations.sign_lanes.setdefault(subject, set()).add(obj)
                         relations.sign_lanes.setdefault(obj, set()).add(subject)
+                    elif kind == "ROAD_MARKING_TO_LANE":
+                        relations.marking_lanes.setdefault(subject, set()).add(obj)
+                        relations.marking_lanes.setdefault(obj, set()).add(subject)
         if relations.unknown_kinds:
             logger.warning(
                 "NuRec map %s: dropped %d association rows with an unrecognised kind %s",
@@ -750,6 +817,11 @@ class NuRecMapParser(BaseMapParser):
             for map_id, sign in self._read_layer_rows(archive, "traffic_sign")
             if map_id is not None
         }
+        marking_categories = {
+            map_id: marking.get("category")
+            for map_id, marking in self._read_layer_rows(archive, "road_marking")
+            if map_id is not None
+        }
 
         next_id = 0
 
@@ -757,10 +829,14 @@ class NuRecMapParser(BaseMapParser):
         # are assigned first and the Lane objects built once they are all known.
         parsed_lanes: List[Tuple[int, Optional[str], np.ndarray, np.ndarray, np.ndarray, Optional[float]]] = []
         lane_id_by_map_id: Dict[str, int] = {}
+        shoulder_rows: List[Tuple[Optional[str], np.ndarray, np.ndarray]] = []
         for map_id, lane in lane_rows:
             left_d = _mads_points_xyz(lane, "left_rail")
             right_d = _mads_points_xyz(lane, "right_rail")
             if left_d is None or right_d is None:
+                continue
+            if _SHOULDER_USE_TYPE in _lane_use_types(lane):
+                shoulder_rows.append((map_id, left_d, right_d))
                 continue
             center_d = _centerline_from_rails(left_d, right_d)
             if center_d is None:
@@ -877,6 +953,43 @@ class NuRecMapParser(BaseMapParser):
             )
             next_id += 1
 
+        lanes_right_of: Dict[str, Set[str]] = {}
+        lanes_left_of: Dict[str, Set[str]] = {}
+        for subject, lefts in relations.left.items():
+            for left_map_id in lefts:
+                lanes_right_of.setdefault(left_map_id, set()).add(subject)
+        for subject, rights in relations.right.items():
+            for right_map_id in rights:
+                lanes_left_of.setdefault(right_map_id, set()).add(subject)
+        boundary_xy = [
+            pts[:, :2] for pts in (_mads_points_xyz(boundary, "location") for boundary in boundaries) if pts is not None
+        ]
+        driving_map_ids = set(lane_id_by_map_id)
+        n_shoulder_edges = 0
+        for map_id, left_d, right_d in shoulder_rows:
+            # junction shoulders stay plain asphalt inside the envelope, as for OpenDRIVE
+            if map_id is not None and map_id in relations.intersection_lanes:
+                continue
+            left_neighbours = (set(relations.left.get(map_id, ())) | lanes_left_of.get(map_id, set())) & driving_map_ids
+            right_neighbours = (
+                set(relations.right.get(map_id, ())) | lanes_right_of.get(map_id, set())
+            ) & driving_map_ids
+            for rail in _shoulder_inner_rails(left_d, right_d, left_neighbours, right_neighbours, boundary_xy):
+                yield RoadEdge(
+                    object_id=next_id,
+                    road_edge_type=RoadEdgeType.ROAD_EDGE_BOUNDARY,
+                    polyline=Polyline3D.from_array(rail),
+                )
+                next_id += 1
+                n_shoulder_edges += 1
+        if shoulder_rows:
+            logger.info(
+                "NuRec map %s: %d shoulder lanes dropped, %d road edges added along their inner rails",
+                self._location,
+                len(shoulder_rows),
+                n_shoulder_edges,
+            )
+
         for crosswalk in crosswalks:
             pts = _mads_points_xyz(crosswalk, "location")
             if pts is None or len(pts) < 3:
@@ -917,7 +1030,9 @@ class NuRecMapParser(BaseMapParser):
                 stop_zone_ids_by_lane_id.setdefault(lane_id, []).append(next_id)
             yield StopZone(
                 object_id=next_id,
-                stop_zone_type=_stop_zone_type(related, wait_line.get("category"), subtype, relations, sign_categories),
+                stop_zone_type=_stop_zone_type(
+                    related, wait_line.get("category"), subtype, relations, sign_categories, marking_categories
+                ),
                 outline=Polyline3D.from_array(_segment_to_outline(pts)),
                 lane_ids=stop_zone_lane_ids,
             )
@@ -1070,13 +1185,15 @@ def _stop_zone_type(
     subtype: Optional[str],
     relations: _ClipgtRelations,
     sign_categories: Dict[str, Optional[str]],
+    marking_categories: Dict[str, Optional[str]],
 ) -> StopZoneType:
     """What obliges traffic to stop at a wait line.
 
-    A light or sign controlling the lane wins, then the crossing the line guards,
-    and only then the line's own category. That category marks a painted stop bar
-    rather than a stop sign — scenes carry far more STOP wait lines than stop
-    signs — so it types just the lines nothing else accounts for.
+    A light or sign controlling the lane wins, then the crossing the line guards.
+    The line's own STOP category only marks a painted stop bar, which signalised
+    junctions carry too, and many scenes map no lights or signs at all. Such a
+    line counts as a stop sign only where "STOP" is painted on its lane;
+    otherwise what controls it is unknown.
     """
     if any(lane_map_id in relations.light_lanes for lane_map_id in lane_map_ids):
         return StopZoneType.TRAFFIC_LIGHT
@@ -1088,7 +1205,10 @@ def _stop_zone_type(
         return StopZoneType.STOP_SIGN
     if subtype == "CROSSWALK_ENTRY":
         return StopZoneType.PEDESTRIAN_CROSSING
-    if category == "STOP":
+    marking_ids = {marking for lane_map_id in lane_map_ids for marking in relations.marking_lanes.get(lane_map_id, ())}
+    if category == "STOP" and any(
+        marking_categories.get(marking_id) == _STOP_ROAD_MARKING_CATEGORY for marking_id in marking_ids
+    ):
         return StopZoneType.STOP_SIGN
     return StopZoneType.UNKNOWN
 

@@ -298,8 +298,11 @@ def _deduplicate_connections(lane_helper_dict: Dict[str, OpenDriveLaneHelper]) -
     """
 
     for lane_id in lane_helper_dict.keys():  # noqa: PLC0206
-        lane_helper_dict[lane_id].successor_lane_ids = list(set(lane_helper_dict[lane_id].successor_lane_ids))
-        lane_helper_dict[lane_id].predecessor_lane_ids = list(set(lane_helper_dict[lane_id].predecessor_lane_ids))
+        # dict.fromkeys keeps the first-seen order: set() order changes with the hash seed between runs
+        lane_helper_dict[lane_id].successor_lane_ids = list(dict.fromkeys(lane_helper_dict[lane_id].successor_lane_ids))
+        lane_helper_dict[lane_id].predecessor_lane_ids = list(
+            dict.fromkeys(lane_helper_dict[lane_id].predecessor_lane_ids)
+        )
 
 
 def _post_process_connections(
