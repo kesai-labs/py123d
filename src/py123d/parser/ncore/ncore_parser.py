@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple, Union, cast
 
 import numpy as np
+from scipy.spatial.transform import Rotation, Slerp
 
 from py123d.datatypes import (
     BoxDetectionAttributes,
@@ -586,6 +587,16 @@ def _nearest_rig_pose(rig_poses_se3: np.ndarray, rig_poses_ts: np.ndarray, ts_us
     return PoseSE3.from_transformation_matrix(rig_poses_se3[idx])
 
 
+def _rig_pose_at(rig_poses_se3: np.ndarray, rig_poses_ts: np.ndarray, ts_us: int) -> PoseSE3:
+    """Rig-to-world at ``ts_us``, between the two poses around it (translation linear, rotation slerp)."""
+    i = int(np.clip(np.searchsorted(rig_poses_ts, ts_us), 1, len(rig_poses_ts) - 1))
+    alpha = float(np.clip((ts_us - rig_poses_ts[i - 1]) / (rig_poses_ts[i] - rig_poses_ts[i - 1]), 0.0, 1.0))
+    pose = np.eye(4)
+    pose[:3, :3] = Slerp([0.0, 1.0], Rotation.from_matrix(rig_poses_se3[i - 1 : i + 1, :3, :3]))(alpha).as_matrix()
+    pose[:3, 3] = (1.0 - alpha) * rig_poses_se3[i - 1, :3, 3] + alpha * rig_poses_se3[i, :3, 3]
+    return PoseSE3.from_transformation_matrix(pose)
+
+
 def _ego_state_from_rig_trajectory(
     rig_poses_se3: np.ndarray,
     rig_poses_ts: np.ndarray,
@@ -645,7 +656,10 @@ def _build_box_detections_in_window(
         ref_to_rig = reference_to_rig.get(obs.reference_frame_id, PoseSE3.identity())
         bbox_in_rig = cuboid_bbox_to_rig_se3_array(obs, ref_to_rig)
 
-        rig_to_world_at_obs = _nearest_rig_pose(rig_poses_se3, rig_poses_ts, sweep_end_us)
+        # NCore gives a cuboid "relative to the reference frame's coordinate system" at
+        # ``reference_frame_timestamp_us`` (ncore.data.CuboidTrackObservation, whose ``transform`` evaluates the pose
+        # at that time). PAI-AV sets it to the time the lidar scanned the object, not to the end of the sweep.
+        rig_to_world_at_obs = _rig_pose_at(rig_poses_se3, rig_poses_ts, int(obs.reference_frame_timestamp_us))
         bbox_in_rig[BoundingBoxSE3Index.SE3] = rel_to_abs_se3_array(
             origin=rig_to_world_at_obs,
             pose_se3_array=bbox_in_rig[BoundingBoxSE3Index.SE3].reshape(1, -1),
