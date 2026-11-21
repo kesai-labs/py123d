@@ -479,7 +479,7 @@ def _camera_to_global_from_ego(
 
     :param log_dir: The log directory; without it the trajectory cannot be found.
     :param metadata: The camera metadata, carrying ``camera_to_imu_se3``.
-    :param timestamp_us: The frame time to place the camera at.
+    :param timestamp_us: The frame's stored time; the camera is placed at it plus ``metadata.time_offset_us``.
     :return: The camera-to-global pose, or None when the log carries no ego trajectory.
     """
     if log_dir is None or timestamp_us is None:
@@ -488,7 +488,8 @@ def _camera_to_global_from_ego(
     if trajectory is None:
         return None
     timestamps_us, poses = trajectory
-    return rel_to_abs_se3(origin=_ego_pose_at(timestamps_us, poses, timestamp_us), pose_se3=metadata.camera_to_imu_se3)
+    ego_pose = _ego_pose_at(timestamps_us, poses, timestamp_us + metadata.time_offset_us)
+    return rel_to_abs_se3(origin=ego_pose, pose_se3=metadata.camera_to_imu_se3)
 
 
 # ------------------------------------------------------------------------------------------------------------------
