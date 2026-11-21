@@ -237,6 +237,13 @@ class BaseCameraMetadata(BaseModalityMetadata, abc.ABC):
         """The height of the camera image in pixels."""
 
     @property
+    def time_offset_us(self) -> int:
+        """Microseconds from a frame's stored timestamp to the moment its image represents, e.g. a rolling shutter's
+        mid-exposure. A null ``camera_to_global_se3`` is composed from the ego pose at the timestamp plus this offset.
+        Defaults to 0."""
+        return 0
+
+    @property
     def channel_type(self) -> CameraChannelType:
         """The channel type of the camera image. Defaults to RGB."""
         return CameraChannelType.RGB
