@@ -38,27 +38,54 @@ def schema_reads(monkeypatch: pytest.MonkeyPatch) -> List[str]:
     return reads
 
 
-class TestLazyModalityMetadatas:
-    def test_parse_reads_the_sync_file_alone(self, log_dir: Path, schema_reads: List[str]) -> None:
-        parse_log_directory_metadata(log_dir)
-        assert schema_reads == ["sync.arrow"]
+@pytest.fixture
+def listings(monkeypatch: pytest.MonkeyPatch) -> List[str]:
+    """The directories listed, in order."""
+    listed: List[str] = []
+    listdir = os.listdir
 
-    def test_one_key_reads_one_file_once(self, log_dir: Path, schema_reads: List[str]) -> None:
+    def counted(path):
+        listed.append(str(path))
+        return listdir(path)
+
+    monkeypatch.setattr(os, "listdir", counted)
+    return listed
+
+
+class TestLazyModalityMetadatas:
+    def test_parse_reads_no_modality_file_and_lists_nothing(
+        self, log_dir: Path, schema_reads: List[str], listings: List[str]
+    ) -> None:
+        parse_log_directory_metadata(log_dir)
+        assert schema_reads == []
+        assert listings == []
+
+    def test_one_key_reads_one_file_once_without_a_listing(
+        self, log_dir: Path, schema_reads: List[str], listings: List[str]
+    ) -> None:
         metadatas = parse_log_directory_metadata(log_dir).modality_metadatas
         assert metadatas.get(EGO_KEY) is metadatas[EGO_KEY]
         assert EGO_KEY in metadatas
-        assert schema_reads == ["sync.arrow", f"{EGO_KEY}.arrow"]
+        assert schema_reads == [f"{EGO_KEY}.arrow"]
+        assert listings == []
 
-    def test_an_absent_key_reads_no_file(self, log_dir: Path, schema_reads: List[str]) -> None:
+    def test_an_absent_key_is_asked_for_once(self, log_dir: Path, schema_reads: List[str], listings: List[str]) -> None:
         metadatas = parse_log_directory_metadata(log_dir).modality_metadatas
         assert metadatas.get("lidar.absent") is None
         assert "lidar.absent" not in metadatas
-        assert schema_reads == ["sync.arrow"]
+        assert schema_reads == ["lidar.absent.arrow"]
+        assert listings == []
+
+    def test_the_sync_and_map_files_are_no_modalities(self, log_dir: Path, schema_reads: List[str]) -> None:
+        metadatas = parse_log_directory_metadata(log_dir).modality_metadatas
+        assert metadatas.get("sync") is None
+        assert metadatas.get("route_map") is None
+        assert schema_reads == []
 
     def test_get_by_type_reads_the_files_of_that_type(self, log_dir: Path, schema_reads: List[str]) -> None:
         by_type = parse_log_directory_metadata(log_dir).get_by_type(ModalityType.EGO_STATE_SE3)
         assert list(by_type) == [EGO_KEY]
-        assert schema_reads == ["sync.arrow", f"{EGO_KEY}.arrow"]
+        assert schema_reads == [f"{EGO_KEY}.arrow"]
 
     def test_iterating_reads_every_file_in_name_order(self, log_dir: Path) -> None:
         metadatas = parse_log_directory_metadata(log_dir).modality_metadatas
