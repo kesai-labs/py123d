@@ -229,6 +229,10 @@ class ArrowSceneAPI(SceneAPI):
         """
         return self._get_log_dir_metadatas().modality_metadatas
 
+    def get_modality_metadatas_of_type(self, modality_type: ModalityType) -> Dict[str, BaseModalityMetadata]:
+        """Inherited, see superclass."""
+        return self._get_log_dir_metadatas().get_by_type(modality_type)
+
     def get_modality_metadata(
         self,
         modality_type: Union[str, ModalityType],
