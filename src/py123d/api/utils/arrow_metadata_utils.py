@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Type, TypeVar
+from typing import Any, Dict, Iterator, List, Optional, Set, Type, TypeVar
 
 import msgpack
 import pyarrow as pa
@@ -146,38 +146,58 @@ def resolve_metadata_class(modality_key: str) -> Any:
 class _ModalityMetadatas(Mapping):
     """The modality metadatas of a log directory by modality key, each read from its file on first use.
 
-    A lookup of one key reads that file's schema only; a log holds tens of Arrow files, and a reader of the ego
-    states needs one of them. Iterating reads every file, and leaves out the files whose metadata cannot be
-    deserialized, as the eager parse did.
+    A lookup of one key opens that file alone, without listing the directory: a log holds tens of Arrow files, a
+    reader of the ego states needs one of them, and on a network file system every listing and every open is a
+    request to its metadata server. Iterating lists the directory and reads every file, and leaves out the files
+    whose metadata cannot be deserialized, as the eager parse did.
     """
 
-    def __init__(self, log_dir: Path, modality_keys: List[str]) -> None:
+    def __init__(self, log_dir: Path) -> None:
         """
         :param log_dir: The log directory.
-        :param modality_keys: The stems of the directory's modality Arrow files, sorted.
         """
         self._log_dir = log_dir
-        self._modality_keys = modality_keys
-        self._unread = set(modality_keys)
+        # The stems of the directory's modality files, sorted; listed on the first iteration.
+        self._modality_keys: Optional[List[str]] = None
         self._metadatas: Dict[str, BaseModalityMetadata] = {}
+        # Keys with no file, or with a file that cannot be deserialized.
+        self._absent: Set[str] = set()
 
-    def _read(self, modality_key: str) -> None:
-        """Read one file's metadata if it was not read before; a file that cannot be deserialized is skipped."""
-        if modality_key not in self._unread:
-            return
+    def _keys(self) -> List[str]:
+        """The stems of the directory's modality files, sorted; one directory listing, no stat per file."""
+        if self._modality_keys is None:
+            self._modality_keys = sorted(
+                name[: -len(".arrow")]
+                for name in os.listdir(self._log_dir)
+                if name.endswith(".arrow") and name not in _NON_MODALITY_FILES
+            )
+        return self._modality_keys
+
+    def _read(self, modality_key: str) -> Optional[BaseModalityMetadata]:
+        """One key's metadata, read from its file once; None without a file or when it cannot be deserialized."""
+        metadata = self._metadatas.get(modality_key)
+        if metadata is not None or modality_key in self._absent:
+            return metadata
         from py123d.api.utils.arrow_helper import open_arrow_schema
 
+        file_name = f"{modality_key}.arrow"
         try:
+            if file_name in _NON_MODALITY_FILES or (
+                self._modality_keys is not None and modality_key not in self._modality_keys
+            ):
+                raise FileNotFoundError(file_name)
             metadata_class = resolve_metadata_class(modality_key)
-            schema = open_arrow_schema(os.path.join(self._log_dir, f"{modality_key}.arrow"))
-            self._metadatas[modality_key] = get_metadata_from_arrow_schema(schema, metadata_class)
+            schema = open_arrow_schema(os.path.join(self._log_dir, file_name))
+            metadata = get_metadata_from_arrow_schema(schema, metadata_class)
+        except FileNotFoundError:
+            self._absent.add(modality_key)
+            return None
         except (ValueError, KeyError) as e:
-            logger.warning("Skipping '%s.arrow': %s", modality_key, e)
-        self._unread.discard(modality_key)
-
-    def __getitem__(self, modality_key: str) -> BaseModalityMetadata:
-        self._read(modality_key)
-        return self._metadatas[modality_key]
+            logger.warning("Skipping '%s': %s", file_name, e)
+            self._absent.add(modality_key)
+            return None
+        self._metadatas[modality_key] = metadata
+        return metadata
 
     def of_type(self, modality_type: ModalityType) -> Dict[str, BaseModalityMetadata]:
         """The metadatas of one modality type, reading the files of that type alone: the type is in the file name.
@@ -186,22 +206,25 @@ class _ModalityMetadatas(Mapping):
         :return: Dict of matching modality keys to their metadata.
         """
         result: Dict[str, BaseModalityMetadata] = {}
-        for modality_key in self._modality_keys:
+        for modality_key in self._keys():
             try:
                 if get_modality_type_from_key(modality_key) != modality_type:
                     continue
             except (ValueError, KeyError):
                 pass  # A name that states no known type: the metadata decides.
-            self._read(modality_key)
-            metadata = self._metadatas.get(modality_key)
+            metadata = self._read(modality_key)
             if metadata is not None and metadata.modality_type == modality_type:
                 result[modality_key] = metadata
         return result
 
+    def __getitem__(self, modality_key: str) -> BaseModalityMetadata:
+        metadata = self._read(modality_key)
+        if metadata is None:
+            raise KeyError(modality_key)
+        return metadata
+
     def __iter__(self) -> Iterator[str]:
-        for modality_key in self._modality_keys:
-            self._read(modality_key)
-        return (modality_key for modality_key in self._modality_keys if modality_key in self._metadatas)
+        return iter([modality_key for modality_key in self._keys() if self._read(modality_key) is not None])
 
     def __len__(self) -> int:
         return sum(1 for _ in self)
@@ -259,19 +282,17 @@ def parse_log_directory_metadata(log_dir: Path) -> LogDirectoryMetadata:
     :return: A :class:`LogDirectoryMetadata` with log metadata and all modality metadatas.
     :raises FileNotFoundError: If ``sync.arrow`` does not exist.
     """
-    from py123d.api.utils.arrow_helper import open_arrow_schema
+    from py123d.api.utils.arrow_helper import get_lru_cached_arrow_table
     from py123d.datatypes.metadata.log_metadata import LogMetadata
 
     log_dir = Path(log_dir)
 
-    # One directory listing names every file; no stat per file.
-    arrow_files = sorted(name for name in os.listdir(log_dir) if name.endswith(".arrow"))
-    if "sync.arrow" not in arrow_files:
-        raise FileNotFoundError(f"sync.arrow not found in {log_dir}")
-
-    log_metadata = get_metadata_from_arrow_schema(open_arrow_schema(log_dir / "sync.arrow"), LogMetadata)
-    modality_metadatas = _ModalityMetadatas(
-        log_dir,
-        [name[: -len(".arrow")] for name in arrow_files if name not in _NON_MODALITY_FILES],
-    )
+    # The sync table's schema from the table itself: every reader of the log loads that table anyway, so the
+    # metadata costs no second open. No listing and no existence check either: a missing file is the load's error.
+    try:
+        sync_schema = get_lru_cached_arrow_table(os.path.join(log_dir, "sync.arrow")).schema
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"sync.arrow not found in {log_dir}") from e
+    log_metadata = get_metadata_from_arrow_schema(sync_schema, LogMetadata)
+    modality_metadatas = _ModalityMetadatas(log_dir)
     return LogDirectoryMetadata(log_metadata=log_metadata, modality_metadatas=modality_metadatas)
