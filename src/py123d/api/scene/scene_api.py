@@ -130,6 +130,20 @@ class SceneAPI(abc.ABC):
         :return: Mapping of modality key to its metadata.
         """
 
+    def get_modality_metadatas_of_type(self, modality_type: ModalityType) -> Dict[str, BaseModalityMetadata]:
+        """Returns the modality metadatas of one modality type.
+
+        A scene backed by files overrides this to read the metadata of that type alone.
+
+        :param modality_type: The :class:`ModalityType` to filter by.
+        :return: Mapping of modality key to its metadata.
+        """
+        return {
+            modality_key: metadata
+            for modality_key, metadata in self.get_all_modality_metadatas().items()
+            if metadata.modality_type == modality_type
+        }
+
     @abc.abstractmethod
     def get_modality_metadata(
         self,
@@ -432,8 +446,8 @@ class SceneAPI(abc.ABC):
         """
         camera_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA and isinstance(metadata, BaseCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA).values()
+            if isinstance(metadata, BaseCameraMetadata)
         }
         return camera_metadatas
 
@@ -515,9 +529,8 @@ class SceneAPI(abc.ABC):
         """
         camera_semantic_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA_SEMANTIC
-            and isinstance(metadata, SegmentationCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA_SEMANTIC).values()
+            if isinstance(metadata, SegmentationCameraMetadata)
         }
         return camera_semantic_metadatas
 
@@ -604,9 +617,8 @@ class SceneAPI(abc.ABC):
         """
         camera_instance_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA_INSTANCE
-            and isinstance(metadata, SegmentationCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA_INSTANCE).values()
+            if isinstance(metadata, SegmentationCameraMetadata)
         }
         return camera_instance_metadatas
 
@@ -693,8 +705,8 @@ class SceneAPI(abc.ABC):
         """
         camera_depth_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA_DEPTH and isinstance(metadata, DepthCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA_DEPTH).values()
+            if isinstance(metadata, DepthCameraMetadata)
         }
         return camera_depth_metadatas
 
@@ -787,8 +799,8 @@ class SceneAPI(abc.ABC):
         if merged_lidar_metadata is not None and isinstance(merged_lidar_metadata, LidarMergedMetadata):
             lidar_metadatas.update(merged_lidar_metadata.lidar_metadatas)
         else:
-            for metadata in self.get_all_modality_metadatas().values():
-                if metadata.modality_type == ModalityType.LIDAR and isinstance(metadata, LidarMetadata):
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.LIDAR).values():
+                if isinstance(metadata, LidarMetadata):
                     lidar_metadatas[metadata.lidar_id] = metadata
         return lidar_metadatas
 
@@ -868,8 +880,8 @@ class SceneAPI(abc.ABC):
         if merged_radar_metadata is not None and isinstance(merged_radar_metadata, RadarMergedMetadata):
             radar_metadatas.update(merged_radar_metadata.radar_metadatas)
         else:
-            for metadata in self.get_all_modality_metadatas().values():
-                if metadata.modality_type == ModalityType.RADAR and isinstance(metadata, RadarMetadata):
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.RADAR).values():
+                if isinstance(metadata, RadarMetadata):
                     radar_metadatas[metadata.radar_id] = metadata
         return radar_metadatas
 
@@ -945,8 +957,8 @@ class SceneAPI(abc.ABC):
         :return: A dictionary of custom modality metadata, keyed by modality ID.
         """
         custom_modality_metadatas: Dict[str, CustomModalityMetadata] = {}
-        for metadata in self.get_all_modality_metadatas().values():
-            if metadata.modality_type == ModalityType.CUSTOM and isinstance(metadata, CustomModalityMetadata):
+        for metadata in self.get_modality_metadatas_of_type(ModalityType.CUSTOM).values():
+            if isinstance(metadata, CustomModalityMetadata):
                 custom_modality_metadatas[str(metadata.modality_id)] = metadata
         return custom_modality_metadatas
 

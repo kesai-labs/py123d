@@ -1,8 +1,10 @@
 import logging
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Type, TypeVar
+from typing import Any, Dict, Iterator, List, Type, TypeVar
 
 import msgpack
 import pyarrow as pa
@@ -141,6 +143,70 @@ def resolve_metadata_class(modality_key: str) -> Any:
     return registry[modality_type]
 
 
+class _ModalityMetadatas(Mapping):
+    """The modality metadatas of a log directory by modality key, each read from its file on first use.
+
+    A lookup of one key reads that file's schema only; a log holds tens of Arrow files, and a reader of the ego
+    states needs one of them. Iterating reads every file, and leaves out the files whose metadata cannot be
+    deserialized, as the eager parse did.
+    """
+
+    def __init__(self, log_dir: Path, modality_keys: List[str]) -> None:
+        """
+        :param log_dir: The log directory.
+        :param modality_keys: The stems of the directory's modality Arrow files, sorted.
+        """
+        self._log_dir = log_dir
+        self._modality_keys = modality_keys
+        self._unread = set(modality_keys)
+        self._metadatas: Dict[str, BaseModalityMetadata] = {}
+
+    def _read(self, modality_key: str) -> None:
+        """Read one file's metadata if it was not read before; a file that cannot be deserialized is skipped."""
+        if modality_key not in self._unread:
+            return
+        from py123d.api.utils.arrow_helper import open_arrow_schema
+
+        try:
+            metadata_class = resolve_metadata_class(modality_key)
+            schema = open_arrow_schema(os.path.join(self._log_dir, f"{modality_key}.arrow"))
+            self._metadatas[modality_key] = get_metadata_from_arrow_schema(schema, metadata_class)
+        except (ValueError, KeyError) as e:
+            logger.warning("Skipping '%s.arrow': %s", modality_key, e)
+        self._unread.discard(modality_key)
+
+    def __getitem__(self, modality_key: str) -> BaseModalityMetadata:
+        self._read(modality_key)
+        return self._metadatas[modality_key]
+
+    def of_type(self, modality_type: ModalityType) -> Dict[str, BaseModalityMetadata]:
+        """The metadatas of one modality type, reading the files of that type alone: the type is in the file name.
+
+        :param modality_type: The :class:`ModalityType` to filter by.
+        :return: Dict of matching modality keys to their metadata.
+        """
+        result: Dict[str, BaseModalityMetadata] = {}
+        for modality_key in self._modality_keys:
+            try:
+                if get_modality_type_from_key(modality_key) != modality_type:
+                    continue
+            except (ValueError, KeyError):
+                pass  # A name that states no known type: the metadata decides.
+            self._read(modality_key)
+            metadata = self._metadatas.get(modality_key)
+            if metadata is not None and metadata.modality_type == modality_type:
+                result[modality_key] = metadata
+        return result
+
+    def __iter__(self) -> Iterator[str]:
+        for modality_key in self._modality_keys:
+            self._read(modality_key)
+        return (modality_key for modality_key in self._modality_keys if modality_key in self._metadatas)
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+
 @dataclass
 class LogDirectoryMetadata:
     """All metadata parsed from a log directory's Arrow files.
@@ -150,7 +216,7 @@ class LogDirectoryMetadata:
     """
 
     log_metadata: LogMetadata  # noqa: F821 — forward ref to avoid top-level import
-    modality_metadatas: Dict[str, BaseModalityMetadata] = field(default_factory=dict)
+    modality_metadatas: Mapping[str, BaseModalityMetadata] = field(default_factory=dict)
 
     def get(self, modality_key: str) -> BaseModalityMetadata:
         """Get metadata for a specific modality key.
@@ -166,11 +232,9 @@ class LogDirectoryMetadata:
         :param modality_type: The :class:`ModalityType` to filter by.
         :return: Dict of matching modality keys to their metadata.
         """
-        result: Dict[str, BaseModalityMetadata] = {}
-        for key, meta in self.modality_metadatas.items():
-            if meta.modality_type == modality_type:
-                result[key] = meta
-        return result
+        if isinstance(self.modality_metadatas, _ModalityMetadatas):
+            return self.modality_metadatas.of_type(modality_type)
+        return {key: meta for key, meta in self.modality_metadatas.items() if meta.modality_type == modality_type}
 
     @property
     def modality_keys(self) -> list:
@@ -183,8 +247,8 @@ def parse_log_directory_metadata(log_dir: Path) -> LogDirectoryMetadata:
     """Parse all metadata from Arrow files in a log directory.
 
     Reads the :class:`~py123d.datatypes.LogMetadata` from ``sync.arrow`` and discovers
-    all per-modality Arrow files, deserializing each file's schema metadata into the
-    appropriate metadata class based on the modality type encoded in the filename.
+    all per-modality Arrow files. Each file's schema metadata is deserialized on first
+    use, into the metadata class of the modality type encoded in the filename.
 
     The modality type is derived from the Arrow filename (e.g. ``ego_state_se3.arrow``
     → :class:`~py123d.datatypes.EgoStateSE3Metadata`). For ambiguous cases like lidar,
@@ -200,23 +264,14 @@ def parse_log_directory_metadata(log_dir: Path) -> LogDirectoryMetadata:
 
     log_dir = Path(log_dir)
 
-    sync_path = log_dir / "sync.arrow"
-    if not sync_path.exists():
+    # One directory listing names every file; no stat per file.
+    arrow_files = sorted(name for name in os.listdir(log_dir) if name.endswith(".arrow"))
+    if "sync.arrow" not in arrow_files:
         raise FileNotFoundError(f"sync.arrow not found in {log_dir}")
 
-    log_metadata = get_metadata_from_arrow_schema(open_arrow_schema(sync_path), LogMetadata)
-
-    modality_metadatas: Dict[str, BaseModalityMetadata] = {}
-    for arrow_file in sorted(log_dir.glob("*.arrow")):
-        if arrow_file.name in _NON_MODALITY_FILES:
-            continue
-
-        modality_key = arrow_file.stem
-        try:
-            metadata_class = resolve_metadata_class(modality_key)
-            schema = open_arrow_schema(arrow_file)
-            modality_metadatas[modality_key] = get_metadata_from_arrow_schema(schema, metadata_class)
-        except (ValueError, KeyError) as e:
-            logger.warning("Skipping '%s': %s", arrow_file.name, e)
-
+    log_metadata = get_metadata_from_arrow_schema(open_arrow_schema(log_dir / "sync.arrow"), LogMetadata)
+    modality_metadatas = _ModalityMetadatas(
+        log_dir,
+        [name[: -len(".arrow")] for name in arrow_files if name not in _NON_MODALITY_FILES],
+    )
     return LogDirectoryMetadata(log_metadata=log_metadata, modality_metadatas=modality_metadatas)

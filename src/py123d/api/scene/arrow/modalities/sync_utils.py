@@ -3,6 +3,7 @@
 These functions resolve the mapping from sync-table iterations to per-modality row indices.
 """
 
+import os
 import threading
 import weakref
 from pathlib import Path
@@ -24,11 +25,12 @@ def get_modality_table(log_dir: Path, modality_key: str) -> Optional[pa.Table]:
     :param modality_key: The modality file stem (e.g. ``"ego_state_se3"``).
     :return: The cached Arrow table, or None.
     """
-    file_path = log_dir / f"{modality_key}.arrow"
-    table: Optional[pa.Table] = None
-    if file_path.exists():
-        table = get_lru_cached_arrow_table(file_path)
-    return table
+    # No existence check first: a table in the cache needs no file system call, and a stat per read is what a
+    # network file system serves slowest when hundreds of processes read logs at once.
+    try:
+        return get_lru_cached_arrow_table(os.path.join(log_dir, f"{modality_key}.arrow"))
+    except FileNotFoundError:
+        return None
 
 
 # Timestamp columns as NumPy arrays, cached per table object and column, with whether they never
