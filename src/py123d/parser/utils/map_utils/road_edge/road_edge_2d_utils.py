@@ -55,7 +55,8 @@ def get_road_edge_linear_rings(
         -buffer_distance
     )
     if non_drivable_union is not None:
-        union_polygon = union_polygon.difference(non_drivable_union)
+        # the closing above fills sub-buffer seams between adjacent carve polygons; grow the carve to match
+        union_polygon = union_polygon.difference(non_drivable_union.buffer(buffer_distance, join_style=2))
 
     linear_ring_list = []
     if union_polygon.geom_type == "Polygon":

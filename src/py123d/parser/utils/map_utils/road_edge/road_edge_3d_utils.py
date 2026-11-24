@@ -37,6 +37,8 @@ LIFT_PARALLEL_MIN_COS = np.cos(np.pi / 4.0)  # ring direction vs guide direction
 DUPLICATE_EDGE_MAX_DISTANCE = 0.5  # [m]
 DUPLICATE_EDGE_MAX_Z_DIFF = 1.5  # [m]
 MIN_RESOLVED_EDGE_LENGTH = 2.0  # [m] drops degenerate fragments from union corner densification
+LIFT_SEAM_MIN_Z_STEP = 1.5  # [m] consecutive vertices lifted to different vertical layers (bridge over road) ...
+LIFT_SEAM_MIN_GRADE = 0.5  # ... are a seam when the step is steeper than any road
 
 
 def get_road_edges_3d_from_drivable_surfaces(
@@ -238,7 +240,7 @@ def lift_road_edges_to_3d(
                     segment_points = points_3d[segment_indices]
                     ring_edges_3d.append(Polyline3D.from_array(segment_points))
 
-            road_edges_3d.extend(_fuse_short_edges(ring_edges_3d))
+            road_edges_3d.extend(_split_at_vertical_seams(_fuse_short_edges(ring_edges_3d)))
 
     return road_edges_3d
 
@@ -570,6 +572,27 @@ def _fuse_short_edges(edges: List[Polyline3D], min_length: float = 2.0, max_gap:
             )
 
     return [Polyline3D.from_array(edge_array) for edge_array in fused_arrays]
+
+
+def _split_at_vertical_seams(edges: List[Polyline3D]) -> List[Polyline3D]:
+    """Cut edges where the lift stepped between vertical layers, so no edge joins a bridge with the road below."""
+    split_edges: List[Polyline3D] = []
+    for edge in edges:
+        points = edge.array
+        steps = np.diff(points, axis=0)
+        z_steps = np.abs(steps[:, 2])
+        xy_lengths = np.linalg.norm(steps[:, :2], axis=1)
+        is_seam = (z_steps > LIFT_SEAM_MIN_Z_STEP) & (z_steps > LIFT_SEAM_MIN_GRADE * xy_lengths)
+        seam_indices = np.nonzero(is_seam)[0]
+        if len(seam_indices) == 0:
+            split_edges.append(edge)
+            continue
+        piece_starts = [0] + (seam_indices + 1).tolist()
+        piece_ends = (seam_indices + 1).tolist() + [len(points)]
+        for start, end in zip(piece_starts, piece_ends):
+            if end - start >= 2:
+                split_edges.append(Polyline3D.from_array(points[start:end]))
+    return split_edges
 
 
 def _get_nearest_z_from_points_3d(points_3d: npt.NDArray[np.float64], query_point: npt.NDArray[np.float64]) -> float:
