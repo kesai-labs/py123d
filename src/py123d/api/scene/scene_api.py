@@ -39,6 +39,7 @@ from py123d.datatypes import (
 )
 from py123d.datatypes.metadata import SceneMetadata
 from py123d.datatypes.metadata.route_metadata import RouteMetadata
+from py123d.geometry.geometry_index import PoseSE3Index
 
 T = TypeVar("T")
 
@@ -128,6 +129,20 @@ class SceneAPI(abc.ABC):
 
         :return: Mapping of modality key to its metadata.
         """
+
+    def get_modality_metadatas_of_type(self, modality_type: ModalityType) -> Dict[str, BaseModalityMetadata]:
+        """Returns the modality metadatas of one modality type.
+
+        A scene backed by files overrides this to read the metadata of that type alone.
+
+        :param modality_type: The :class:`ModalityType` to filter by.
+        :return: Mapping of modality key to its metadata.
+        """
+        return {
+            modality_key: metadata
+            for modality_key, metadata in self.get_all_modality_metadatas().items()
+            if metadata.modality_type == modality_type
+        }
 
     @abc.abstractmethod
     def get_modality_metadata(
@@ -299,6 +314,33 @@ class SceneAPI(abc.ABC):
         )
         return checked_optional_cast(ego_state_se3, EgoStateSE3)
 
+    def get_ego_imu_se3_between_timestamps(
+        self,
+        start_timestamp: Union[Timestamp, int],
+        end_timestamp: Union[Timestamp, int],
+        inclusive: Literal["left", "right", "both", "neither"] = "left",
+    ) -> Tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+        """Returns the timestamps and IMU poses of the ego states between two timestamps, as arrays.
+
+        Subclasses that store the poses as columns can override this with a whole-column read; the default
+        builds each :class:`~py123d.datatypes.EgoStateSE3` through :meth:`get_modality_between_timestamps`.
+
+        :param start_timestamp: Lower bound of the range, as a Timestamp object or integer microseconds.
+        :param end_timestamp: Upper bound of the range, as a Timestamp object or integer microseconds.
+        :param inclusive: Which bounds are inclusive, see :meth:`get_modality_between_timestamps`.
+        :return: Tuple of (timestamps in microseconds (N,), IMU poses (N, 7) indexed by
+            :class:`~py123d.geometry.PoseSE3Index`), in chronological order. Empty if no ego state falls in the range.
+        """
+        ego_states = [
+            checked_optional_cast(ego_state_se3, EgoStateSE3)
+            for ego_state_se3 in self.get_modality_between_timestamps(
+                start_timestamp, end_timestamp, modality_type=ModalityType.EGO_STATE_SE3, inclusive=inclusive
+            )
+        ]
+        timestamps_us = np.array([state.timestamp.time_us for state in ego_states if state is not None], np.int64)
+        imu_se3_array = np.array([state.imu_se3.array for state in ego_states if state is not None], np.float64)
+        return timestamps_us, imu_se3_array.reshape(len(timestamps_us), len(PoseSE3Index))
+
     # 2.2 Box Detections SE3
     # ------------------------------------------------------------------------------------------------------------------
 
@@ -404,8 +446,8 @@ class SceneAPI(abc.ABC):
         """
         camera_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA and isinstance(metadata, BaseCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA).values()
+            if isinstance(metadata, BaseCameraMetadata)
         }
         return camera_metadatas
 
@@ -487,9 +529,8 @@ class SceneAPI(abc.ABC):
         """
         camera_semantic_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA_SEMANTIC
-            and isinstance(metadata, SegmentationCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA_SEMANTIC).values()
+            if isinstance(metadata, SegmentationCameraMetadata)
         }
         return camera_semantic_metadatas
 
@@ -576,9 +617,8 @@ class SceneAPI(abc.ABC):
         """
         camera_instance_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA_INSTANCE
-            and isinstance(metadata, SegmentationCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA_INSTANCE).values()
+            if isinstance(metadata, SegmentationCameraMetadata)
         }
         return camera_instance_metadatas
 
@@ -665,8 +705,8 @@ class SceneAPI(abc.ABC):
         """
         camera_depth_metadatas = {
             metadata.camera_id: metadata
-            for metadata in self.get_all_modality_metadatas().values()
-            if metadata.modality_type == ModalityType.CAMERA_DEPTH and isinstance(metadata, DepthCameraMetadata)
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.CAMERA_DEPTH).values()
+            if isinstance(metadata, DepthCameraMetadata)
         }
         return camera_depth_metadatas
 
@@ -759,8 +799,8 @@ class SceneAPI(abc.ABC):
         if merged_lidar_metadata is not None and isinstance(merged_lidar_metadata, LidarMergedMetadata):
             lidar_metadatas.update(merged_lidar_metadata.lidar_metadatas)
         else:
-            for metadata in self.get_all_modality_metadatas().values():
-                if metadata.modality_type == ModalityType.LIDAR and isinstance(metadata, LidarMetadata):
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.LIDAR).values():
+                if isinstance(metadata, LidarMetadata):
                     lidar_metadatas[metadata.lidar_id] = metadata
         return lidar_metadatas
 
@@ -840,8 +880,8 @@ class SceneAPI(abc.ABC):
         if merged_radar_metadata is not None and isinstance(merged_radar_metadata, RadarMergedMetadata):
             radar_metadatas.update(merged_radar_metadata.radar_metadatas)
         else:
-            for metadata in self.get_all_modality_metadatas().values():
-                if metadata.modality_type == ModalityType.RADAR and isinstance(metadata, RadarMetadata):
+            for metadata in self.get_modality_metadatas_of_type(ModalityType.RADAR).values():
+                if isinstance(metadata, RadarMetadata):
                     radar_metadatas[metadata.radar_id] = metadata
         return radar_metadatas
 
@@ -917,8 +957,8 @@ class SceneAPI(abc.ABC):
         :return: A dictionary of custom modality metadata, keyed by modality ID.
         """
         custom_modality_metadatas: Dict[str, CustomModalityMetadata] = {}
-        for metadata in self.get_all_modality_metadatas().values():
-            if metadata.modality_type == ModalityType.CUSTOM and isinstance(metadata, CustomModalityMetadata):
+        for metadata in self.get_modality_metadatas_of_type(ModalityType.CUSTOM).values():
+            if isinstance(metadata, CustomModalityMetadata):
                 custom_modality_metadatas[str(metadata.modality_id)] = metadata
         return custom_modality_metadatas
 
