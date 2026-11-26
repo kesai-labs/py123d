@@ -57,3 +57,8 @@ log_writer_config:
 #   config: {_target_: py123d.common.frame_selection.FrameSelectionConfig, mode: grid, period_us: 100000}
 camera_selection:
   _target_: py123d.api.scene.arrow.transcode.KeepAllImages
+
+# Writes the kept rows of each camera (null: py123d.api.scene.arrow.transcode.transcode_camera). An object with the
+# arguments and return value of transcode_camera, e.g. one that changes the images before they are encoded and writes
+# a box_detections_2d stream next to each camera (CameraTranscoder in transcode.py).
+camera_transcoder: null

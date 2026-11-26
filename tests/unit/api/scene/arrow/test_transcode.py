@@ -407,3 +407,53 @@ def test_radar_is_transcoded_with_a_radar_codec_and_copied_without(tmp_path):
         TranscodeConfig(log_writer_config=LogWriterConfig()),
     )
     assert (_log_dir(copy_root) / name).read_bytes() == (source_dir / name).read_bytes()
+
+
+def test_a_camera_transcoder_writes_box_streams_with_their_own_sync_columns(source_log, tmp_path):
+    """A camera transcoder that also writes a box_detections_2d stream: the stream is kept, gets its own sync column
+    (the rows of its camera), and its metadata is found in the new log."""
+    from py123d.api.scene.arrow.modalities.arrow_box_detections_2d import (
+        ArrowBoxDetections2DReader,
+        ArrowBoxDetections2DWriter,
+    )
+    from py123d.api.scene.arrow.transcode import transcode_camera
+    from py123d.api.utils.arrow_metadata_utils import parse_log_directory_metadata
+    from py123d.datatypes import BoxDetection2D, BoxDetections2D, BoxDetections2DMetadata
+
+    def transcoder(source_path, target_dir, kept_rows, config):
+        timestamps = transcode_camera(source_path, target_dir, kept_rows, config)
+        metadata = BoxDetections2DMetadata(source_path.stem.split(".", 1)[1], ["face"], info={"producer": "test"})
+        writer = ArrowBoxDetections2DWriter(target_dir, metadata)
+        for k, ts in enumerate(timestamps):
+            boxes = [BoxDetection2D((k, 1.0, k + 10.0, 11.0), label=0, score=0.5)] if k % 2 else []
+            writer.write_modality(BoxDetections2D(boxes, Timestamp.from_us(int(ts)), metadata))
+        writer.close()
+        return {source_path.stem: timestamps, metadata.modality_key: timestamps}
+
+    log_metadata = make_log_metadata()
+    assert transcode_log(
+        source_log, tmp_path, log_metadata.split, log_metadata.log_name, _config(), EvenImages(), transcoder
+    )
+    source_sync = _table(_log_dir(source_log) / "sync.arrow")
+    sync = _table(_log_dir(tmp_path) / "sync.arrow")
+    assert sync.column_names == source_sync.column_names + ["box_detections_2d.pcam_f0"]
+    assert sync.schema.metadata == source_sync.schema.metadata
+    assert sync.column("box_detections_2d.pcam_f0").to_pylist() == sync.column("camera.pcam_f0").to_pylist()
+    boxes = _table(_log_dir(tmp_path) / "box_detections_2d.pcam_f0.arrow")
+    camera = _table(_log_dir(tmp_path) / "camera.pcam_f0.arrow")
+    assert boxes.column(0).to_pylist() == camera.column("camera.pcam_f0.timestamp_us").to_pylist()
+    metadata = parse_log_directory_metadata(_log_dir(tmp_path)).modality_metadatas["box_detections_2d.pcam_f0"]
+    assert isinstance(metadata, BoxDetections2DMetadata) and metadata.info == {"producer": "test"}
+    third = ArrowBoxDetections2DReader.read_at_index(3, boxes, metadata, "test")
+    assert len(third) == 1 and third[0].box == (3.0, 1.0, 13.0, 11.0)
+
+
+def test_a_camera_transcoder_must_return_its_camera(source_log, tmp_path):
+    from py123d.api.scene.arrow.transcode import transcode_camera
+
+    def transcoder(source_path, target_dir, kept_rows, config):
+        return {"other": transcode_camera(source_path, target_dir, kept_rows, config)}
+
+    log_metadata = make_log_metadata()
+    with pytest.raises(ValueError, match="no time stamps for the camera"):
+        transcode_log(source_log, tmp_path, log_metadata.split, log_metadata.log_name, _config(), None, transcoder)

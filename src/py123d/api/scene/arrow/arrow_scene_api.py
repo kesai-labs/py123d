@@ -10,6 +10,7 @@ from py123d.api.map.arrow.arrow_map_api import get_map_api_for_log
 from py123d.api.map.map_api import MapAPI
 from py123d.api.scene.arrow.modalities.arrow_barometer import ArrowBarometerReader
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityReader
+from py123d.api.scene.arrow.modalities.arrow_box_detections_2d import ArrowBoxDetections2DReader
 from py123d.api.scene.arrow.modalities.arrow_box_detections_se3 import ArrowBoxDetectionsSE3Reader
 from py123d.api.scene.arrow.modalities.arrow_camera import ArrowCameraReader
 from py123d.api.scene.arrow.modalities.arrow_custom_modality import ArrowCustomModalityReader
@@ -66,6 +67,7 @@ _SEARCHSORTED_SIDES: Dict[str, Tuple[Literal["left", "right"], Literal["left", "
 MODALITY_READERS: Dict[ModalityType, Type[ArrowBaseModalityReader]] = {
     ModalityType.EGO_STATE_SE3: ArrowEgoStateSE3Reader,
     ModalityType.BOX_DETECTIONS_SE3: ArrowBoxDetectionsSE3Reader,
+    ModalityType.BOX_DETECTIONS_2D: ArrowBoxDetections2DReader,
     ModalityType.TRAFFIC_LIGHT_DETECTIONS: ArrowTrafficLightDetectionsReader,
     ModalityType.CAMERA: ArrowCameraReader,
     ModalityType.CAMERA_SEMANTIC: ArrowCameraReader,

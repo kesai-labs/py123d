@@ -10,6 +10,7 @@ import pyarrow as pa
 
 from py123d.api.scene.arrow.modalities.arrow_barometer import ArrowBarometerWriter
 from py123d.api.scene.arrow.modalities.arrow_base import ArrowBaseModalityWriter
+from py123d.api.scene.arrow.modalities.arrow_box_detections_2d import ArrowBoxDetections2DWriter
 from py123d.api.scene.arrow.modalities.arrow_box_detections_se3 import ArrowBoxDetectionsSE3Writer
 from py123d.api.scene.arrow.modalities.arrow_camera import ArrowCameraWriter
 from py123d.api.scene.arrow.modalities.arrow_custom_modality import ArrowCustomModalityWriter
@@ -40,6 +41,7 @@ from py123d.common.frame_selection import match_frames
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
 from py123d.datatypes import LogMetadata
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
+from py123d.datatypes.detections.box_detections_2d import BoxDetections2DMetadata
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
 from py123d.datatypes.modalities.base_modality import (
@@ -261,6 +263,14 @@ class ArrowLogWriter(BaseLogWriter):
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
                 infer_box_dynamics=self._log_writer_config.infer_box_dynamics,
+            )
+
+        elif isinstance(modality_metadata, BoxDetections2DMetadata):
+            modality_writer = ArrowBoxDetections2DWriter(
+                log_dir=self._state.log_dir,
+                metadata=modality_metadata,
+                ipc_compression=self._ipc_compression,
+                ipc_compression_level=self._ipc_compression_level,
             )
 
         elif isinstance(modality_metadata, TrafficLightDetectionsMetadata):
