@@ -12,11 +12,10 @@ The annotations (database queries, poses, boxes, traffic lights, sync loop) come
 :class:`~py123d.parser.nuplan.nuplan_parser.NuplanLogParser`; only its file system accesses are replaced by index
 lookups and archive reads.
 
-Two in-memory tables replace per-image database queries of the camera path: :class:`_EgoPoseInterpolator` (ego
-pose at the camera time) and :class:`_CameraImageIndex` (image of a lidar scan). The devkit helpers open a new
-connection per query, and the ego_pose bracket query has no usable index (full scan and sort, ~100 ms per image on
-network storage), which made these queries the largest part of the conversion time and read about 50 times more
-data from the shared storage.
+An in-memory table, :class:`_CameraImageIndex` (image of a lidar scan), replaces per-image database queries of the
+camera path; the devkit helpers open a new connection per query. The camera world poses are not stored: the reader
+composes them from the ego trajectory and the extrinsic, at the image time plus the rolling-shutter offset that the
+camera metadata carries (``time_offset_us``).
 
 The kedec conversion: ``py123d-conversion dataset=nuplan-tar codec=kedec`` (docs/notes/kedec.rst). The cameras
 keep all their images (10 per second, one per 10 Hz sync row), the lidar is stored at 10 Hz.
@@ -47,8 +46,6 @@ from py123d.datatypes import (
 from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.lidar import Lidar, LidarFeature, LidarMergedMetadata
 from py123d.geometry import PoseSE3
-from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
-from py123d.geometry.utils.rotation_utils import slerp_quaternion_arrays
 from py123d.parser.base_dataset_parser import (
     BaseDatasetParser,
     ModalitiesSync,
@@ -134,56 +131,6 @@ def _open_log_db_readonly(log_file: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{log_file}?mode=ro&immutable=1", uri=True)
 
 
-class _EgoPoseInterpolator:
-    """One-pass in-memory replacement for ``get_interpolated_ego_pose_from_db``.
-
-    The upstream helper opens two fresh sqlite connections per call and the
-    bracket query has no index on ``ego_pose.timestamp`` (full scan + sort);
-    called twice per camera image, it dominated conversion wall time. Loading
-    the table once turns each lookup into a ~1 us searchsorted.
-    """
-
-    def __init__(self, timestamps_us: np.ndarray, xyz: np.ndarray, quaternions_wxyz: np.ndarray) -> None:
-        self._timestamps_us = timestamps_us
-        self._xyz = xyz
-        self._quaternions_wxyz = quaternions_wxyz
-
-    @classmethod
-    def from_log_db(cls, log_file: Path) -> "_EgoPoseInterpolator":
-        with closing(_open_log_db_readonly(log_file)) as connection:
-            rows = connection.execute(
-                "SELECT timestamp, x, y, z, qw, qx, qy, qz FROM ego_pose ORDER BY timestamp"
-            ).fetchall()
-        if not rows:
-            raise ValueError(f"No ego poses found in log file {log_file}")
-        data = np.asarray(rows, dtype=np.float64)
-        return cls(data[:, 0].astype(np.int64), data[:, 1:4], data[:, 4:8])
-
-    def _pose_at(self, index: int) -> PoseSE3:
-        x, y, z = self._xyz[index]
-        qw, qx, qy, qz = self._quaternions_wxyz[index]
-        return PoseSE3(x=x, y=y, z=z, qw=qw, qx=qx, qy=qy, qz=qz)
-
-    def interpolate(self, timestamp_us: int) -> PoseSE3:
-        """Mirrors the upstream helper: boundary clamp, exact match, or lerp + slerp."""
-        after = int(np.searchsorted(self._timestamps_us, timestamp_us, side="right"))
-        before = after - 1
-        if before < 0:
-            return self._pose_at(0)
-        if after == len(self._timestamps_us) or self._timestamps_us[before] == timestamp_us:
-            return self._pose_at(before)
-
-        t0 = int(self._timestamps_us[before])
-        t1 = int(self._timestamps_us[after])
-        alpha = float(timestamp_us - t0) / float(t1 - t0)
-
-        position = (1.0 - alpha) * self._xyz[before] + alpha * self._xyz[after]
-        quaternion = slerp_quaternion_arrays(
-            self._quaternions_wxyz[before], self._quaternions_wxyz[after], np.array(alpha)
-        )
-        return PoseSE3.from_R_t(rotation=quaternion, translation=position)
-
-
 class _CameraImageIndex:
     """One-pass in-memory replacement for the devkit's ``get_images_from_lidar_tokens``.
 
@@ -258,7 +205,6 @@ class NuplanTarLogParser(NuplanLogParser):
         self._members: Optional[Dict[str, TarMember]] = None
         self._sensor_dirs: Optional[Set[str]] = None
         self._reader: Optional[TarMemberReader] = None
-        self._ego_interpolator: Optional[_EgoPoseInterpolator] = None
         self._image_index: Optional[_CameraImageIndex] = None
 
     def __getstate__(self) -> Dict:
@@ -266,7 +212,6 @@ class NuplanTarLogParser(NuplanLogParser):
         state["_members"] = None
         state["_sensor_dirs"] = None
         state["_reader"] = None
-        state["_ego_interpolator"] = None
         state["_image_index"] = None
         return state
 
@@ -293,11 +238,6 @@ class NuplanTarLogParser(NuplanLogParser):
         if self._reader is None:
             self._reader = TarMemberReader()
         return self._reader.read(*member)
-
-    def _ensure_ego_interpolator(self) -> _EgoPoseInterpolator:
-        if self._ego_interpolator is None:
-            self._ego_interpolator = _EgoPoseInterpolator.from_log_db(self._source_log_path)
-        return self._ego_interpolator
 
     def _ensure_image_index(self) -> _CameraImageIndex:
         if self._image_index is None:
@@ -350,6 +290,7 @@ class NuplanTarLogParser(NuplanLogParser):
                 intrinsics=intrinsic,
                 distortion=distortion,
                 camera_to_imu_se3=extrinsic,
+                time_offset_us=NUPLAN_ROLLING_SHUTTER_S.time_us,
             )
         return camera_metadata
 
@@ -376,7 +317,6 @@ class NuplanTarLogParser(NuplanLogParser):
     ) -> List[ParsedCamera]:
         camera_data_list: List[ParsedCamera] = []
         image_index = self._ensure_image_index()
-        ego_interpolator = self._ensure_ego_interpolator()
 
         for camera_type, camera_channel in NUPLAN_CAMERA_MAPPING.items():
             if camera_type not in metadatas:
@@ -391,20 +331,13 @@ class NuplanTarLogParser(NuplanLogParser):
             if member is None:
                 continue
 
-            # Interpolate ego pose at the rolling-shutter-compensated camera timestamp
-            compensated_timestamp_us = image_timestamp_us + NUPLAN_ROLLING_SHUTTER_S.time_us
-            ego_pose = ego_interpolator.interpolate(compensated_timestamp_us)
-            camera_to_global_se3 = rel_to_abs_se3(
-                origin=ego_pose,
-                pose_se3=metadatas[camera_type].camera_to_imu_se3,
-            )
-
-            # NOTE: original image timestamp, without rolling shutter compensation (see upstream).
+            # NOTE: original image timestamp, without rolling shutter compensation (see upstream); the reader
+            # composes the world pose at it plus the metadata's time_offset_us.
             camera_data_list.append(
                 ParsedCamera(
                     metadata=metadatas[camera_type],
                     timestamp=Timestamp.from_us(image_timestamp_us),
-                    camera_to_global_se3=camera_to_global_se3,
+                    camera_to_global_se3=None,
                     byte_string=self._read_camera_jpeg(member),
                 )
             )
@@ -524,7 +457,6 @@ class NuplanTarLogParser(NuplanLogParser):
         members, sensor_dirs = self._ensure_members()
         pinhole_camera_metadatas = self._get_camera_metadatas(sensor_dirs)
         channel_to_camera_id = {str(v.value): k for k, v in NUPLAN_CAMERA_MAPPING.items()}
-        ego_interpolator = self._ensure_ego_interpolator()
         log_file = str(self._source_log_path)
 
         for row in iter_all_images_from_db(log_file):
@@ -540,19 +472,10 @@ class NuplanTarLogParser(NuplanLogParser):
             if member is None:
                 continue
 
-            camera_metadata = pinhole_camera_metadatas[camera_id]
-
-            compensated_timestamp_us = row["timestamp"] + NUPLAN_ROLLING_SHUTTER_S.time_us
-            ego_pose = ego_interpolator.interpolate(compensated_timestamp_us)
-            camera_to_global_se3 = rel_to_abs_se3(
-                origin=ego_pose,
-                pose_se3=camera_metadata.camera_to_imu_se3,
-            )
-
             yield ParsedCamera(
-                metadata=camera_metadata,
+                metadata=pinhole_camera_metadatas[camera_id],
                 timestamp=Timestamp.from_us(row["timestamp"]),
-                camera_to_global_se3=camera_to_global_se3,
+                camera_to_global_se3=None,
                 byte_string=self._read_camera_jpeg(member),
             )
 

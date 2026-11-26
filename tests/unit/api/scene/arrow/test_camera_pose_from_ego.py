@@ -177,10 +177,16 @@ def test_the_column_reader_composes_too(tmp_path: Path) -> None:
     assert np.allclose(pose.tolist(), expected.tolist(), atol=1e-9)
 
 
-def test_a_null_pose_without_an_ego_trajectory_reads_as_absent(tmp_path: Path) -> None:
-    """No ego states means the pose genuinely cannot be known; the frame is reported as absent."""
+def test_a_null_pose_without_an_ego_trajectory_places_the_ego_at_the_origin(tmp_path: Path) -> None:
+    """A log without ego states (e.g. videos without poses) keeps its images; the pose is the extrinsic."""
     table = _write_cameras(tmp_path, [0], pose=False)
-    assert ArrowCameraReader.read_at_index(0, table, _camera_metadata(), "test", log_dir=tmp_path) is None
+    camera = ArrowCameraReader.read_at_index(0, table, _camera_metadata(), "test", log_dir=tmp_path)
+    assert camera is not None, "a log without an ego trajectory lost its images"
+    assert np.allclose(camera.camera_to_global_se3.tolist(), _CAMERA_TO_IMU.tolist())
+    pose = ArrowCameraReader.read_column_at_index(
+        0, table, _camera_metadata(), "camera_to_global_se3", "test", deserialize=True, log_dir=tmp_path
+    )
+    assert np.allclose(pose.tolist(), _CAMERA_TO_IMU.tolist())
 
 
 def test_a_parsed_camera_accepts_no_pose() -> None:

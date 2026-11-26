@@ -36,7 +36,6 @@ from py123d.datatypes import EgoStateSE3, LidarID, Timestamp
 from py123d.datatypes.modalities.base_modality import BaseModality
 from py123d.datatypes.sensors.ftheta_camera import FThetaCameraMetadata
 from py123d.datatypes.sensors.lidar import Lidar, LidarFeature
-from py123d.geometry.transform.transform_se3 import rel_to_abs_se3
 from py123d.parser.base_dataset_parser import ModalitiesSync, ParsedCamera
 from py123d.parser.physical_ai_av.physical_ai_av_camera_selection import (
     FALLBACK_DELAY_US,
@@ -63,18 +62,11 @@ from py123d.parser.physical_ai_av.utils.physical_ai_av_constants import (
     PHYSICAL_AI_AV_BOX_DETECTIONS_SE3_METADATA,
     PHYSICAL_AI_AV_CAMERA_ID_MAPPING,
 )
-from py123d.parser.physical_ai_av.utils.physical_ai_av_helper import find_closest_index, quat_scalar_last_to_pose_se3
+from py123d.parser.physical_ai_av.utils.physical_ai_av_helper import quat_scalar_last_to_pose_se3
 
 logger = logging.getLogger(__name__)
 
 LIDAR_FEATURE = "lidar_top_360fov"
-
-
-def _pose_at(ego_df: pd.DataFrame, ego_timestamps: np.ndarray, timestamp_us: int):
-    row = ego_df.iloc[find_closest_index(ego_timestamps, timestamp_us)]
-    return quat_scalar_last_to_pose_se3(
-        qx=row["qx"], qy=row["qy"], qz=row["qz"], qw=row["qw"], x=row["x"], y=row["y"], z=row["z"]
-    )
 
 
 class _SequentialVideo:
@@ -237,11 +229,11 @@ class PhysicalAIAVZipLogParser(PhysicalAIAVLogParser):
                 last_kept[name] = index
                 metadata: FThetaCameraMetadata = ftheta_metadatas[PHYSICAL_AI_AV_CAMERA_ID_MAPPING[name]]
                 camera_ts = int(timestamps[index])
-                ego_pose = _pose_at(ego_df, ego_timestamps, camera_ts)
+                # The world pose is composed on read from the ego trajectory and the extrinsic.
                 yield ParsedCamera(
                     metadata=metadata,
                     timestamp=Timestamp.from_us(camera_ts),
-                    camera_to_global_se3=rel_to_abs_se3(origin=ego_pose, pose_se3=metadata.camera_to_imu_se3),
+                    camera_to_global_se3=None,
                     frame=YUV420Frame.from_av_frame(frame),
                 )
             xyz, features = decode_physical_ai_av_spin(blobs[k].as_py(), int(spin_start), lidar_to_imu)
