@@ -1,7 +1,7 @@
-"""Equivalence tests for the in-memory sqlite caches of the tar parser.
+"""Equivalence test for the in-memory sqlite cache of the tar parser.
 
-The caches replace per-image devkit queries (fresh connection per call, full
-ego_pose scans); these tests pin their behavior to the upstream helpers on a
+The cache replaces per-image devkit queries (fresh connection per call); this
+test pins its behavior to the upstream helper on a
 synthetic log DB.
 """
 
@@ -15,8 +15,7 @@ pytest.importorskip("nuplan")  # the nuPlan devkit (extra "nuplan")
 
 from nuplan.database.nuplan_db.nuplan_scenario_queries import get_images_from_lidar_tokens  # noqa: E402
 
-from py123d.parser.nuplan.nuplan_tar_parser import _CameraImageIndex, _EgoPoseInterpolator  # noqa: E402
-from py123d.parser.nuplan.utils.nuplan_sql_helper import get_interpolated_ego_pose_from_db  # noqa: E402
+from py123d.parser.nuplan.nuplan_tar_parser import _CameraImageIndex  # noqa: E402
 
 EGO_T0_US = 1_000_000
 EGO_DT_US = 10_000  # 100 Hz
@@ -77,34 +76,6 @@ def log_db(tmp_path: Path) -> Path:
         for i in range(NUM_LIDAR_PCS):
             connection.execute("INSERT INTO lidar_pc VALUES (?, ?)", (_token(3000 + i), LIDAR_T0_US + i * LIDAR_DT_US))
     return db_path
-
-
-def test_ego_interpolator_matches_upstream(log_db: Path) -> None:
-    interpolator = _EgoPoseInterpolator.from_log_db(log_db)
-    last_ts = EGO_T0_US + (NUM_EGO_POSES - 1) * EGO_DT_US
-    query_timestamps = [
-        EGO_T0_US - 12_345,  # before first pose -> clamp
-        EGO_T0_US,  # exact first
-        EGO_T0_US + 3 * EGO_DT_US,  # exact interior
-        EGO_T0_US + 3 * EGO_DT_US + 1,  # just past a pose
-        EGO_T0_US + 7 * EGO_DT_US + 4_999,  # mid-bracket
-        last_ts,  # exact last
-        last_ts + 54_321,  # past last pose -> clamp
-    ]
-    for timestamp_us in query_timestamps:
-        expected = get_interpolated_ego_pose_from_db(str(log_db), timestamp_us)
-        actual = interpolator.interpolate(timestamp_us)
-        np.testing.assert_allclose(actual.array, expected.array, atol=1e-12, err_msg=f"ts={timestamp_us}")
-
-
-def test_ego_interpolator_rejects_empty_table(tmp_path: Path) -> None:
-    db_path = tmp_path / "empty.db"
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            "CREATE TABLE ego_pose (timestamp INTEGER, x REAL, y REAL, z REAL, qw REAL, qx REAL, qy REAL, qz REAL)"
-        )
-    with pytest.raises(ValueError, match="No ego poses"):
-        _EgoPoseInterpolator.from_log_db(db_path)
 
 
 def test_image_index_matches_devkit(log_db: Path) -> None:

@@ -480,13 +480,14 @@ def _camera_to_global_from_ego(
     :param log_dir: The log directory; without it the trajectory cannot be found.
     :param metadata: The camera metadata, carrying ``camera_to_imu_se3``.
     :param timestamp_us: The frame's stored time; the camera is placed at it plus ``metadata.time_offset_us``.
-    :return: The camera-to-global pose, or None when the log carries no ego trajectory.
+    :return: The camera-to-global pose, or None without a log directory or a timestamp. A log without an ego
+        trajectory (e.g. videos without poses) has its ego at the origin, so the pose is the camera extrinsic.
     """
     if log_dir is None or timestamp_us is None:
         return None
     trajectory = _ego_trajectory(str(log_dir))
     if trajectory is None:
-        return None
+        return metadata.camera_to_imu_se3
     timestamps_us, poses = trajectory
     ego_pose = _ego_pose_at(timestamps_us, poses, timestamp_us + metadata.time_offset_us)
     return rel_to_abs_se3(origin=ego_pose, pose_se3=metadata.camera_to_imu_se3)
