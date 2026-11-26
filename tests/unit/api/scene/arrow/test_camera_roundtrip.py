@@ -200,3 +200,131 @@ class TestCameraMp4Roundtrip:
         result = ArrowCameraReader.read_at_index(0, table, metadata, "test-dataset", log_dir=tmp_path)
         assert result is not None
         np.testing.assert_array_almost_equal(result.camera_to_global_se3, cam.camera_to_global_se3, decimal=10)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# AV1
+# ------------------------------------------------------------------------------------------------------------------
+
+
+def _smooth_image(seed: int, height: int = 480, width: int = 640) -> np.ndarray:
+    import cv2
+
+    small = np.random.RandomState(seed).randint(0, 256, size=(height // 32, width // 32, 3)).astype(np.uint8)
+    return cv2.resize(small, (width, height), interpolation=cv2.INTER_CUBIC)
+
+
+def _psnr(a: np.ndarray, b: np.ndarray) -> float:
+    mse = np.mean((a.astype(np.float64) - b.astype(np.float64)) ** 2)
+    return float(10 * np.log10(255.0**2 / max(mse, 1e-12)))
+
+
+class TestCameraAv1Roundtrip:
+    """Write camera data with the AV1 codec (SVT-AV1 on the CPU), read back."""
+
+    @staticmethod
+    def _config():
+        from py123d.common.io.camera.video_codec_config import VideoCodecConfig
+
+        return VideoCodecConfig(backend="svt", svt_preset=12, svt_crf=30)
+
+    def _write(self, log_dir: Path, modalities: list) -> pa.Table:
+        metadata = _make_camera_metadata()
+        writer = ArrowCameraWriter(
+            log_dir=log_dir, metadata=metadata, camera_codec="av1", video_codec_config=self._config()
+        )
+        for modality in modalities:
+            writer.write_modality(modality)
+        writer.close()
+        return pa.ipc.open_file(str(log_dir / f"{metadata.modality_key}.arrow")).read_all()
+
+    def test_cameras_roundtrip(self, tmp_path: Path):
+        images = [_smooth_image(i) for i in range(4)]
+        cameras = [
+            Camera(
+                metadata=_make_camera_metadata(),
+                image=image,
+                camera_to_global_se3=PoseSE3(x=1.0, y=2.0, z=3.0, qw=1.0, qx=0.0, qy=0.0, qz=0.0),
+                timestamp=Timestamp.from_us(i * 100_000),
+            )
+            for i, image in enumerate(images)
+        ]
+        table = self._write(tmp_path, cameras)
+        metadata = _make_camera_metadata()
+        assert table[f"{metadata.modality_key}.data"].to_pylist() == [0, 1, 2, 3]
+        assert table.schema.field(f"{metadata.modality_key}.data").type == pa.int32()
+        assert (tmp_path / f"{metadata.modality_key}.av1.mp4").exists()
+        for i in (2, 0, 3, 1):
+            result = ArrowCameraReader.read_at_index(i, table, metadata, "test-dataset", log_dir=tmp_path)
+            assert result is not None and result.timestamp.time_us == i * 100_000
+            assert result.image.shape == (480, 640, 3) and _psnr(result.image, images[i]) > 30
+        half = ArrowCameraReader.read_at_index(1, table, metadata, "test-dataset", scale=2, log_dir=tmp_path)
+        assert half is not None and half.image.shape == (240, 320, 3)
+
+    def test_parsed_cameras_from_jpeg_and_frames(self, tmp_path: Path):
+        import cv2
+
+        from py123d.common.io.camera.yuv_frame import YUV420Frame
+        from py123d.parser.base_dataset_parser import ParsedCamera
+
+        images = [_smooth_image(10 + i) for i in range(3)]
+        jpeg = cv2.imencode(".jpg", cv2.cvtColor(images[0], cv2.COLOR_RGB2BGR))[1].tobytes()
+        metadata = _make_camera_metadata()
+        parsed = [
+            ParsedCamera(metadata, Timestamp.from_us(0), None, byte_string=jpeg),
+            ParsedCamera(metadata, Timestamp.from_us(100_000), None, frame=YUV420Frame.from_rgb(images[1])),
+            ParsedCamera(metadata, Timestamp.from_us(200_000), None, frame=images[2]),
+        ]
+        table = self._write(tmp_path, parsed)
+        from py123d.common.io.camera.av1_camera_io import AV1Reader
+
+        reader = AV1Reader(tmp_path / f"{metadata.modality_key}.av1.mp4")
+        assert _psnr(reader.get_frame(0), YUV420Frame.from_jpeg(jpeg).to_rgb()) > 30
+        assert _psnr(reader.get_frame(1), images[1]) > 30 and _psnr(reader.get_frame(2), images[2]) > 30
+        assert table[f"{metadata.modality_key}.camera_to_global_se3"].to_pylist() == [None, None, None]
+
+    def test_codec_schema_metadata(self, tmp_path: Path):
+        from py123d.common.io.codec_metadata import CODEC_METADATA_KEY, decode_codec_metadata
+
+        self._write(tmp_path, [_make_camera(0)])
+        metadata = _make_camera_metadata()
+        schema = pa.ipc.open_file(str(tmp_path / f"{metadata.modality_key}.arrow")).schema
+        description = decode_codec_metadata(schema.metadata[CODEC_METADATA_KEY])
+        assert description["codec"] == "av1" and description["encoder"] == "libsvtav1"
+        assert description["file"] == f"{metadata.modality_key}.av1.mp4" and description["frame_rate"] == 10
+        assert description["options"]["crf"] == "30"
+
+    def test_failed_write_closes_the_files(self, tmp_path: Path):
+        """A frame of another size raises; close() still finalizes the video and the Arrow file."""
+        import pytest
+
+        metadata = _make_camera_metadata()
+        writer = ArrowCameraWriter(
+            log_dir=tmp_path, metadata=metadata, camera_codec="av1", video_codec_config=self._config()
+        )
+        writer.write_modality(_make_camera(0))
+        bad = Camera(
+            metadata=metadata,
+            image=_smooth_image(1, 240, 320),
+            camera_to_global_se3=PoseSE3.identity(),
+            timestamp=Timestamp.from_us(100_000),
+        )
+        with pytest.raises(ValueError):
+            writer.write_modality(bad)
+        writer.close()
+        table = pa.ipc.open_file(str(tmp_path / f"{metadata.modality_key}.arrow")).read_all()
+        assert table.num_rows == 1
+        result = ArrowCameraReader.read_at_index(0, table, metadata, "test-dataset", log_dir=tmp_path)
+        assert result is not None and result.image.shape == (480, 640, 3)
+
+    def test_log_writer_config_av1(self):
+        import pytest
+
+        from py123d.api.scene.arrow.utils.log_writer_config import CAMERA_STORE_OPTIONS, LogWriterConfig
+        from py123d.common.io.camera.video_codec_config import VideoCodecConfig
+
+        assert "av1" in CAMERA_STORE_OPTIONS
+        config = LogWriterConfig(camera_store_option="av1", video_codec_config={"backend": "svt", "svt_crf": 35})
+        assert isinstance(config.video_codec_config, VideoCodecConfig) and config.video_codec_config.svt_crf == 35
+        with pytest.raises(AssertionError):
+            LogWriterConfig(camera_store_option="h264")

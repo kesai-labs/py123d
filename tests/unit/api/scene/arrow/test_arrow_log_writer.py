@@ -9,6 +9,7 @@ import pytest
 
 from py123d.api.scene.arrow.arrow_log_writer import ArrowLogWriter, SyncConfig
 from py123d.api.scene.arrow.utils.log_writer_config import LogWriterConfig
+from py123d.common.utils.uuid_utils import convert_to_str_uuid, create_deterministic_uuid
 from py123d.datatypes import Timestamp
 from py123d.datatypes.vehicle_state.dynamic_state import DynamicStateSE3
 from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
@@ -123,6 +124,26 @@ class TestReset:
         writer.write_sync(ModalitiesSync(timestamp=Timestamp.from_us(0), modalities=[ego]))
         writer.close()
         assert (log_dir / "sync.arrow").exists() and not (log_dir / "leftover.arrow").exists()
+
+    def test_close_writers_closes_all_when_one_raises(self, tmp_path: Path):
+        """A writer whose close() raises does not leave the other writers open; its error is raised after."""
+
+        class _Writer:
+            def __init__(self, error=None):
+                self.closed, self.error = False, error
+
+            def close(self):
+                self.closed = True
+                if self.error is not None:
+                    raise self.error
+
+        writer = self._make_writer(tmp_path)
+        writer.reset(make_log_metadata())
+        writers = [_Writer(ValueError("encoding failed")), _Writer(), _Writer(RuntimeError("second"))]
+        writer._state.modality_writers.update({f"m{i}": w for i, w in enumerate(writers)})
+        with pytest.raises(ValueError, match="encoding failed"):
+            writer._close_writers()
+        assert all(w.closed for w in writers) and not writer._state.modality_writers
 
     def test_close_keeps_existing_files(self, tmp_path: Path):
         """Files already in the log directory are kept, e.g. a per-log map written by the map writer."""
@@ -313,6 +334,130 @@ class TestClose:
 # ===========================================================================
 # Deferred sync table
 # ===========================================================================
+
+
+class TestSyncDirectionOverrides:
+    """Per-modality sync directions: cameras with "nearest", the other modalities unchanged."""
+
+    @staticmethod
+    def _camera(ts_us: int):
+        from py123d.datatypes.sensors.base_camera import CameraID
+        from py123d.datatypes.sensors.pinhole_camera import PinholeCameraMetadata, PinholeDistortion, PinholeIntrinsics
+        from py123d.parser.base_dataset_parser import ParsedCamera
+
+        metadata = PinholeCameraMetadata(
+            camera_name="front",
+            camera_id=CameraID.PCAM_F0,
+            intrinsics=PinholeIntrinsics(fx=100.0, fy=100.0, cx=8.0, cy=8.0),
+            distortion=PinholeDistortion(k1=0.0, k2=0.0, p1=0.0, p2=0.0, k3=0.0),
+            width=16,
+            height=16,
+            camera_to_imu_se3=PoseSE3.identity(),
+        )
+        jpeg = bytes.fromhex("ffd8") + b"0" * 10 + bytes.fromhex("ffd9")
+        return ParsedCamera(metadata, Timestamp.from_us(ts_us), None, byte_string=jpeg), metadata.modality_key
+
+    def _sync(self, tmp_path: Path, overrides, camera_ts, light_ts=(50_000, 150_000, 250_000)):
+        from py123d.datatypes import TrafficLightDetection, TrafficLightDetections, TrafficLightStatus
+
+        config = LogWriterConfig(camera_store_option="jpeg_binary")
+        sync_cfg = SyncConfig(reference_column="ego_state_se3.timestamp_us", direction_overrides=overrides)
+        writer = ArrowLogWriter(config, logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+        for i in range(5):
+            writer.write_async(_make_ego(i * 100_000))
+        tl_meta = make_traffic_light_metadata()
+        for ts_us in light_ts:
+            writer.write_async(
+                TrafficLightDetections(
+                    detections=[TrafficLightDetection(lane_id=1, status=TrafficLightStatus.GREEN)],
+                    timestamp=Timestamp.from_us(ts_us),
+                    metadata=tl_meta,
+                )
+            )
+        camera_key = None
+        for ts_us in camera_ts:
+            camera, camera_key = self._camera(ts_us)
+            writer.write_async(camera)
+        writer.close()
+        table = pa.ipc.open_file(str(tmp_path / log_meta.split / log_meta.log_name / "sync.arrow")).read_all()
+        return table.column(camera_key).to_pylist(), table.column(tl_meta.modality_key).to_pylist()
+
+    def test_nearest_cameras_and_forward_others(self, tmp_path: Path):
+        """Cameras captured up to 25 ms before or after the reference time are referenced by that row."""
+        cameras, lights = self._sync(tmp_path, {"camera": "nearest"}, [-20_000, 125_000, 180_000, 330_000])
+        # rows 0..400 ms: 0 -> -20 ms (idx 0), 100 -> 125 ms (idx 1), 200 -> 180 ms (idx 2),
+        # 300 -> 330 ms (idx 3), 400 -> none within 50 ms
+        assert cameras == [0, 1, 2, 3, None]
+        assert lights == [0, 1, 2, None, None]  # forward, as without overrides
+
+    def test_forward_skips_images_before_the_reference_time(self, tmp_path: Path):
+        """Without the override, the images at -20 ms and 180 ms lie before their rows' intervals."""
+        cameras, _ = self._sync(tmp_path, None, [-20_000, 125_000, 180_000, 330_000])
+        assert cameras == [None, 1, None, 3, None]
+
+    def test_nearest_ties_go_to_the_earlier_image(self, tmp_path: Path):
+        cameras, _ = self._sync(tmp_path, {"CAMERA": "nearest"}, [90_000, 110_000, 250_000])
+        # row 100 ms: 90 and 110 ms are equally near -> 90 ms (idx 0); 50 ms from rows 200 and 300 -> not within
+        assert cameras == [None, 0, None, None, None]
+
+    def test_invalid_overrides_raise(self):
+        with pytest.raises(ValueError, match="unknown modality type"):
+            SyncConfig(reference_column="ego_state_se3.timestamp_us", direction_overrides={"kamera": "nearest"})
+        with pytest.raises(ValueError, match="direction must be one of"):
+            SyncConfig(reference_column="ego_state_se3.timestamp_us", direction_overrides={"camera": "closest"})
+        with pytest.raises(ValueError, match="direction must be 'forward' or 'backward'"):
+            SyncConfig(reference_column="ego_state_se3.timestamp_us", direction="nearest")
+
+    def test_direction_of(self):
+        config = SyncConfig(reference_column="ego_state_se3.timestamp_us", direction_overrides={"camera": "nearest"})
+        assert config.direction_of("camera.pcam_f0") == "nearest"
+        assert config.direction_of("lidar.lidar_top") == "forward"
+        assert config.direction_of("not_a_modality_type") == "forward"
+
+
+class TestSyncExtension:
+    """extend_with: rows past the reference, one per period while the ego has a state within one period."""
+
+    @staticmethod
+    def _sync(tmp_path: Path, extend_with):
+        from py123d.datatypes import TrafficLightDetection, TrafficLightDetections, TrafficLightStatus
+
+        tl_meta = make_traffic_light_metadata()
+        sync_cfg = SyncConfig(reference_column=f"{tl_meta.modality_key}.timestamp_us", extend_with=extend_with)
+        writer = ArrowLogWriter(LogWriterConfig(), logs_root=tmp_path, sensors_root=tmp_path, sync_config=sync_cfg)
+        log_meta = make_log_metadata()
+        writer.reset(log_meta)
+        for ts_us in [0, 100_000, 200_000, 300_000, 400_000, 500_000, 650_000, 1_200_000]:
+            writer.write_async(_make_ego(ts_us))
+        for ts_us in [0, 100_000, 200_000]:
+            writer.write_async(
+                TrafficLightDetections(
+                    detections=[TrafficLightDetection(lane_id=1, status=TrafficLightStatus.GREEN)],
+                    timestamp=Timestamp.from_us(ts_us),
+                    metadata=tl_meta,
+                )
+            )
+        writer.close()
+        table = pa.ipc.open_file(str(tmp_path / log_meta.split / log_meta.log_name / "sync.arrow")).read_all()
+        return table, tl_meta.modality_key
+
+    def test_rows_follow_the_ego_until_a_gap(self, tmp_path: Path):
+        table, light_key = self._sync(tmp_path, "ego_state_se3")
+        # 600 and 700 ms reference the state at 650 ms; 800 ms has none within 100 ms, so the table ends at 700 ms.
+        assert table.column("sync.timestamp_us").to_pylist() == [i * 100_000 for i in range(8)]
+        assert table.column("ego_state_se3").to_pylist() == [0, 1, 2, 3, 4, 5, 6, 6]
+        assert table.column(light_key).to_pylist() == [0, 1, 2, None, None, None, None, None]
+        if "route_position" in table.column_names:
+            assert table.column("route_position").to_pylist() == table.column("ego_state_se3").to_pylist()
+        log_meta = make_log_metadata()
+        expected_uuid = create_deterministic_uuid(log_meta.split, log_meta.log_name, 700_000)
+        assert convert_to_str_uuid(table.column("sync.uuid")[-1].as_py()) == str(expected_uuid)
+
+    def test_without_extend_with_the_table_ends_with_the_reference(self, tmp_path: Path):
+        table, _ = self._sync(tmp_path, None)
+        assert table.column("sync.timestamp_us").to_pylist() == [0, 100_000, 200_000]
 
 
 class TestDeferredSync:

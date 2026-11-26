@@ -53,6 +53,9 @@ class LogSceneIndex:
     maps_root: Optional[Path]
     """Maps directory the scenes resolve their map under before the global dataset paths."""
 
+    route_file: str
+    """Route file the scenes read (``SceneFilter.route_file``)."""
+
     dataset: str
     """Dataset the log belongs to."""
 
@@ -172,6 +175,7 @@ class LazySceneSequence(Sequence[SceneAPI]):
             log_dir=log_index.log_dir,
             scene_metadata=log_index.scene_metadata_at(anchor_index),
             maps_root=log_index.maps_root,
+            route_file=log_index.route_file,
         )
 
     def anchor_columns(self) -> Tuple[List[str], np.ndarray, np.ndarray]:
@@ -273,7 +277,9 @@ def _keep_anchors(
         return keep
 
     if filter.min_remaining_route_m is not None:
-        keep &= keep_anchors_with_min_remaining_route(sync_table, anchors, filter.min_remaining_route_m, log_dir)
+        keep &= keep_anchors_with_min_remaining_route(
+            sync_table, anchors, filter.min_remaining_route_m, log_dir, filter.route_file
+        )
 
     if filter.required_scene_modalities is not None and keep.any():
         sync_column_set = set(sync_table.column_names)
@@ -404,6 +410,7 @@ def build_log_scene_index(
         return LogSceneIndex(
             log_dir=log_dir,
             maps_root=maps_root,
+            route_file=filter.route_file,
             dataset=log_metadata.dataset,
             split=log_metadata.split,
             anchor_indices=anchors,

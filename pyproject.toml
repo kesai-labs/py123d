@@ -27,6 +27,7 @@ license = {text = "Apache-2.0"}
 dependencies = [
     "geopandas",
     "matplotlib",
+    "msgpack",
     "networkx",
     "numpy",
     "opencv-python",
@@ -47,7 +48,7 @@ dependencies = [
     "trimesh",
     "mapbox-earcut",
     "viser==1.0.24",
-    "av>=14.4.0,<16",
+    "av>=15.0.0,<16",  # 15.0 is the oldest release with Linux wheels that the AV1 camera codec was tested with
     "laspy[lazrs]",
     "DracoPy",
     "omegaconf",
@@ -60,6 +61,7 @@ dependencies = [
 py123d-viser = "py123d.script.run_viser:main"
 py123d-conversion = "py123d.script.run_conversion:main"
 py123d-download = "py123d.script.run_download:main"
+py123d-transcode = "py123d.script.run_transcode:main"
 
 [project.optional-dependencies]
 dev = [
@@ -193,5 +195,6 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
     "slow: tests that are slow to run (deselected by default; run with `-m slow` or `-m ''`)",
+    "gpu: tests that require an NVIDIA GPU with AV1 encoding (deselected by default; run with `-m gpu`)",
 ]
-addopts = ["-m", "not slow"]
+addopts = ["-m", "not slow and not gpu"]

@@ -11,6 +11,7 @@ hydra:
 defaults:
   - default_common
   - dataset: ???
+  - codec: null  # codec=kedec stores cameras as AV1 video and lidars with the kedec codec (docs/notes/kedec.rst)
   - _self_
 
 
@@ -23,3 +24,4 @@ force_log_conversion: True
 async_conversion: False
 keep_downloads: False  # streaming conversions (dataset=<name>-stream) delete the raw files they downloaded
 keep_incomplete: True  # maps/logs that did not complete stay in their .incomplete directory, instead of being deleted
+gpus_per_task: auto  # GPU share per Ray task; "auto": GPUs per node / tasks per node when cameras are encoded with NVENC

@@ -192,3 +192,29 @@ def test_a_parsed_camera_accepts_no_pose() -> None:
         byte_string=b"not-an-image",
     )
     assert camera.camera_to_global_se3 is None
+
+
+def test_the_time_offset_moves_the_composed_pose(tmp_path: Path) -> None:
+    """A camera whose image represents a later moment than its stamp is placed at that moment, on both read paths."""
+    _write_ego(tmp_path)
+    table = _write_cameras(tmp_path, [5 * _RATE_US], pose=False)
+    metadata = PinholeCameraMetadata.from_dict({**_camera_metadata().to_dict(), "time_offset_us": 2 * _RATE_US})
+
+    expected = rel_to_abs_se3(origin=_ego_pose(7), pose_se3=_CAMERA_TO_IMU)
+    camera = ArrowCameraReader.read_at_index(0, table, metadata, "test", log_dir=tmp_path)
+    assert camera is not None
+    assert np.allclose(camera.camera_to_global_se3.tolist(), expected.tolist(), atol=1e-9)
+    assert camera.timestamp.time_us == 5 * _RATE_US, "the offset must not move the stored timestamp"
+    pose = ArrowCameraReader.read_column_at_index(
+        0, table, metadata, "camera_to_global_se3", "test", deserialize=True, log_dir=tmp_path
+    )
+    assert np.allclose(pose.tolist(), expected.tolist(), atol=1e-9)
+
+
+def test_the_time_offset_defaults_to_zero_and_round_trips() -> None:
+    """Metadata written before the field reads as offset 0 and serializes without the key."""
+    metadata = _camera_metadata()
+    assert metadata.time_offset_us == 0
+    assert "time_offset_us" not in metadata.to_dict()
+    shifted = PinholeCameraMetadata.from_dict({**metadata.to_dict(), "time_offset_us": 16_667})
+    assert PinholeCameraMetadata.from_dict(shifted.to_dict()).time_offset_us == 16_667

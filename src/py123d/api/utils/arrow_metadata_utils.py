@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 _METADATA_KEY = b"metadata"
 
 # Files in a log directory that are not per-modality data.
-_NON_MODALITY_FILES = {"sync.arrow", "map.arrow"}
+# route_map.arrow: an alternative route file with the layout of route_position.arrow (route_utils.ROUTE_MAP_FILE),
+# read only when SceneFilter.route_file selects it.
+_NON_MODALITY_FILES = {"sync.arrow", "map.arrow", "route_map.arrow"}
 
 
 def get_metadata_from_arrow_schema(

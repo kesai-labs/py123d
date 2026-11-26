@@ -125,6 +125,12 @@ class SceneFilter:
     scenes at every raw frame (maximum overlap). Ignored if ``timestamp_threshold_s`` is provided
     or when ``scene_uuids`` is set (one scene per UUID position)."""
 
+    route_file: str = "route_position"
+    """The log file the scenes take their route from, without ``.arrow``: ``route_position`` (the log's route,
+    default) or ``route_map`` (a route planned on a map, py123d.api.scene.arrow.utils.route_utils.ROUTE_MAP_FILE,
+    with the same layout). ``min_remaining_route_m`` reads the same file. A log without that file yields scenes
+    without a route."""
+
     min_remaining_route_m: Optional[float] = None
     """Minimum route meters that must remain in the log after a scene's anchor frame
     (iteration 0), read from the ``sync.route_progress_m`` column. Logs without that
@@ -220,6 +226,9 @@ class SceneFilter:
             logger.warning(
                 "Both timestamp_threshold_s and iteration_threshold set; timestamp_threshold_s takes priority."
             )
+
+        if not self.route_file or "/" in self.route_file or self.route_file.endswith(".arrow"):
+            raise ValueError(f"route_file must be a file stem such as 'route_map', got {self.route_file!r}.")
 
         if self.min_remaining_route_m is not None and self.min_remaining_route_m < 0:
             raise ValueError(f"min_remaining_route_m must be >= 0, got {self.min_remaining_route_m}.")

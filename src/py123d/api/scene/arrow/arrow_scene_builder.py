@@ -265,7 +265,11 @@ def _extract_scenes_from_log_dir(
 
     scenes: List[SceneAPI] = []
     for scene_metadata in scene_metadatas:
-        scenes.append(ArrowSceneAPI(log_dir=log_dir, scene_metadata=scene_metadata, maps_root=maps_root))
+        scenes.append(
+            ArrowSceneAPI(
+                log_dir=log_dir, scene_metadata=scene_metadata, maps_root=maps_root, route_file=filter.route_file
+            )
+        )
     return scenes
 
 

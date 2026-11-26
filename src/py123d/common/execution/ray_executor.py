@@ -47,15 +47,6 @@ def initialize_ray(
     # Read number of CPU cores on current machine
     number_of_cpus_per_node = threads_per_node if threads_per_node else cpu_count(logical=True)
 
-    try:
-        import torch
-
-        number_of_gpus_per_node = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    except ImportError:
-        number_of_gpus_per_node = 0
-    if not number_of_gpus_per_node:
-        logger.info("Not using GPU in ray")
-
     # Find a way in how the ray should be initialized
     if master_node_ip and use_distributed:
         # Connect to ray remotely to node ip
@@ -84,13 +75,29 @@ def initialize_ray(
             num_cpus=number_of_cpus_per_node,
             dashboard_host="0.0.0.0",
             log_to_driver=log_to_driver,
+            **_local_storage_options(),
         )
+
+    # The GPUs that Ray schedules (detected by Ray, limited by CUDA_VISIBLE_DEVICES), per node.
+    number_of_gpus_per_node = int(ray.cluster_resources().get("GPU", 0)) // max(1, number_of_nodes)
+    if not number_of_gpus_per_node:
+        logger.info("Not using GPU in ray")
 
     return ExecutorResources(
         number_of_nodes=number_of_nodes,
         number_of_cpus_per_node=number_of_cpus_per_node,
         number_of_gpus_per_node=number_of_gpus_per_node,
     )
+
+
+def _local_storage_options() -> dict:
+    """Ray's session files and object store under ``RAY_TMPDIR`` when it is set (e.g. on cluster nodes whose
+    /tmp and /dev/shm must stay free); Ray's defaults otherwise."""
+    ray_tmpdir = os.environ.get("RAY_TMPDIR")
+    if not ray_tmpdir:
+        return {}
+    Path(ray_tmpdir).mkdir(parents=True, exist_ok=True)
+    return {"_temp_dir": ray_tmpdir, "_plasma_directory": ray_tmpdir}
 
 
 class RayExecutor(Executor):

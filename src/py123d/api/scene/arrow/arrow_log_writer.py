@@ -36,12 +36,18 @@ from py123d.api.scene.arrow.utils.scene_builder_utils import (
 from py123d.api.scene.base_log_writer import BaseLogWriter
 from py123d.api.utils.arrow_metadata_utils import _NON_MODALITY_FILES, add_metadata_to_arrow_schema
 from py123d.api.utils.cache_source_utils import build_cache_source_info
+from py123d.common.frame_selection import match_frames
 from py123d.common.utils.uuid_utils import create_deterministic_uuid
 from py123d.datatypes import LogMetadata
 from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
 from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
-from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata, ModalityType
+from py123d.datatypes.modalities.base_modality import (
+    BaseModality,
+    BaseModalityMetadata,
+    ModalityType,
+    get_modality_type_from_key,
+)
 from py123d.datatypes.sensors.barometer import BarometerMetadata
 from py123d.datatypes.sensors.base_camera import BaseCameraMetadata, CameraChannelType
 from py123d.datatypes.sensors.gnss import GnssMetadata
@@ -58,6 +64,21 @@ logger = logging.getLogger(__name__)
 # Sync table column names (plain strings replacing the deleted ModalitySchema)
 _SYNC_COL_UUID = "sync.uuid"
 _SYNC_COL_TIMESTAMP_US = "sync.timestamp_us"
+_SYNC_DIRECTIONS = ("forward", "backward", "nearest")
+
+
+def nearest_sync_rows(modality_ts: np.ndarray, sync_ts: np.ndarray) -> np.ndarray:
+    """The row of a modality for each sync row with the direction "nearest": the observation nearest to the sync
+    time if it lies strictly within half the median period of the sync table, else -1 (a tie goes to the earlier
+    observation). A sync table of one row takes the nearest observation without a window."""
+    sync_ts = np.asarray(sync_ts, dtype=np.int64)
+    modality_ts = np.asarray(modality_ts, dtype=np.int64)
+    if len(modality_ts) == 0:
+        return np.full(len(sync_ts), -1, dtype=np.int64)
+    if len(sync_ts) < 2:
+        return match_frames(modality_ts, sync_ts, np.iinfo(np.int64).max)
+    half_period = int(np.median(np.diff(sync_ts))) // 2
+    return match_frames(modality_ts, sync_ts, half_period)
 
 
 def _get_uuid_arrow_type() -> pa.DataType:
@@ -81,12 +102,24 @@ class SyncConfig:
     :param target_iteration_duration_s: Optional target iteration duration in seconds.
         If set, stride is computed from the raw iteration duration.
         Takes priority over ``target_iteration_stride``.
+    :param direction_overrides: Optional sync direction per modality type (``"camera"``, ``"lidar"``, ...), which
+        replaces ``direction`` for the modalities of that type in the deferred sync table. Besides ``"forward"``
+        and ``"backward"`` it may be ``"nearest"``: the observation nearest to the row's reference time if it lies
+        strictly within half the period of the sync table, else none; a tie goes to the earlier observation. For
+        cameras stored at the rate of the sync table (one kept image per reference time), ``"nearest"`` also
+        references an image captured shortly before the reference time.
+    :param extend_with: Optional modality key (e.g. ``"ego_state_se3"``) that continues the deferred sync table past
+        the last reference time: one row per period of the kept reference times (rounded to whole milliseconds) as
+        long as the modality has an observation within one period of the row, referenced as the nearest one. The
+        route position follows the ego rows; every other modality is empty in these rows.
     """
 
     reference_column: str
     direction: Literal["forward", "backward"] = "forward"
     target_iteration_stride: Optional[int] = None
     target_iteration_duration_s: Optional[float] = None
+    direction_overrides: Optional[Dict[str, str]] = None
+    extend_with: Optional[str] = None
 
     def __post_init__(self):
         # Validate reference_column format: must contain at least one dot
@@ -106,6 +139,27 @@ class SyncConfig:
                 "Both target_iteration_stride and target_iteration_duration_s set in SyncConfig; "
                 "target_iteration_duration_s takes priority."
             )
+        if self.direction not in _SYNC_DIRECTIONS[:2]:
+            raise ValueError(f"direction must be 'forward' or 'backward', got '{self.direction}'.")
+        for modality_type, direction in (self.direction_overrides or {}).items():
+            if modality_type.upper() not in ModalityType.__members__:
+                raise ValueError(f"direction_overrides: unknown modality type '{modality_type}'.")
+            if direction not in _SYNC_DIRECTIONS:
+                raise ValueError(
+                    f"direction_overrides: direction must be one of {_SYNC_DIRECTIONS}, got '{direction}'."
+                )
+
+    def direction_of(self, modality_key: str) -> str:
+        """The sync direction of a modality: its type's override, else ``direction``."""
+        if self.direction_overrides:
+            try:
+                modality_type = get_modality_type_from_key(modality_key).serialize()
+            except KeyError:  # a custom modality key without a modality-type prefix
+                return self.direction
+            for key, direction in self.direction_overrides.items():
+                if key.lower() == modality_type:
+                    return direction
+        return self.direction
 
     @property
     def reference_modality(self) -> str:
@@ -160,11 +214,22 @@ class ArrowLogWriter(BaseLogWriter):
     # ------------------------------------------------------------------------------------------------------------------
 
     def _close_writers(self) -> None:
-        """Close all open modality writers."""
+        """Close all open modality writers.
+
+        Every writer is closed, also when an earlier one raises (for example a lidar writer whose encoding thread
+        failed), so that no file or encoder session stays open; the first error is raised afterwards.
+        """
         if self._state is not None:
+            first_error: Optional[BaseException] = None
             for writer in self._state.modality_writers.values():
-                writer.close()
+                try:
+                    writer.close()
+                except Exception as error:  # noqa: BLE001 - re-raised below, after all writers are closed
+                    if first_error is None:
+                        first_error = error
             self._state.modality_writers.clear()
+            if first_error is not None:
+                raise first_error
 
     def _include_modality(self, modality_metadata: BaseModalityMetadata) -> bool:
         """Determine whether to include a modality based on the dataset converter config."""
@@ -230,6 +295,7 @@ class ArrowLogWriter(BaseLogWriter):
                 camera_codec=camera_codec,
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
+                video_codec_config=self._log_writer_config.video_codec_config,
             )
 
         elif isinstance(modality_metadata, (LidarMergedMetadata, LidarMetadata)):
@@ -242,6 +308,7 @@ class ArrowLogWriter(BaseLogWriter):
                 lidar_codec_config=self._log_writer_config.lidar_codec_config,
                 ipc_compression=self._ipc_compression,
                 ipc_compression_level=self._ipc_compression_level,
+                encode_threads=self._log_writer_config.encode_threads,
             )
 
         elif isinstance(modality_metadata, (RadarMergedMetadata, RadarMetadata)):
@@ -617,7 +684,6 @@ class ArrowLogWriter(BaseLogWriter):
 
         ref_modality_key = self._sync_config.reference_modality
         ref_timestamp_field = self._sync_config.reference_timestamp_field
-        direction = self._sync_config.direction
 
         # Read timestamps from all written Arrow files using memory-mapped I/O.
         modality_timestamps: Dict[str, np.ndarray] = {}  # modality_key -> int64 timestamps
@@ -680,6 +746,13 @@ class ArrowLogWriter(BaseLogWriter):
             fields.append(pa.field(modality_key, pa.int64()))
         schema = pa.schema(fields)
 
+        # Modalities with the direction "nearest": all rows at once, within half the period of the sync table.
+        kept_ref_ts = ref_ts_array[kept_ref_indices].astype(np.int64)
+        nearest_rows: Dict[str, np.ndarray] = {}
+        for modality_key in sync_modality_keys:
+            if self._sync_config.direction_of(modality_key) == "nearest":
+                nearest_rows[modality_key] = nearest_sync_rows(modality_timestamps[modality_key], kept_ref_ts)
+
         # Build one sync row per kept reference timestamp, picking the single closest
         # modality observation within the interval defined by the sync direction.
         sync_rows: List[Dict[str, Any]] = []
@@ -690,8 +763,12 @@ class ArrowLogWriter(BaseLogWriter):
 
             for modality_key in sync_modality_keys:
                 ts_arr = modality_timestamps[modality_key]
+                direction = self._sync_config.direction_of(modality_key)
 
-                if direction == "forward":
+                if direction == "nearest":
+                    row = int(nearest_rows[modality_key][kept_pos])
+                    best_idx = row if row >= 0 else None
+                elif direction == "forward":
                     # Interval: [ref_ts, next_kept_ref_ts) — pick first (closest to sync ts)
                     lo = int(np.searchsorted(ts_arr, ref_ts, side="left"))
                     if kept_pos + 1 < len(kept_ref_indices):
@@ -725,5 +802,30 @@ class ArrowLogWriter(BaseLogWriter):
             for modality_key, best_index in sync_addon_data.items():
                 sync_row[modality_key] = [best_index]
             sync_rows.append(sync_row)
+
+        extend_key = self._sync_config.extend_with
+        if extend_key is not None and extend_key in modality_timestamps and len(kept_ref_ts) > 1:
+            period_us = int(round(float(np.median(np.diff(kept_ref_ts))) / 1000.0)) * 1000
+            extend_ts_array = modality_timestamps[extend_key].astype(np.int64)
+            num_extra_rows = max(0, int(extend_ts_array[-1] - kept_ref_ts[-1]) // period_us)
+            extra_ts = kept_ref_ts[-1] + period_us * np.arange(1, num_extra_rows + 1, dtype=np.int64)
+            extra_rows = match_frames(extend_ts_array, extra_ts, period_us + 1)
+            # The table ends before the first row without an observation within one period.
+            gaps = np.flatnonzero(extra_rows < 0)
+            if len(gaps):
+                extra_ts, extra_rows = extra_ts[: gaps[0]], extra_rows[: gaps[0]]
+            linked_keys = {extend_key}
+            if extend_key == ModalityType.EGO_STATE_SE3.serialize():
+                linked_keys.add(ROUTE_POSITION_KEY)
+            for row_ts, row_idx in zip(extra_ts.tolist(), extra_rows.tolist()):
+                sync_uuid = create_deterministic_uuid(
+                    split=self._state.log_metadata.split,
+                    log_name=self._state.log_metadata.log_name,
+                    timestamp_us=row_ts,
+                )
+                sync_row = {_SYNC_COL_UUID: [sync_uuid.bytes], _SYNC_COL_TIMESTAMP_US: [row_ts]}
+                for modality_key in sync_modality_keys:
+                    sync_row[modality_key] = [row_idx if modality_key in linked_keys else None]
+                sync_rows.append(sync_row)
 
         self._write_sync_arrow_file(schema, sync_rows)

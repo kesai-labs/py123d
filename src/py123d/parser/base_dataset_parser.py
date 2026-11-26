@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Union
 
 from py123d.datatypes import BaseMapObject, LogMetadata, MapMetadata, Timestamp
 from py123d.datatypes.modalities.base_modality import BaseModality, BaseModalityMetadata
@@ -12,6 +12,12 @@ from py123d.datatypes.sensors.lidar import LidarMergedMetadata, LidarMetadata
 from py123d.datatypes.sensors.pinhole_camera import PinholeCameraMetadata
 from py123d.datatypes.sensors.radar import RadarMergedMetadata, RadarMetadata
 from py123d.geometry.pose import PoseSE3
+
+if TYPE_CHECKING:
+    import numpy as np
+    import numpy.typing as npt
+
+    from py123d.common.io.camera.yuv_frame import YUV420Frame
 
 
 class BaseDatasetParser(abc.ABC):
@@ -218,6 +224,10 @@ class ParsedCamera(BaseModality):
 
     ``camera_to_global_se3`` may be None, in which case the writer stores a null and the reader
     composes the pose from the log's ego trajectory and the camera's own extrinsic.
+
+    The image is given as a file path, as encoded bytes (JPEG or PNG), or as a decoded ``frame``: an
+    (H, W, 3) uint8 RGB array or a :class:`~py123d.common.io.camera.yuv_frame.YUV420Frame` (for example
+    the planes of a decoded video, which the AV1 camera codec encodes without a color conversion).
     """
 
     def __init__(
@@ -230,6 +240,7 @@ class ParsedCamera(BaseModality):
         byte_string: Optional[bytes] = None,
         exposure_factor: Optional[float] = None,
         arrival_timestamp: Optional[Timestamp] = None,
+        frame: Optional[Union[YUV420Frame, npt.NDArray[np.uint8]]] = None,
     ) -> None:
         self._metadata = metadata
         self._timestamp = timestamp
@@ -240,9 +251,10 @@ class ParsedCamera(BaseModality):
         self._byte_string = byte_string
         self._exposure_factor = exposure_factor
         self._arrival_timestamp = arrival_timestamp
+        self._frame = frame
 
-        assert self.has_file_path or self.has_byte_string, (
-            "Either file path or byte string must be provided for ParsedCamera."
+        assert self.has_file_path or self.has_byte_string or self.has_frame, (
+            "Either file path, byte string or frame must be provided for ParsedCamera."
         )
 
     @property
@@ -290,6 +302,15 @@ class ParsedCamera(BaseModality):
     @property
     def has_byte_string(self) -> bool:
         return self._byte_string is not None
+
+    @property
+    def has_frame(self) -> bool:
+        return self._frame is not None
+
+    @property
+    def frame(self) -> Optional[Union[YUV420Frame, npt.NDArray[np.uint8]]]:
+        """The decoded image (RGB array or YUV 4:2:0 planes), if given instead of a file or bytes."""
+        return self._frame
 
     @property
     def exposure_factor(self) -> Optional[float]:

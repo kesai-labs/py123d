@@ -260,6 +260,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         "_camera_to_imu_se3",
         "_is_undistorted",
         "_has_arrival_time",
+        "_time_offset_us",
     )
 
     def __init__(
@@ -273,6 +274,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         camera_to_imu_se3: PoseSE3,
         is_undistorted: bool = False,
         has_arrival_time: bool = False,
+        time_offset_us: int = 0,
     ) -> None:
         """Initialize a :class:`PinholeCameraMetadata` instance.
 
@@ -288,6 +290,8 @@ class PinholeCameraMetadata(BaseCameraMetadata):
             (see :attr:`~py123d.datatypes.BaseModality.arrival_timestamp`) in the column
             ``<modality_key>.arrival_us``. Logs written without it leave it False and have no
             such column.
+        :param time_offset_us: Microseconds from a frame's stored timestamp to the moment its image
+            represents, see :attr:`~py123d.datatypes.sensors.base_camera.BaseCameraMetadata.time_offset_us`.
         """
         self._camera_name = camera_name
         self._camera_id = camera_id
@@ -298,6 +302,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         self._camera_to_imu_se3 = camera_to_imu_se3
         self._is_undistorted = is_undistorted
         self._has_arrival_time = has_arrival_time
+        self._time_offset_us = time_offset_us
 
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]) -> PinholeCameraMetadata:
@@ -322,6 +327,7 @@ class PinholeCameraMetadata(BaseCameraMetadata):
             camera_to_imu_se3=PoseSE3.from_list(data_dict["camera_to_imu_se3"]),
             is_undistorted=data_dict["is_undistorted"],
             has_arrival_time=data_dict.get("has_arrival_time", False),
+            time_offset_us=data_dict.get("time_offset_us", 0),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -342,12 +348,20 @@ class PinholeCameraMetadata(BaseCameraMetadata):
         # Only written when set, so the metadata of a log without arrival times is unchanged.
         if self._has_arrival_time:
             data_dict["has_arrival_time"] = True
+        # Only written when set, so the metadata of a log without an offset is unchanged.
+        if self._time_offset_us:
+            data_dict["time_offset_us"] = self._time_offset_us
         return data_dict
 
     @property
     def camera_model(self) -> CameraModel:
         """The projection model of this camera."""
         return CameraModel.PINHOLE
+
+    @property
+    def time_offset_us(self) -> int:
+        """Microseconds from a frame's stored timestamp to the moment its image represents."""
+        return self._time_offset_us
 
     @property
     def camera_name(self) -> str:
