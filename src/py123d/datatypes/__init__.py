@@ -1,6 +1,7 @@
 from py123d.datatypes.custom import CustomModality, CustomModalityMetadata
 from py123d.datatypes.detections import (
     BOX_DETECTION_LABEL_REGISTRY,
+    AnonymizationBoxDetectionLabel,
     BoxDetection,
     BoxDetectionAttributes,
     BoxDetectionLabel,
@@ -9,6 +10,9 @@ from py123d.datatypes.detections import (
     BoxDetectionsSE2,
     BoxDetectionsSE3,
     BoxDetectionsSE3Metadata,
+    BoxDetection2D,
+    BoxDetections2D,
+    BoxDetections2DMetadata,
     DefaultBoxDetectionLabel,
     TrafficLightDetection,
     TrafficLightDetections,
@@ -129,6 +133,7 @@ __all__ = [
     "CustomModalityMetadata",
     # Detections
     "BOX_DETECTION_LABEL_REGISTRY",
+    "AnonymizationBoxDetectionLabel",
     "BoxDetection",
     "BoxDetectionAttributes",
     "BoxDetectionLabel",
@@ -137,6 +142,9 @@ __all__ = [
     "BoxDetectionsSE2",
     "BoxDetectionsSE3",
     "BoxDetectionsSE3Metadata",
+    "BoxDetection2D",
+    "BoxDetections2D",
+    "BoxDetections2DMetadata",
     "DefaultBoxDetectionLabel",
     "TrafficLightDetection",
     "TrafficLightDetections",

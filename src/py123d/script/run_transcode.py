@@ -17,7 +17,13 @@ from typing import List, Optional, Tuple
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from py123d.api.scene.arrow.transcode import CameraSelection, TranscodeConfig, find_logs, transcode_log
+from py123d.api.scene.arrow.transcode import (
+    CameraSelection,
+    CameraTranscoder,
+    TranscodeConfig,
+    find_logs,
+    transcode_log,
+)
 from py123d.common.execution.utils import executor_map_queued
 from py123d.common.runtime import setup_runtime
 from py123d.script.builders.execution_builder import build_executor
@@ -43,9 +49,18 @@ def _transcode_one(log: Tuple[str, str], cfg: DictConfig) -> Optional[str]:
     selection: Optional[CameraSelection] = (
         hydra.utils.instantiate(cfg.camera_selection) if cfg.get("camera_selection") else None
     )
+    camera_transcoder: Optional[CameraTranscoder] = (
+        hydra.utils.instantiate(cfg.camera_transcoder) if cfg.get("camera_transcoder") else None
+    )
     try:
         written = transcode_log(
-            Path(cfg.source_logs_root), Path(cfg.target_logs_root), split, log_name, config, selection
+            Path(cfg.source_logs_root),
+            Path(cfg.target_logs_root),
+            split,
+            log_name,
+            config,
+            selection,
+            camera_transcoder=camera_transcoder,
         )
         logger.info(f"{'Transcoded' if written else 'Skipped (exists)'} {split}/{log_name}")
         return None

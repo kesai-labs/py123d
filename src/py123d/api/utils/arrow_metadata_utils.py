@@ -72,6 +72,7 @@ def _get_modality_metadata_registry() -> Dict[ModalityType, Any]:
     lightweight when only the basic get/add helpers are needed.
     """
     from py123d.datatypes.custom.custom_modality import CustomModalityMetadata
+    from py123d.datatypes.detections.box_detections_2d import BoxDetections2DMetadata
     from py123d.datatypes.detections.box_detections_metadata import BoxDetectionsSE3Metadata
     from py123d.datatypes.detections.traffic_light_detections import TrafficLightDetectionsMetadata
     from py123d.datatypes.metadata.route_metadata import RouteMetadata
@@ -94,6 +95,7 @@ def _get_modality_metadata_registry() -> Dict[ModalityType, Any]:
     return {
         ModalityType.EGO_STATE_SE3: EgoStateSE3Metadata,
         ModalityType.BOX_DETECTIONS_SE3: BoxDetectionsSE3Metadata,
+        ModalityType.BOX_DETECTIONS_2D: BoxDetections2DMetadata,
         ModalityType.TRAFFIC_LIGHT_DETECTIONS: TrafficLightDetectionsMetadata,
         ModalityType.CAMERA: _CameraMetadataFactory,
         ModalityType.CAMERA_SEMANTIC: SegmentationCameraMetadata,

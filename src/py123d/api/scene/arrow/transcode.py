@@ -9,6 +9,11 @@ stamps and all other columns of the sync table stay identical.
 
 The new log is written into ``<target logs root>/.incomplete/<split>/<log>`` and moved into place when it is
 complete, ``sync.arrow`` last, as :class:`~py123d.api.scene.arrow.arrow_log_writer.ArrowLogWriter` does.
+
+A camera transcoder other than :func:`transcode_camera` can be passed to :func:`transcode_log` (e.g. one that
+changes the images before they are encoded). It may write further streams next to the camera, such as a
+``box_detections_2d.<camera_id>`` stream; it then returns the time stamps of every stream it wrote, and each new
+stream gets its own column in ``sync.arrow``.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -271,6 +276,14 @@ def transcode_camera(
     return np.asarray(written, dtype=np.int64)
 
 
+CameraTranscoder = Callable[
+    [Path, Path, npt.NDArray, TranscodeConfig], Union[npt.NDArray[np.int64], Dict[str, npt.NDArray[np.int64]]]
+]
+"""A function that writes the kept rows of one camera file, with the arguments of :func:`transcode_camera`. It
+returns the time stamps of the written camera rows, or a dict of modality key -> time stamps of the written rows of
+every stream it wrote (the camera's own key included), e.g. a ``box_detections_2d`` stream next to the camera."""
+
+
 def transcode_lidar(source_path: Path, target_dir: Path, log_metadata: LogMetadata, config: TranscodeConfig) -> int:
     """Decode every row of one lidar file and write it again with the configured lidar codec.
 
@@ -365,10 +378,20 @@ def transcode_radar(source_path: Path, target_dir: Path, log_metadata: LogMetada
 
 
 def rewrite_sync_cameras(
-    source_sync: Path, target_sync: Path, camera_timestamps: Dict[str, npt.NDArray[np.int64]]
+    source_sync: Path,
+    target_sync: Path,
+    camera_timestamps: Dict[str, npt.NDArray[np.int64]],
+    new_stream_timestamps: Optional[Dict[str, npt.NDArray[np.int64]]] = None,
 ) -> None:
     """Copy a sync table with new camera columns: the kept image nearest to each row's time, strictly within half
-    the period of the table; all other columns and the schema metadata unchanged."""
+    the period of the table; all other columns and the schema metadata unchanged.
+
+    :param camera_timestamps: Camera modality key -> the time stamps of its written rows; keys without a column in
+        the table are skipped.
+    :param new_stream_timestamps: Modality key -> the time stamps of the rows of a stream that the source log does
+        not have (e.g. a ``box_detections_2d`` stream written by a camera transcoder); each gets a new int64 column
+        by the same rule, appended in the order of the keys.
+    """
     reader = _open(source_sync)
     table = reader.read_all()
     sync_ts = table.column("sync.timestamp_us").to_numpy().astype(np.int64)
@@ -378,6 +401,13 @@ def rewrite_sync_cameras(
         rows = nearest_sync_rows(timestamps, sync_ts)
         column = pa.array([int(r) if r >= 0 else None for r in rows], type=table.schema.field(key).type)
         table = table.set_column(table.schema.get_field_index(key), table.schema.field(key), column)
+    for key, timestamps in (new_stream_timestamps or {}).items():
+        if key in table.column_names:
+            raise ValueError(f"{source_sync}: the new stream {key} has a column in the sync table already.")
+        rows = nearest_sync_rows(timestamps, sync_ts)
+        table = table.append_column(
+            pa.field(key, pa.int64()), pa.array([int(r) if r >= 0 else None for r in rows], type=pa.int64())
+        )
     table = table.replace_schema_metadata(reader.schema.metadata)
     with pa.OSFile(str(target_sync), "wb") as sink:
         with pa.ipc.new_file(sink, table.schema) as writer:
@@ -391,6 +421,7 @@ def transcode_log(
     log_name: str,
     config: TranscodeConfig,
     selection: Optional[CameraSelection] = None,
+    camera_transcoder: Optional[CameraTranscoder] = None,
 ) -> bool:
     """Transcode one log.
 
@@ -400,6 +431,8 @@ def transcode_log(
     :param log_name: The name of the log.
     :param config: The settings.
     :param selection: The camera selection; keeps every image when None.
+    :param camera_transcoder: Writes the kept rows of each camera (:data:`CameraTranscoder`);
+        :func:`transcode_camera` when None.
     :return: True if the log was written, False if it existed already and ``force`` is not set.
     """
     source_dir = Path(source_logs_root) / split / log_name
@@ -442,17 +475,28 @@ def transcode_log(
             lidar_pool.submit(transcode_lidar, path, work_dir, log_metadata, config)
             for path in sorted(lidar_files, key=lambda p: p.stat().st_size, reverse=True)
         ] + [lidar_pool.submit(transcode_radar, path, work_dir, log_metadata, config) for path in radar_files]
+        transcoder = camera_transcoder if camera_transcoder is not None else transcode_camera
         camera_futures = {
-            p.stem: camera_pool.submit(transcode_camera, p, work_dir, kept[p.stem], config) for p in camera_files
+            p.stem: camera_pool.submit(transcoder, p, work_dir, kept[p.stem], config) for p in camera_files
         }
-        written = {key: future.result() for key, future in camera_futures.items()}
+        written: Dict[str, npt.NDArray[np.int64]] = {}
+        new_streams: Dict[str, npt.NDArray[np.int64]] = {}
+        for key, future in camera_futures.items():
+            result = future.result()
+            if isinstance(result, dict):
+                if key not in result:
+                    raise ValueError(f"The camera transcoder returned no time stamps for the camera {key}.")
+                written[key] = result[key]
+                new_streams.update({k: v for k, v in result.items() if k != key})
+            else:
+                written[key] = result
         for future in lidar_futures:
             future.result()
     finally:
         # after a failure: tasks that have not started are dropped, running tasks end first
         for pool in (camera_pool, lidar_pool):
             pool.shutdown(wait=True, cancel_futures=True)
-    rewrite_sync_cameras(source_dir / _SYNC_FILE, work_dir / _SYNC_FILE, written)
+    rewrite_sync_cameras(source_dir / _SYNC_FILE, work_dir / _SYNC_FILE, written, dict(sorted(new_streams.items())))
 
     target_dir.mkdir(parents=True, exist_ok=True)
     for path in sorted(work_dir.iterdir(), key=lambda p: p.name == _SYNC_FILE):

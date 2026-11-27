@@ -45,6 +45,10 @@ class ModalityType(SerialIntEnum):
     """Ego's arc-length position on the log's route polyline (``route.arrow``), derived
     by the log writer from ego odometry or a provided route — no parser emits it."""
 
+    BOX_DETECTIONS_2D = 15
+    """2D boxes in the pixels of one camera's stored images, one row per image of a sibling :attr:`CAMERA` stream
+    (``box_detections_2d.<camera_id>``), e.g. 2D detections or the regions an anonymization step obscured."""
+
 
 class BaseModalityMetadata(BaseMetadata):
     """Base class for modality metadata."""

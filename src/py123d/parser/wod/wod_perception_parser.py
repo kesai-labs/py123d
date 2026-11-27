@@ -8,7 +8,10 @@ import numpy as np
 
 from py123d.datatypes import (
     BaseModality,
+    BoxDetection2D,
     BoxDetectionAttributes,
+    BoxDetections2D,
+    BoxDetections2DMetadata,
     BoxDetectionSE3,
     BoxDetectionsSE3,
     Camera,
@@ -293,6 +296,7 @@ class WODPerceptionLogParser(BaseLogParser):
                 self._zero_roll_pitch,
                 ego_pose_timestamp,
             )
+            box_detections_2d = _extract_wod_perception_box_detections_2d(frame)
             parsed_pinhole_cameras = _extract_wod_perception_cameras(frame, pinhole_cameras_metadata, map_pose_offset)
             parsed_lidar = _extract_wod_perception_lidar(
                 frame,
@@ -307,6 +311,7 @@ class WODPerceptionLogParser(BaseLogParser):
                 modalities=[
                     ego_state_se3,
                     box_detections_se3,
+                    *box_detections_2d,
                     parsed_lidar,
                     *parsed_pinhole_cameras,
                 ],
@@ -496,6 +501,46 @@ def _extract_wod_perception_box_detections(
             )
         )
     return BoxDetectionsSE3(box_detections=box_detections, timestamp=timestamp, metadata=box_detections_metadata)
+
+
+def _extract_wod_perception_box_detections_2d(frame: dataset_pb2.Frame) -> List[BoxDetections2D]:
+    """Extracts the 2D camera boxes (``frame.camera_labels``) from a WOD Perception frame.
+
+    One set of boxes per labeled camera image, at the timestamp of the image. The boxes are annotated in the image
+    (tight and axis-aligned), with a track id per camera that differs from the id of the 3D box of the object. A box
+    in the proto holds its center and its extent along x (``length``) and y (``width``) in pixels.
+    """
+    camera_labels = {labels.name: labels.labels for labels in frame.camera_labels}
+
+    box_detections_2d: List[BoxDetections2D] = []
+    for image_proto in frame.images:
+        if image_proto.name not in camera_labels:
+            continue
+        box_detections = [
+            BoxDetection2D(
+                box=(
+                    label.box.center_x - label.box.length / 2,
+                    label.box.center_y - label.box.width / 2,
+                    label.box.center_x + label.box.length / 2,
+                    label.box.center_y + label.box.width / 2,
+                ),
+                label=WODPerceptionBoxDetectionLabel(label.type),
+                track_token=str(label.id),
+            )
+            for label in camera_labels[image_proto.name]
+        ]
+        box_detections_2d.append(
+            BoxDetections2D(
+                box_detections=box_detections,
+                timestamp=Timestamp.from_s(image_proto.pose_timestamp),
+                metadata=BoxDetections2DMetadata(
+                    camera_id=WOD_PERCEPTION_CAMERA_IDS[image_proto.name],
+                    box_detection_label_class=WODPerceptionBoxDetectionLabel,
+                    origin_names=("annotation",),
+                ),
+            )
+        )
+    return box_detections_2d
 
 
 def _extract_wod_perception_cameras(
