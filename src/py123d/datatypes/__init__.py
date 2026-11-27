@@ -1,6 +1,7 @@
 from py123d.datatypes.custom import CustomModality, CustomModalityMetadata
 from py123d.datatypes.detections import (
     BOX_DETECTION_LABEL_REGISTRY,
+    AnonymizationBoxDetectionLabel,
     BoxDetection,
     BoxDetectionAttributes,
     BoxDetectionLabel,
@@ -132,6 +133,7 @@ __all__ = [
     "CustomModalityMetadata",
     # Detections
     "BOX_DETECTION_LABEL_REGISTRY",
+    "AnonymizationBoxDetectionLabel",
     "BoxDetection",
     "BoxDetectionAttributes",
     "BoxDetectionLabel",

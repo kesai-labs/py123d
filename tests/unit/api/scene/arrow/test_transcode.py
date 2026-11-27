@@ -418,14 +418,22 @@ def test_a_camera_transcoder_writes_box_streams_with_their_own_sync_columns(sour
     )
     from py123d.api.scene.arrow.transcode import transcode_camera
     from py123d.api.utils.arrow_metadata_utils import parse_log_directory_metadata
-    from py123d.datatypes import BoxDetection2D, BoxDetections2D, BoxDetections2DMetadata
+    from py123d.datatypes import (
+        AnonymizationBoxDetectionLabel,
+        BoxDetection2D,
+        BoxDetections2D,
+        BoxDetections2DMetadata,
+    )
 
     def transcoder(source_path, target_dir, kept_rows, config):
         timestamps = transcode_camera(source_path, target_dir, kept_rows, config)
-        metadata = BoxDetections2DMetadata(source_path.stem.split(".", 1)[1], ["face"], info={"producer": "test"})
+        metadata = BoxDetections2DMetadata(
+            source_path.stem.split(".", 1)[1], AnonymizationBoxDetectionLabel, info={"producer": "test"}
+        )
         writer = ArrowBoxDetections2DWriter(target_dir, metadata)
         for k, ts in enumerate(timestamps):
-            boxes = [BoxDetection2D((k, 1.0, k + 10.0, 11.0), label=0, score=0.5)] if k % 2 else []
+            face = AnonymizationBoxDetectionLabel.FACE
+            boxes = [BoxDetection2D((k, 1.0, k + 10.0, 11.0), label=face, score=0.5)] if k % 2 else []
             writer.write_modality(BoxDetections2D(boxes, Timestamp.from_us(int(ts)), metadata))
         writer.close()
         return {source_path.stem: timestamps, metadata.modality_key: timestamps}

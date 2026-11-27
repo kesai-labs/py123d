@@ -1,5 +1,6 @@
 from py123d.datatypes.detections.box_detection_label import (
     BOX_DETECTION_LABEL_REGISTRY,
+    AnonymizationBoxDetectionLabel,
     BoxDetectionLabel,
     DefaultBoxDetectionLabel,
     register_box_detection_label,
@@ -24,6 +25,7 @@ from py123d.datatypes.detections.traffic_light_detections import (
 __all__ = [
     # Box detection labels
     "BOX_DETECTION_LABEL_REGISTRY",
+    "AnonymizationBoxDetectionLabel",
     "BoxDetectionLabel",
     "DefaultBoxDetectionLabel",
     "register_box_detection_label",

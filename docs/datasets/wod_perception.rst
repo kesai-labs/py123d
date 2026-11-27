@@ -61,6 +61,9 @@ Available Modalities
    * - Bounding Boxes
      - ✓
      - The bounding boxes are available with the :class:`~py123d.parser.registry.WODPerceptionBoxDetectionLabel`. For more information, :class:`~py123d.datatypes.BoxDetectionsSE3`.
+   * - 2D Bounding Boxes
+     - ✓
+     - The boxes annotated in the images of the 5 cameras (``camera_labels``), with the :class:`~py123d.parser.registry.WODPerceptionBoxDetectionLabel` and a track token per camera, see :class:`~py123d.datatypes.BoxDetections2D`. The boxes projected from the 3D labels (``projected_lidar_labels``) are not included.
    * - Traffic Lights
      - X
      - n/a

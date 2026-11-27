@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
-from py123d.datatypes.detections import BoxDetectionsSE3
+from py123d.datatypes.detections import BoxDetections2D, BoxDetectionsSE3
 from py123d.datatypes.detections.box_detection_label import DefaultBoxDetectionLabel
 from py123d.datatypes.sensors import Camera, Lidar
 from py123d.datatypes.vehicle_state import EgoStateSE3
@@ -118,6 +118,26 @@ def add_box_detections_to_camera_ax(
 
     box_corners, default_labels = box_corners[valid_corners], default_labels[valid_corners]
     image = _plot_rect_3d_on_img(camera.rgb_image.copy(), box_corners, default_labels)
+
+    ax.imshow(image)
+    return ax
+
+
+def add_box_detections_2d_to_camera_ax(ax: plt.Axes, camera: Camera, box_detections_2d: BoxDetections2D) -> plt.Axes:
+    """Add 2D box detections to camera image on matplotlib axis
+
+    The boxes are in the pixels of the stored image, so the image is shown as stored (not undistorted).
+
+    :param ax: matplotlib axis
+    :param camera: camera object
+    :param box_detections_2d: 2D box detections of the camera image
+    :return: matplotlib axis with 2D box detections overlaid on camera image
+    """
+    image = camera.rgb_image.copy()
+    for box_detection in box_detections_2d:
+        color = BOX_DETECTION_CONFIG[box_detection.default_label].fill_color.rgb
+        x1, y1, x2, y2 = (int(round(value)) for value in box_detection.box)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 3, cv2.LINE_AA)
 
     ax.imshow(image)
     return ax
